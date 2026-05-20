@@ -1,0 +1,2 @@
+export const BRANDS_REPOSITORY = Symbol('BRANDS_REPOSITORY');
+export const BRANDS_SERVICE = 'BRANDS_SERVICE';

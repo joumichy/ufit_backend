@@ -1,0 +1,897 @@
+import { sql } from 'drizzle-orm';
+import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+
+export const ufitSchema = pgSchema('ufit');
+
+export const userStatusEnum = ufitSchema.enum('user_status', ['active', 'onboarding', 'suspended', 'deleted']);
+
+export const userRoleEnum = ufitSchema.enum('user_role', [
+  'customer',
+  'creator',
+  'brand_owner',
+  'brand_manager',
+  'admin',
+  'super_admin'
+]);
+
+export const schemaMigrations = ufitSchema.table('schema_migrations', {
+  id: text('id').primaryKey(),
+  checksum: text('checksum').notNull(),
+  executedAt: timestamp('executed_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const users = ufitSchema.table(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    supabaseUserId: uuid('supabase_user_id').notNull(),
+    email: text('email').notNull(),
+    displayName: text('display_name'),
+    avatarUrl: text('avatar_url'),
+    status: userStatusEnum('status').notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    supabaseUserIdUnique: uniqueIndex('users_supabase_user_id_unique').on(table.supabaseUserId),
+    emailIndex: index('users_email_idx').on(table.email),
+    statusIndex: index('users_status_idx').on(table.status)
+  })
+);
+
+export const userRoles = ufitSchema.table(
+  'user_roles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: userRoleEnum('role').notNull(),
+    grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userRoleUnique: uniqueIndex('user_roles_user_id_role_unique').on(table.userId, table.role),
+    userIdIndex: index('user_roles_user_id_idx').on(table.userId),
+    roleIndex: index('user_roles_role_idx').on(table.role)
+  })
+);
+
+export type UserRow = typeof users.$inferSelect;
+export type NewUserRow = typeof users.$inferInsert;
+export type UserRoleRow = typeof userRoles.$inferSelect;
+export type NewUserRoleRow = typeof userRoles.$inferInsert;
+
+export const applicationStatusEnum = ufitSchema.enum('application_status', [
+  'submitted',
+  'under_review',
+  'accepted',
+  'rejected',
+  'waitlisted',
+  'needs_more_info'
+]);
+
+export const applicationDecisionEnum = ufitSchema.enum('application_decision', [
+  'accept',
+  'reject',
+  'waitlist',
+  'needs_more_info'
+]);
+
+export const profileStatusEnum = ufitSchema.enum('profile_status', ['draft', 'active', 'paused', 'suspended']);
+
+export const socialPlatformEnum = ufitSchema.enum('social_platform', [
+  'instagram',
+  'tiktok',
+  'youtube',
+  'pinterest',
+  'website',
+  'other'
+]);
+
+export const brandMemberRoleEnum = ufitSchema.enum('brand_member_role', ['owner', 'manager']);
+
+export const brandMemberStatusEnum = ufitSchema.enum('brand_member_status', ['active', 'invited', 'removed']);
+
+export const creatorApplications = ufitSchema.table(
+  'creator_applications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    displayName: text('display_name').notNull(),
+    email: text('email').notNull(),
+    portfolioUrl: text('portfolio_url').notNull(),
+    motivation: text('motivation').notNull(),
+    audienceSummary: text('audience_summary'),
+    status: applicationStatusEnum('status').notNull().default('submitted'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userStatusIdx: index('idx_creator_applications_user_status').on(table.userId, table.status),
+    activeUserUnique: uniqueIndex('uidx_creator_applications_active_user')
+      .on(table.userId)
+      .where(sql`${table.status} in ('submitted', 'under_review', 'waitlisted', 'needs_more_info')`)
+  })
+);
+
+export const brandApplications = ufitSchema.table(
+  'brand_applications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    brandName: text('brand_name').notNull(),
+    email: text('email').notNull(),
+    websiteUrl: text('website_url').notNull(),
+    productCategory: text('product_category').notNull(),
+    positioning: text('positioning').notNull(),
+    status: applicationStatusEnum('status').notNull().default('submitted'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userStatusIdx: index('idx_brand_applications_user_status').on(table.userId, table.status),
+    activeUserUnique: uniqueIndex('uidx_brand_applications_active_user')
+      .on(table.userId)
+      .where(sql`${table.status} in ('submitted', 'under_review', 'waitlisted', 'needs_more_info')`)
+  })
+);
+
+export const applicationReviews = ufitSchema.table(
+  'application_reviews',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    applicationType: text('application_type').notNull(),
+    applicationId: uuid('application_id').notNull(),
+    reviewerUserId: uuid('reviewer_user_id')
+      .notNull()
+      .references(() => users.id),
+    decision: applicationDecisionEnum('decision').notNull(),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    applicationIdx: index('idx_application_reviews_application').on(table.applicationType, table.applicationId)
+  })
+);
+
+export const creatorGrades = ufitSchema.table('creator_grades', {
+  code: text('code').primaryKey(),
+  label: text('label').notNull(),
+  rank: integer('rank').notNull(),
+  commissionBps: integer('commission_bps').notNull(),
+  criteria: jsonb('criteria').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const creatorProfiles = ufitSchema.table(
+  'creator_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    applicationId: uuid('application_id')
+      .notNull()
+      .references(() => creatorApplications.id),
+    displayName: text('display_name').notNull(),
+    slug: text('slug').notNull(),
+    bio: text('bio'),
+    avatarUrl: text('avatar_url'),
+    status: profileStatusEnum('status').notNull().default('active'),
+    gradeCode: text('grade_code')
+      .notNull()
+      .default('seed')
+      .references(() => creatorGrades.code),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userUnique: uniqueIndex('uidx_creator_profiles_user').on(table.userId),
+    applicationUnique: uniqueIndex('uidx_creator_profiles_application').on(table.applicationId),
+    slugUnique: uniqueIndex('uidx_creator_profiles_slug').on(table.slug)
+  })
+);
+
+export const creatorSocialAccounts = ufitSchema.table(
+  'creator_social_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    creatorProfileId: uuid('creator_profile_id')
+      .notNull()
+      .references(() => creatorProfiles.id),
+    platform: socialPlatformEnum('platform').notNull(),
+    handle: text('handle').notNull(),
+    url: text('url'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    creatorPlatformUnique: uniqueIndex('uidx_creator_social_accounts_creator_platform').on(
+      table.creatorProfileId,
+      table.platform
+    )
+  })
+);
+
+export const creatorGradeHistory = ufitSchema.table(
+  'creator_grade_history',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    creatorProfileId: uuid('creator_profile_id')
+      .notNull()
+      .references(() => creatorProfiles.id),
+    fromGradeCode: text('from_grade_code'),
+    toGradeCode: text('to_grade_code')
+      .notNull()
+      .references(() => creatorGrades.code),
+    changedByUserId: uuid('changed_by_user_id').references(() => users.id),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    creatorIdx: index('idx_creator_grade_history_creator').on(table.creatorProfileId)
+  })
+);
+
+export const creatorScoreSnapshots = ufitSchema.table(
+  'creator_score_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    creatorProfileId: uuid('creator_profile_id')
+      .notNull()
+      .references(() => creatorProfiles.id),
+    score: integer('score').notNull(),
+    metrics: jsonb('metrics').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    creatorCapturedIdx: index('idx_creator_score_snapshots_creator_captured').on(table.creatorProfileId, table.capturedAt)
+  })
+);
+
+export const brandProfiles = ufitSchema.table(
+  'brand_profiles',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerUserId: uuid('owner_user_id')
+      .notNull()
+      .references(() => users.id),
+    applicationId: uuid('application_id')
+      .notNull()
+      .references(() => brandApplications.id),
+    brandName: text('brand_name').notNull(),
+    slug: text('slug').notNull(),
+    websiteUrl: text('website_url'),
+    bio: text('bio'),
+    status: profileStatusEnum('status').notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    ownerIdx: index('idx_brand_profiles_owner').on(table.ownerUserId),
+    applicationUnique: uniqueIndex('uidx_brand_profiles_application').on(table.applicationId),
+    slugUnique: uniqueIndex('uidx_brand_profiles_slug').on(table.slug)
+  })
+);
+
+export const brandMembers = ufitSchema.table(
+  'brand_members',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    brandProfileId: uuid('brand_profile_id')
+      .notNull()
+      .references(() => brandProfiles.id),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id),
+    role: brandMemberRoleEnum('role').notNull(),
+    status: brandMemberStatusEnum('status').notNull().default('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    brandUserUnique: uniqueIndex('uidx_brand_members_brand_user').on(table.brandProfileId, table.userId),
+    userIdx: index('idx_brand_members_user').on(table.userId, table.status)
+  })
+);
+
+export const brandSettings = ufitSchema.table('brand_settings', {
+  brandProfileId: uuid('brand_profile_id')
+    .primaryKey()
+    .references(() => brandProfiles.id),
+  fulfillmentEmail: text('fulfillment_email'),
+  returnPolicyUrl: text('return_policy_url'),
+  autoApproveProducts: boolean('auto_approve_products').notNull().default(false),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export type CreatorApplicationRow = typeof creatorApplications.$inferSelect;
+export type NewCreatorApplicationRow = typeof creatorApplications.$inferInsert;
+export type BrandApplicationRow = typeof brandApplications.$inferSelect;
+export type NewBrandApplicationRow = typeof brandApplications.$inferInsert;
+export type ApplicationReviewRow = typeof applicationReviews.$inferSelect;
+export type NewApplicationReviewRow = typeof applicationReviews.$inferInsert;
+export type CreatorProfileRow = typeof creatorProfiles.$inferSelect;
+export type NewCreatorProfileRow = typeof creatorProfiles.$inferInsert;
+export type BrandProfileRow = typeof brandProfiles.$inferSelect;
+export type NewBrandProfileRow = typeof brandProfiles.$inferInsert;
+export type BrandMemberRow = typeof brandMembers.$inferSelect;
+export type NewBrandMemberRow = typeof brandMembers.$inferInsert;
+
+export const genderTargetEnum = ufitSchema.enum('gender_target', ['male', 'female', 'unisex']);
+export const productStatusEnum = ufitSchema.enum('product_status', ['draft', 'under_review', 'active', 'rejected', 'archived']);
+export const productVariantStatusEnum = ufitSchema.enum('product_variant_status', ['active', 'out_of_stock', 'archived']);
+export const productImageKindEnum = ufitSchema.enum('product_image_kind', ['product', 'worn', 'detail', 'lookbook']);
+export const outfitStatusEnum = ufitSchema.enum('outfit_status', [
+  'draft',
+  'submitted',
+  'under_review',
+  'published',
+  'rejected',
+  'archived'
+]);
+export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', ['public', 'private', 'featured']);
+export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', [
+  'top',
+  'bottom',
+  'shoes',
+  'bag',
+  'accessory',
+  'outerwear'
+]);
+export const tagTypeEnum = ufitSchema.enum('tag_type', ['style', 'occasion', 'season']);
+export const editorialCollectionStatusEnum = ufitSchema.enum('editorial_collection_status', [
+  'draft',
+  'published',
+  'archived'
+]);
+export const editorialItemTypeEnum = ufitSchema.enum('editorial_item_type', ['outfit', 'product']);
+export const featuredSlotSurfaceEnum = ufitSchema.enum('featured_slot_surface', ['home', 'feed', 'collection']);
+export const featuredSlotContentTypeEnum = ufitSchema.enum('featured_slot_content_type', ['outfit', 'product', 'collection']);
+
+const timestamps = {
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+};
+
+export const productCategories = ufitSchema.table(
+  'product_categories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    parentId: uuid('parent_id'),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    position: integer('position').notNull().default(0),
+    ...timestamps
+  },
+  (table) => ({
+    slugUnique: uniqueIndex('product_categories_slug_unique').on(table.slug)
+  })
+);
+
+export const products = ufitSchema.table(
+  'products',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    brandId: uuid('brand_id').notNull(),
+    categoryId: uuid('category_id').references(() => productCategories.id, { onDelete: 'set null' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    description: text('description').notNull(),
+    category: text('category').notNull(),
+    genderTarget: genderTargetEnum('gender_target'),
+    status: productStatusEnum('status').notNull().default('draft'),
+    basePrice: integer('base_price').notNull(),
+    currency: text('currency').notNull().default('CHF'),
+    material: text('material'),
+    careInstructions: text('care_instructions'),
+    commissionRateOverride: numeric('commission_rate_override', { precision: 5, scale: 4 }),
+    reviewedBy: uuid('reviewed_by'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    rejectionReason: text('rejection_reason'),
+    ...timestamps
+  },
+  (table) => ({
+    brandSlugUnique: uniqueIndex('products_brand_slug_unique').on(table.brandId, table.slug),
+    brandStatusIndex: index('products_brand_status_idx').on(table.brandId, table.status),
+    statusIdIndex: index('products_status_id_idx').on(table.status, table.id)
+  })
+);
+
+export const productVariants = ufitSchema.table(
+  'product_variants',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    size: text('size'),
+    color: text('color'),
+    sku: text('sku').notNull(),
+    stockQuantity: integer('stock_quantity').notNull().default(0),
+    priceOverride: integer('price_override'),
+    status: productVariantStatusEnum('status').notNull().default('active'),
+    ...timestamps
+  },
+  (table) => ({
+    skuUnique: uniqueIndex('product_variants_sku_unique').on(table.sku),
+    productIndex: index('product_variants_product_idx').on(table.productId)
+  })
+);
+
+export const productImages = ufitSchema.table('product_images', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  productId: uuid('product_id')
+    .notNull()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  position: integer('position').notNull().default(0),
+  kind: productImageKindEnum('kind').notNull().default('product'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const outfits = ufitSchema.table(
+  'outfits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    creatorId: uuid('creator_id'),
+    brandId: uuid('brand_id'),
+    title: text('title').notNull(),
+    description: text('description').notNull(),
+    coverImageUrl: text('cover_image_url').notNull(),
+    status: outfitStatusEnum('status').notNull().default('draft'),
+    visibility: outfitVisibilityEnum('visibility').notNull().default('private'),
+    genderTarget: genderTargetEnum('gender_target'),
+    totalPriceMin: integer('total_price_min').notNull().default(0),
+    totalPriceMax: integer('total_price_max').notNull().default(0),
+    reviewedBy: uuid('reviewed_by'),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+    rejectionReason: text('rejection_reason'),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    statusIdIndex: index('outfits_status_id_idx').on(table.status, table.id),
+    creatorIndex: index('outfits_creator_idx').on(table.creatorId),
+    brandIndex: index('outfits_brand_idx').on(table.brandId)
+  })
+);
+
+export const outfitItems = ufitSchema.table(
+  'outfit_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    outfitId: uuid('outfit_id')
+      .notNull()
+      .references(() => outfits.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
+    externalLabel: text('external_label'),
+    itemType: outfitItemTypeEnum('item_type').notNull(),
+    position: integer('position').notNull().default(0),
+    isRequired: boolean('is_required').notNull().default(true),
+    isShoppable: boolean('is_shoppable').notNull().default(false),
+    stylingNote: text('styling_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    outfitPositionIndex: index('outfit_items_outfit_position_idx').on(table.outfitId, table.position),
+    productIndex: index('outfit_items_product_idx').on(table.productId)
+  })
+);
+
+export const outfitImages = ufitSchema.table('outfit_images', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  outfitId: uuid('outfit_id')
+    .notNull()
+    .references(() => outfits.id, { onDelete: 'cascade' }),
+  url: text('url').notNull(),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const tags = ufitSchema.table(
+  'tags',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    type: tagTypeEnum('type').notNull(),
+    slug: text('slug').notNull(),
+    label: text('label').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    typeSlugUnique: uniqueIndex('tags_type_slug_unique').on(table.type, table.slug)
+  })
+);
+
+export const outfitTags = ufitSchema.table(
+  'outfit_tags',
+  {
+    outfitId: uuid('outfit_id')
+      .notNull()
+      .references(() => outfits.id, { onDelete: 'cascade' }),
+    tagId: uuid('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'cascade' })
+  },
+  (table) => ({
+    outfitTagUnique: uniqueIndex('outfit_tags_unique').on(table.outfitId, table.tagId)
+  })
+);
+
+export const editorialCollections = ufitSchema.table('editorial_collections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  title: text('title').notNull(),
+  subtitle: text('subtitle'),
+  description: text('description').notNull(),
+  coverImageUrl: text('cover_image_url'),
+  status: editorialCollectionStatusEnum('status').notNull().default('draft'),
+  createdBy: uuid('created_by').notNull(),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  ...timestamps
+});
+
+export const editorialCollectionItems = ufitSchema.table(
+  'editorial_collection_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    collectionId: uuid('collection_id')
+      .notNull()
+      .references(() => editorialCollections.id, { onDelete: 'cascade' }),
+    itemType: editorialItemTypeEnum('item_type').notNull(),
+    outfitId: uuid('outfit_id').references(() => outfits.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    collectionPositionIndex: index('editorial_collection_items_collection_position_idx').on(table.collectionId, table.position)
+  })
+);
+
+export const featuredSlots = ufitSchema.table(
+  'featured_slots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    surface: featuredSlotSurfaceEnum('surface').notNull(),
+    slotKey: text('slot_key').notNull(),
+    contentType: featuredSlotContentTypeEnum('content_type').notNull(),
+    outfitId: uuid('outfit_id').references(() => outfits.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+    collectionId: uuid('collection_id').references(() => editorialCollections.id, { onDelete: 'cascade' }),
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    surfaceSlotUnique: uniqueIndex('featured_slots_surface_slot_unique').on(table.surface, table.slotKey)
+  })
+);
+
+export type ProductRow = typeof products.$inferSelect;
+export type NewProductRow = typeof products.$inferInsert;
+export type ProductVariantRow = typeof productVariants.$inferSelect;
+export type NewProductVariantRow = typeof productVariants.$inferInsert;
+export type ProductImageRow = typeof productImages.$inferSelect;
+export type NewProductImageRow = typeof productImages.$inferInsert;
+export type OutfitRow = typeof outfits.$inferSelect;
+export type NewOutfitRow = typeof outfits.$inferInsert;
+export type OutfitItemRow = typeof outfitItems.$inferSelect;
+export type NewOutfitItemRow = typeof outfitItems.$inferInsert;
+export type OutfitImageRow = typeof outfitImages.$inferSelect;
+export type NewOutfitImageRow = typeof outfitImages.$inferInsert;
+export type EditorialCollectionRow = typeof editorialCollections.$inferSelect;
+export type NewEditorialCollectionRow = typeof editorialCollections.$inferInsert;
+export type EditorialCollectionItemRow = typeof editorialCollectionItems.$inferSelect;
+export type NewEditorialCollectionItemRow = typeof editorialCollectionItems.$inferInsert;
+
+export const savedOutfits = ufitSchema.table(
+  'saved_outfits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    outfitId: uuid('outfit_id')
+      .notNull()
+      .references(() => outfits.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userOutfitUnique: uniqueIndex('saved_outfits_user_outfit_unique').on(table.userId, table.outfitId),
+    userIdIndex: index('saved_outfits_user_id_idx').on(table.userId)
+  })
+);
+
+export const creatorFollows = ufitSchema.table(
+  'creator_follows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    creatorId: uuid('creator_id')
+      .notNull()
+      .references(() => creatorProfiles.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    userCreatorUnique: uniqueIndex('creator_follows_user_creator_unique').on(table.userId, table.creatorId),
+    userIdIndex: index('creator_follows_user_id_idx').on(table.userId)
+  })
+);
+
+export const carts = ufitSchema.table(
+  'carts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('active'),
+    brandId: uuid('brand_id'),
+    sourceOutfitId: uuid('source_outfit_id').references(() => outfits.id, { onDelete: 'set null' }),
+    sourceCreatorId: uuid('source_creator_id').references(() => creatorProfiles.id, { onDelete: 'set null' }),
+    currency: text('currency').notNull().default('CHF'),
+    subtotalAmount: integer('subtotal_amount').notNull().default(0),
+    ...timestamps
+  },
+  (table) => ({
+    userStatusIndex: index('carts_user_status_idx').on(table.userId, table.status)
+  })
+);
+
+export const cartItems = ufitSchema.table(
+  'cart_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cartId: uuid('cart_id')
+      .notNull()
+      .references(() => carts.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    productVariantId: uuid('product_variant_id')
+      .notNull()
+      .references(() => productVariants.id),
+    quantity: integer('quantity').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    currency: text('currency').notNull().default('CHF'),
+    brandId: uuid('brand_id').notNull(),
+    sourceOutfitId: uuid('source_outfit_id').references(() => outfits.id, { onDelete: 'set null' }),
+    sourceCreatorId: uuid('source_creator_id').references(() => creatorProfiles.id, { onDelete: 'set null' }),
+    ...timestamps
+  },
+  (table) => ({
+    cartVariantOutfitUnique: uniqueIndex('cart_items_cart_variant_outfit_unique').on(
+      table.cartId,
+      table.productVariantId,
+      table.sourceOutfitId
+    ),
+    cartIdIndex: index('cart_items_cart_id_idx').on(table.cartId)
+  })
+);
+
+export const orders = ufitSchema.table(
+  'orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderNumber: text('order_number').notNull().unique(),
+    customerId: uuid('customer_id')
+      .notNull()
+      .references(() => users.id),
+    brandId: uuid('brand_id').notNull(),
+    sourceCreatorId: uuid('source_creator_id').references(() => creatorProfiles.id, { onDelete: 'set null' }),
+    sourceOutfitId: uuid('source_outfit_id').references(() => outfits.id, { onDelete: 'set null' }),
+    status: text('status').notNull().default('pending_payment'),
+    subtotalAmount: integer('subtotal_amount').notNull(),
+    shippingAmount: integer('shipping_amount').notNull().default(0),
+    totalAmount: integer('total_amount').notNull(),
+    currency: text('currency').notNull().default('CHF'),
+    shippingAddress: jsonb('shipping_address').notNull(),
+    paymentProvider: text('payment_provider').notNull().default('placeholder'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    ...timestamps
+  },
+  (table) => ({
+    customerIdIndex: index('orders_customer_id_idx').on(table.customerId),
+    brandStatusIndex: index('orders_brand_id_status_idx').on(table.brandId, table.status),
+    createdAtIndex: index('orders_created_at_idx').on(table.createdAt)
+  })
+);
+
+export const orderItems = ufitSchema.table(
+  'order_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id),
+    productVariantId: uuid('product_variant_id')
+      .notNull()
+      .references(() => productVariants.id),
+    productSnapshot: jsonb('product_snapshot').notNull(),
+    quantity: integer('quantity').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    totalPrice: integer('total_price').notNull(),
+    commissionRate: numeric('commission_rate', { precision: 5, scale: 4 }).notNull().default('0'),
+    sourceCreatorId: uuid('source_creator_id').references(() => creatorProfiles.id, { onDelete: 'set null' }),
+    sourceOutfitId: uuid('source_outfit_id').references(() => outfits.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    orderIdIndex: index('order_items_order_id_idx').on(table.orderId)
+  })
+);
+
+export const orderStatusHistory = ufitSchema.table('order_status_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id')
+    .notNull()
+    .references(() => orders.id, { onDelete: 'cascade' }),
+  fromStatus: text('from_status'),
+  toStatus: text('to_status').notNull(),
+  changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
+  reason: text('reason'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const payments = ufitSchema.table(
+  'payments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull().default('placeholder'),
+    providerPaymentIntentId: text('provider_payment_intent_id'),
+    status: text('status').notNull().default('disabled'),
+    amount: integer('amount').notNull(),
+    currency: text('currency').notNull().default('CHF'),
+    ...timestamps
+  },
+  (table) => ({
+    orderIdIndex: index('payments_order_id_idx').on(table.orderId)
+  })
+);
+
+export const commissionRules = ufitSchema.table('commission_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  brandId: uuid('brand_id'),
+  productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
+  creatorGradeCode: text('creator_grade_code').references(() => creatorGrades.code, { onDelete: 'cascade' }),
+  baseRate: numeric('base_rate', { precision: 5, scale: 4 }).notNull(),
+  bonusRate: numeric('bonus_rate', { precision: 5, scale: 4 }).notNull().default('0'),
+  maxRate: numeric('max_rate', { precision: 5, scale: 4 }),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const commissions = ufitSchema.table(
+  'commissions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderItemId: uuid('order_item_id')
+      .notNull()
+      .references(() => orderItems.id, { onDelete: 'cascade' }),
+    creatorId: uuid('creator_id')
+      .notNull()
+      .references(() => creatorProfiles.id),
+    brandId: uuid('brand_id').notNull(),
+    sourceOutfitId: uuid('source_outfit_id')
+      .notNull()
+      .references(() => outfits.id),
+    baseAmount: integer('base_amount').notNull(),
+    commissionRate: numeric('commission_rate', { precision: 5, scale: 4 }).notNull(),
+    commissionAmount: integer('commission_amount').notNull(),
+    status: text('status').notNull().default('estimated'),
+    validationDate: timestamp('validation_date', { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    creatorStatusIndex: index('commissions_creator_status_idx').on(table.creatorId, table.status),
+    orderItemIdIndex: index('commissions_order_item_id_idx').on(table.orderItemId)
+  })
+);
+
+export const commissionEvents = ufitSchema.table('commission_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  commissionId: uuid('commission_id')
+    .notNull()
+    .references(() => commissions.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(),
+  fromStatus: text('from_status'),
+  toStatus: text('to_status'),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const creatorPayouts = ufitSchema.table('creator_payouts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  creatorId: uuid('creator_id')
+    .notNull()
+    .references(() => creatorProfiles.id),
+  status: text('status').notNull().default('pending'),
+  amount: integer('amount').notNull(),
+  currency: text('currency').notNull().default('CHF'),
+  periodStart: date('period_start').notNull(),
+  periodEnd: date('period_end').notNull(),
+  paidAt: timestamp('paid_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const shipments = ufitSchema.table(
+  'shipments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' })
+      .unique(),
+    brandId: uuid('brand_id').notNull(),
+    status: text('status').notNull().default('pending'),
+    carrier: text('carrier'),
+    trackingNumber: text('tracking_number'),
+    trackingUrl: text('tracking_url'),
+    labelUrl: text('label_url'),
+    shippedAt: timestamp('shipped_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    brandStatusIndex: index('shipments_brand_status_idx').on(table.brandId, table.status)
+  })
+);
+
+export const shipmentEvents = ufitSchema.table('shipment_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  shipmentId: uuid('shipment_id')
+    .notNull()
+    .references(() => shipments.id, { onDelete: 'cascade' }),
+  fromStatus: text('from_status'),
+  toStatus: text('to_status').notNull(),
+  payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+});
+
+export const adminActionLogs = ufitSchema.table(
+  'admin_action_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    adminUserId: uuid('admin_user_id')
+      .notNull()
+      .references(() => users.id),
+    action: text('action').notNull(),
+    targetType: text('target_type').notNull(),
+    targetId: uuid('target_id'),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    targetIndex: index('admin_action_logs_target_idx').on(table.targetType, table.targetId)
+  })
+);
+
+export type SavedOutfitRow = typeof savedOutfits.$inferSelect;
+export type CreatorFollowRow = typeof creatorFollows.$inferSelect;
+export type CartRow = typeof carts.$inferSelect;
+export type NewCartRow = typeof carts.$inferInsert;
+export type CartItemRow = typeof cartItems.$inferSelect;
+export type NewCartItemRow = typeof cartItems.$inferInsert;
+export type OrderRow = typeof orders.$inferSelect;
+export type NewOrderRow = typeof orders.$inferInsert;
+export type OrderItemRow = typeof orderItems.$inferSelect;
+export type NewOrderItemRow = typeof orderItems.$inferInsert;
+export type PaymentRow = typeof payments.$inferSelect;
+export type CommissionRow = typeof commissions.$inferSelect;
+export type NewCommissionRow = typeof commissions.$inferInsert;
+export type ShipmentRow = typeof shipments.$inferSelect;
+export type NewShipmentRow = typeof shipments.$inferInsert;
+export type AdminActionLogRow = typeof adminActionLogs.$inferSelect;
