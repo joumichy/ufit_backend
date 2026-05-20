@@ -1,27 +1,31 @@
-import { Controller, Delete, Headers, Param, Put } from '@nestjs/common';
+import { Controller, Delete, Inject, Param, Put, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
+import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
+import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { SavedService } from '../application/saved.service';
 
 @Controller('me')
+@UseGuards(AuthGuard)
 export class SavedController {
-  constructor(private readonly savedService: SavedService) {}
+  constructor(@Inject(SavedService) private readonly savedService: SavedService) {}
 
   @Put('saved-outfits/:outfitId')
-  saveOutfit(@Headers('x-user-id') userId: string, @Param('outfitId') outfitId: string) {
-    return this.savedService.saveOutfit(userId, outfitId);
+  saveOutfit(@CurrentUser() user: AuthenticatedUser, @Param('outfitId') outfitId: string) {
+    return this.savedService.saveOutfit(user.id, outfitId);
   }
 
   @Delete('saved-outfits/:outfitId')
-  unsaveOutfit(@Headers('x-user-id') userId: string, @Param('outfitId') outfitId: string) {
-    return this.savedService.unsaveOutfit(userId, outfitId);
+  unsaveOutfit(@CurrentUser() user: AuthenticatedUser, @Param('outfitId') outfitId: string) {
+    return this.savedService.unsaveOutfit(user.id, outfitId);
   }
 
   @Put('creator-follows/:creatorId')
-  followCreator(@Headers('x-user-id') userId: string, @Param('creatorId') creatorId: string) {
-    return this.savedService.followCreator(userId, creatorId);
+  followCreator(@CurrentUser() user: AuthenticatedUser, @Param('creatorId') creatorId: string) {
+    return this.savedService.followCreator(user.id, creatorId);
   }
 
   @Delete('creator-follows/:creatorId')
-  unfollowCreator(@Headers('x-user-id') userId: string, @Param('creatorId') creatorId: string) {
-    return this.savedService.unfollowCreator(userId, creatorId);
+  unfollowCreator(@CurrentUser() user: AuthenticatedUser, @Param('creatorId') creatorId: string) {
+    return this.savedService.unfollowCreator(user.id, creatorId);
   }
 }

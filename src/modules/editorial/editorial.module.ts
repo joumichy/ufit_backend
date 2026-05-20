@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { IdentityModule } from '../identity/identity.module';
 import { OutfitsModule } from '../outfits/outfits.module';
 import { ProductsModule } from '../products/products.module';
 import { EditorialService } from './application/editorial.service';
@@ -7,7 +8,7 @@ import { DrizzleEditorialRepository } from './infrastructure/drizzle-editorial.r
 import { EditorialController } from './presentation/editorial.controller';
 
 @Module({
-  imports: [ProductsModule, OutfitsModule],
+  imports: [IdentityModule, ProductsModule, OutfitsModule],
   controllers: [EditorialController],
   providers: [
     EditorialService,

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { IdentityModule } from '../identity/identity.module';
 import { ProductsModule } from '../products/products.module';
 import { OutfitsService } from './application/outfits.service';
 import { OUTFIT_REPOSITORY } from './domain/outfit.types';
@@ -6,7 +7,7 @@ import { DrizzleOutfitRepository } from './infrastructure/drizzle-outfit.reposit
 import { OutfitsController } from './presentation/outfits.controller';
 
 @Module({
-  imports: [ProductsModule],
+  imports: [IdentityModule, ProductsModule],
   controllers: [OutfitsController],
   providers: [
     OutfitsService,

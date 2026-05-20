@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
+import { IdentityModule } from '../identity/identity.module';
 import { BrandsController } from './brands.controller';
 import { BrandsService } from './brands.service';
 import { BRANDS_REPOSITORY, BRANDS_SERVICE } from './brands.tokens';
 import { DrizzleBrandsRepository } from './drizzle-brands.repository';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, IdentityModule],
   controllers: [BrandsController],
   providers: [
     BrandsService,

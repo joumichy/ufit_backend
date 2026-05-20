@@ -35,8 +35,9 @@ export class CreateEditorialCollectionDto {
   @IsUrl({ require_tld: false })
   coverImageUrl?: string;
 
+  @IsOptional()
   @IsUUID()
-  createdBy!: string;
+  createdBy?: string;
 
   @IsOptional()
   @IsArray()

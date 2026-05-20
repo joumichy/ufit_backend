@@ -1,4 +1,7 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Inject, Post, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
+import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
+import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { CartService } from '../application/cart.service';
 
 interface AddCartItemBody {
@@ -9,11 +12,12 @@ interface AddCartItemBody {
 }
 
 @Controller('cart')
+@UseGuards(AuthGuard)
 export class CartController {
-  constructor(private readonly cartService: CartService) {}
+  constructor(@Inject(CartService) private readonly cartService: CartService) {}
 
   @Post('items')
-  async addItem(@Headers('x-user-id') userId: string, @Body() body: AddCartItemBody) {
-    return this.cartService.addItem({ userId, ...body });
+  async addItem(@CurrentUser() user: AuthenticatedUser, @Body() body: AddCartItemBody) {
+    return this.cartService.addItem({ userId: user.id, ...body });
   }
 }

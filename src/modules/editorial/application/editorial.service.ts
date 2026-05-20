@@ -4,6 +4,8 @@ import { PRODUCT_REPOSITORY, type ProductRepository } from '../../products/domai
 import { EDITORIAL_REPOSITORY, type EditorialCollectionDetail, type EditorialRepository } from '../domain/editorial.types';
 import { CreateEditorialCollectionDto } from './dto/editorial.dto';
 
+type CreateEditorialCollectionInput = CreateEditorialCollectionDto & { createdBy: string };
+
 @Injectable()
 export class EditorialService {
   constructor(
@@ -12,7 +14,7 @@ export class EditorialService {
     @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository
   ) {}
 
-  async createCollection(input: CreateEditorialCollectionDto): Promise<EditorialCollectionDetail> {
+  async createCollection(input: CreateEditorialCollectionInput): Promise<EditorialCollectionDetail> {
     this.assertItems(input.items ?? []);
     const collection = await this.editorial.createCollection({
       title: input.title,

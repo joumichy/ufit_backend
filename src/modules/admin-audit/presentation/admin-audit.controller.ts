@@ -1,4 +1,9 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
+import { Body, Controller, Inject, Post, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
+import { Roles } from '../../../shared/presentation/decorators/roles.decorator';
+import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
+import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
+import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { AdminAuditService } from '../application/admin-audit.service';
 
 interface RecordAdminActionBody {
@@ -9,13 +14,15 @@ interface RecordAdminActionBody {
 }
 
 @Controller('admin/audit')
+@UseGuards(AuthGuard, RoleGuard)
 export class AdminAuditController {
-  constructor(private readonly adminAuditService: AdminAuditService) {}
+  constructor(@Inject(AdminAuditService) private readonly adminAuditService: AdminAuditService) {}
 
   @Post('actions')
-  record(@Headers('x-user-id') adminUserId: string, @Body() body: RecordAdminActionBody) {
+  @Roles('admin', 'super_admin')
+  record(@CurrentUser() user: AuthenticatedUser, @Body() body: RecordAdminActionBody) {
     return this.adminAuditService.record({
-      adminUserId,
+      adminUserId: user.id,
       action: body.action,
       targetType: body.targetType,
       targetId: body.targetId,

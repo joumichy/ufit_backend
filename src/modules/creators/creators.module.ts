@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
+import { IdentityModule } from '../identity/identity.module';
 import { CreatorsController } from './creators.controller';
 import { CreatorsService } from './creators.service';
 import { CREATORS_REPOSITORY, CREATORS_SERVICE } from './creators.tokens';
 import { DrizzleCreatorsRepository } from './drizzle-creators.repository';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, IdentityModule],
   controllers: [CreatorsController],
   providers: [
     CreatorsService,

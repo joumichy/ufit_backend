@@ -6,13 +6,14 @@ import { BRANDS_SERVICE } from '../brands/brands.tokens';
 import { CreatorsModule } from '../creators/creators.module';
 import { CreatorsService } from '../creators/creators.service';
 import { CREATORS_SERVICE } from '../creators/creators.tokens';
+import { IdentityModule } from '../identity/identity.module';
 import { ApplicationsController } from './applications.controller';
 import { ApplicationsService } from './applications.service';
 import { DrizzleApplicationsRepository } from './drizzle-applications.repository';
 import { APPLICATIONS_REPOSITORY, PROFILE_PROVISIONING_PORT } from './types/application.types';
 
 @Module({
-  imports: [DatabaseModule, CreatorsModule, BrandsModule],
+  imports: [DatabaseModule, IdentityModule, CreatorsModule, BrandsModule],
   controllers: [ApplicationsController],
   providers: [
     ApplicationsService,

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Patch, UseGuards } from '@nestjs/common';
 import { IdentityService } from '../../application/identity.service';
 import { toMeResponse, type MeResponse } from '../../application/dto/me.response';
 import type { AuthenticatedUser } from '../../domain/user.types';
@@ -9,7 +9,7 @@ import { UpdateMeRequest } from '../dto/update-me.request';
 @Controller('me')
 @UseGuards(AuthGuard)
 export class MeController {
-  constructor(private readonly identityService: IdentityService) {}
+  constructor(@Inject(IdentityService) private readonly identityService: IdentityService) {}
 
   @Get()
   getMe(@CurrentUser() currentUser: AuthenticatedUser): MeResponse {

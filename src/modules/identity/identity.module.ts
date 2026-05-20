@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { IdentityService } from './application/identity.service';
 import { IDENTITY_REPOSITORY } from './domain/identity.repository';
 import { AUTH_TOKEN_VERIFIER, SupabaseJwtVerifier } from './infrastructure/auth/auth-token-verifier';
@@ -10,6 +11,7 @@ import { OwnershipGuard } from '../../shared/presentation/guards/ownership.guard
 import { RoleGuard } from '../../shared/presentation/guards/role.guard';
 
 @Module({
+  imports: [DatabaseModule],
   controllers: [MeController],
   providers: [
     IdentityService,
