@@ -15,6 +15,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { ProductsModule } from './modules/products/products.module';
 import { SavedModule } from './modules/saved/saved.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { WorkspacesModule } from './modules/workspaces/workspaces.module';
 import { DatabaseModule } from './shared/infrastructure/database/database.module';
 
 @Module({
@@ -35,7 +36,8 @@ import { DatabaseModule } from './shared/infrastructure/database/database.module
     CommissionsModule,
     ShippingModule,
     AdminAuditModule,
-    AdminModule
+    AdminModule,
+    WorkspacesModule
   ]
 })
 export class AppModule {}

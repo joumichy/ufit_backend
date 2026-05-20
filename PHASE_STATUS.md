@@ -21,7 +21,7 @@ Derniere mise a jour : 2026-05-20
 | 12 | Complete | Commissions `pending`, regles par marque/produit/grade et bonus grade createur. |
 | 13 | Complete | Endpoints admin summaries/queues, audit Drizzle et protections roles admin. |
 | 14 | A faire | Integration iOS principale. |
-| 15 | A faire | Espaces createur et marque MVP. |
+| 15 | Complete backend | Endpoints backend createur/marque, projections dashboard, listes scopees et tests. |
 | 16 | A faire | Jobs, notifications et observabilite. |
 | 17 | Partiel | Build, tests, audit production, migrations et smoke health OK; revue production finale restante. |
 | 18 | A faire | Evolutions post-MVP. |
@@ -33,6 +33,8 @@ Derniere mise a jour : 2026-05-20
 | 2026-05-20 | `npm run db:migrate` | `0005` et `0006` appliques, migrations precedentes deja tracees. |
 | 2026-05-20 | `npm run db:verify` | Schema `ufit` present, 7 migrations tracees. |
 | 2026-05-20 | `npm run build` | OK. |
-| 2026-05-20 | `npm test` | 23 fichiers, 75 tests OK. |
+| 2026-05-20 | `npm test` | 24 fichiers, 83 tests OK. |
 | 2026-05-20 | `npm audit --omit=dev` | 0 vulnerabilite production. |
 | 2026-05-20 | `API_PORT=4013 npm start` + `GET /health` | App compilee demarree, `status: ok`, schema `ufit`. |
+| 2026-05-20 | `npm test -- test/workspaces/workspaces.service.test.ts test/security.e2e.test.ts` | Projections createur/marque et scopes OK. |
+| 2026-05-20 | `API_PORT=4015 npm start` + `GET /health` | App compilee demarree avec routes workspace, `status: ok`. |

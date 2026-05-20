@@ -129,6 +129,17 @@ describe('security regressions', () => {
     expect(adminService.getSummary).not.toHaveBeenCalled();
   });
 
+  it('rejects customer users from creator workspace projections', async () => {
+    await request(app?.getHttpServer()).get('/creators/me/dashboard').set('Authorization', 'Bearer test.jwt.token').expect(403);
+  });
+
+  it('rejects customer users from brand workspace projections', async () => {
+    await request(app?.getHttpServer())
+      .get('/brands/44444444-4444-4444-8444-444444444444/dashboard')
+      .set('Authorization', 'Bearer test.jwt.token')
+      .expect(403);
+  });
+
   it('records admin audit actor from the authenticated user, not from headers', async () => {
     const adminUser: AuthenticatedUser = {
       ...baseUser,
