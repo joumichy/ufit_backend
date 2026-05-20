@@ -1,18 +1,20 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { IdentityModule } from '../identity/identity.module';
 import { CartService } from './application/cart.service';
-import { DisabledProductCatalogReader, InMemoryCartRepository } from './infrastructure/in-memory-cart.repository';
+import { DrizzleCartRepository } from './infrastructure/drizzle-cart.repository';
+import { DrizzleProductCatalogReader } from './infrastructure/drizzle-product-catalog.reader';
 import { CartController } from './presentation/cart.controller';
 
 @Module({
-  imports: [IdentityModule],
+  imports: [DatabaseModule, IdentityModule],
   controllers: [CartController],
   providers: [
     CartService,
-    { provide: 'CartRepository', useExisting: InMemoryCartRepository },
-    { provide: 'ProductCatalogReader', useExisting: DisabledProductCatalogReader },
-    InMemoryCartRepository,
-    DisabledProductCatalogReader
+    { provide: 'CartRepository', useExisting: DrizzleCartRepository },
+    { provide: 'ProductCatalogReader', useExisting: DrizzleProductCatalogReader },
+    DrizzleCartRepository,
+    DrizzleProductCatalogReader
   ],
   exports: [CartService]
 })

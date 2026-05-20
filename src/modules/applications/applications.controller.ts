@@ -5,6 +5,7 @@ import { Roles } from '../../shared/presentation/decorators/roles.decorator';
 import { AuthGuard } from '../../shared/presentation/guards/auth.guard';
 import { RoleGuard } from '../../shared/presentation/guards/role.guard';
 import type { AuthenticatedUser } from '../identity/domain/user.types';
+import { AdminAuditService } from '../admin-audit/application/admin-audit.service';
 import { ApplicationsService } from './applications.service';
 import { mapBrandApplication, mapCreatorApplication } from './application-response.mapper';
 import { ReviewApplicationRequest } from './dto/review-application.request';
@@ -15,7 +16,10 @@ import type { ApplicationType } from './types/application.types';
 @Controller()
 @UseGuards(AuthGuard, RoleGuard)
 export class ApplicationsController {
-  constructor(@Inject(ApplicationsService) private readonly applicationsService: ApplicationsService) {}
+  constructor(
+    @Inject(ApplicationsService) private readonly applicationsService: ApplicationsService,
+    @Inject(AdminAuditService) private readonly adminAuditService: AdminAuditService
+  ) {}
 
   @Post('applications/creators')
   async submitCreator(@CurrentUser() user: AuthenticatedUser, @Body() body: SubmitCreatorApplicationRequest) {
@@ -53,6 +57,16 @@ export class ApplicationsController {
       reviewerUserId: user.id,
       decision: body.decision,
       notes: body.notes
+    });
+    await this.adminAuditService.record({
+      adminUserId: user.id,
+      action: 'application.reviewed',
+      targetType: `${applicationType}_application`,
+      targetId: applicationId,
+      payload: {
+        decision: body.decision,
+        notes: body.notes ?? null
+      }
     });
 
     return applicationType === 'creator'

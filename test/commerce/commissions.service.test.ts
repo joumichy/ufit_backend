@@ -32,4 +32,24 @@ describe('CommissionsService', () => {
     expect(commission.commissionAmount).toBe(2400);
     expect(commission.status).toBe('estimated');
   });
+
+  it('creates pending commissions for confirmed paid order items', async () => {
+    const service = new CommissionsService(new FakeCommissionRepository());
+
+    const commission = await service.createPending({
+      orderItemId: 'order-item-1',
+      creatorId: 'creator-1',
+      brandId: 'brand-1',
+      sourceOutfitId: 'outfit-1',
+      baseAmount: 10000,
+      rule: {
+        baseRate: 0.08,
+        bonusRate: 0.02
+      }
+    });
+
+    expect(commission.status).toBe('pending');
+    expect(commission.commissionRate).toBe(0.1);
+    expect(commission.commissionAmount).toBe(1000);
+  });
 });

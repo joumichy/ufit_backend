@@ -1,6 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
+export const ADMIN_AUDIT_REPOSITORY = Symbol('ADMIN_AUDIT_REPOSITORY');
+
 export interface AdminActionLog {
   id: string;
   adminUserId: string;
@@ -17,7 +19,7 @@ export interface AdminAuditRepository {
 
 @Injectable()
 export class AdminAuditService {
-  constructor(@Inject('AdminAuditRepository') private readonly auditLogs: AdminAuditRepository) {}
+  constructor(@Inject(ADMIN_AUDIT_REPOSITORY) private readonly auditLogs: AdminAuditRepository) {}
 
   async record(input: Omit<AdminActionLog, 'id' | 'createdAt'>): Promise<AdminActionLog> {
     return this.auditLogs.save({

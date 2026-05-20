@@ -1,0 +1,38 @@
+# UFit Backend - Etat des phases
+
+Derniere mise a jour : 2026-05-20
+
+## Etat courant
+
+| Phase | Statut | Etat |
+|---:|---|---|
+| 0 | Complete | Plan d'action, regles Codex UFit et direction produit integres. |
+| 1 | Complete | Fondation NestJS, Drizzle, Supabase schema `ufit`, health check et migration `0000`. |
+| 2 | Complete | Identity, Supabase JWT, roles, guards et endpoints `/me`. |
+| 3 | Complete | Candidatures createurs/marques, review admin et provisioning des profils. |
+| 4 | Complete | Profils createurs/marques, slugs, membership marque et controles de statut. |
+| 5 | Complete | Produits, variantes, images et workflow de validation admin. |
+| 6 | Complete | Outfits, pieces, images, validation produits actifs et calculs serveur. |
+| 7 | Complete | Feed public, detail outfit et collections editoriales. |
+| 8 | Complete | Save/unsave outfits, follow/unfollow createurs et liste `GET /me/saved-outfits` persistants. |
+| 9 | Complete | Panier mono-marque persistant avec recalcul catalogue cote serveur. |
+| 10 | Complete | Checkout Stripe test via Checkout Sessions, raw webhook, signature optionnelle et idempotence `stripe_event_id`. |
+| 11 | Complete | Commandes `pending_payment`, confirmation webhook, decrement stock atomique et shipment `pending`. |
+| 12 | Complete | Commissions `pending`, regles par marque/produit/grade et bonus grade createur. |
+| 13 | Complete | Endpoints admin summaries/queues, audit Drizzle et protections roles admin. |
+| 14 | A faire | Integration iOS principale. |
+| 15 | A faire | Espaces createur et marque MVP. |
+| 16 | A faire | Jobs, notifications et observabilite. |
+| 17 | Partiel | Build, tests, audit production, migrations et smoke health OK; revue production finale restante. |
+| 18 | A faire | Evolutions post-MVP. |
+
+## Validations
+
+| Date | Commande | Resultat |
+|---|---|---|
+| 2026-05-20 | `npm run db:migrate` | `0005` et `0006` appliques, migrations precedentes deja tracees. |
+| 2026-05-20 | `npm run db:verify` | Schema `ufit` present, 7 migrations tracees. |
+| 2026-05-20 | `npm run build` | OK. |
+| 2026-05-20 | `npm test` | 23 fichiers, 75 tests OK. |
+| 2026-05-20 | `npm audit --omit=dev` | 0 vulnerabilite production. |
+| 2026-05-20 | `API_PORT=4013 npm start` + `GET /health` | App compilee demarree, `status: ok`, schema `ufit`. |

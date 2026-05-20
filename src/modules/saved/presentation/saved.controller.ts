@@ -1,4 +1,4 @@
-import { Controller, Delete, Inject, Param, Put, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Inject, Param, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
@@ -12,6 +12,13 @@ export class SavedController {
   @Put('saved-outfits/:outfitId')
   saveOutfit(@CurrentUser() user: AuthenticatedUser, @Param('outfitId') outfitId: string) {
     return this.savedService.saveOutfit(user.id, outfitId);
+  }
+
+  @Get('saved-outfits')
+  listSavedOutfits(@CurrentUser() user: AuthenticatedUser, @Query('limit') limit?: string) {
+    return this.savedService.listSavedOutfits(user.id, {
+      limit: limit ? Number(limit) : undefined
+    });
   }
 
   @Delete('saved-outfits/:outfitId')

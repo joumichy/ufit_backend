@@ -1,16 +1,16 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { IdentityModule } from '../identity/identity.module';
-import { AdminAuditService } from './application/admin-audit.service';
-import { InMemoryAdminAuditRepository } from './infrastructure/in-memory-admin-audit.repository';
+import { ADMIN_AUDIT_REPOSITORY, AdminAuditService } from './application/admin-audit.service';
+import { DrizzleAdminAuditRepository } from './infrastructure/drizzle-admin-audit.repository';
 import { AdminAuditController } from './presentation/admin-audit.controller';
 
 @Module({
-  imports: [IdentityModule],
+  imports: [DatabaseModule, IdentityModule],
   controllers: [AdminAuditController],
   providers: [
     AdminAuditService,
-    { provide: 'AdminAuditRepository', useExisting: InMemoryAdminAuditRepository },
-    InMemoryAdminAuditRepository
+    { provide: ADMIN_AUDIT_REPOSITORY, useClass: DrizzleAdminAuditRepository }
   ],
   exports: [AdminAuditService]
 })

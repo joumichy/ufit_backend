@@ -48,7 +48,11 @@ const envSchema = z.object({
   SUPABASE_DIRECT_CONNECTION_DB_URL: z.string().min(1),
   SUPABASE_DB_SSL: booleanFromEnv.default(true),
   SUPABASE_DB_TLS_REJECT_UNAUTHORIZED: booleanFromEnv.default(false),
-  SUPABASE_DB_CA_CERT: optionalNonEmptyString
+  SUPABASE_DB_CA_CERT: optionalNonEmptyString,
+  STRIPE_SECRET_KEY: optionalNonEmptyString,
+  STRIPE_WEBHOOK_SECRET: optionalNonEmptyString,
+  STRIPE_CHECKOUT_SUCCESS_URL: optionalNonEmptyString,
+  STRIPE_CHECKOUT_CANCEL_URL: optionalNonEmptyString
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

@@ -692,6 +692,7 @@ export const orders = ufitSchema.table(
     currency: text('currency').notNull().default('CHF'),
     shippingAddress: jsonb('shipping_address').notNull(),
     paymentProvider: text('payment_provider').notNull().default('placeholder'),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
     stripePaymentIntentId: text('stripe_payment_intent_id'),
     ...timestamps
   },
@@ -756,7 +757,26 @@ export const payments = ufitSchema.table(
     ...timestamps
   },
   (table) => ({
-    orderIdIndex: index('payments_order_id_idx').on(table.orderId)
+    orderIdIndex: index('payments_order_id_idx').on(table.orderId),
+    providerIntentUnique: uniqueIndex('payments_provider_intent_unique')
+      .on(table.provider, table.providerPaymentIntentId)
+      .where(sql`${table.providerPaymentIntentId} is not null`)
+  })
+);
+
+export const stripeWebhookEvents = ufitSchema.table(
+  'stripe_webhook_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    stripeEventId: text('stripe_event_id').notNull(),
+    type: text('type').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    stripeEventIdUnique: uniqueIndex('stripe_webhook_events_stripe_event_id_unique').on(table.stripeEventId),
+    typeIndex: index('stripe_webhook_events_type_idx').on(table.type)
   })
 );
 
@@ -890,6 +910,8 @@ export type NewOrderRow = typeof orders.$inferInsert;
 export type OrderItemRow = typeof orderItems.$inferSelect;
 export type NewOrderItemRow = typeof orderItems.$inferInsert;
 export type PaymentRow = typeof payments.$inferSelect;
+export type StripeWebhookEventRow = typeof stripeWebhookEvents.$inferSelect;
+export type NewStripeWebhookEventRow = typeof stripeWebhookEvents.$inferInsert;
 export type CommissionRow = typeof commissions.$inferSelect;
 export type NewCommissionRow = typeof commissions.$inferInsert;
 export type ShipmentRow = typeof shipments.$inferSelect;

@@ -14,6 +14,7 @@ export interface CommissionInput {
   sourceOutfitId: string;
   baseAmount: number;
   rule: CommissionRuleInput;
+  status?: Commission['status'];
 }
 
 export interface Commission {
@@ -44,6 +45,14 @@ export class CommissionsService {
   }
 
   async createEstimated(input: CommissionInput): Promise<Commission> {
+    return this.create(input, 'estimated');
+  }
+
+  async createPending(input: CommissionInput): Promise<Commission> {
+    return this.create(input, 'pending');
+  }
+
+  private async create(input: CommissionInput, defaultStatus: Commission['status']): Promise<Commission> {
     if (input.baseAmount < 0) {
       throw new BadRequestException('Commission base amount cannot be negative');
     }
@@ -58,7 +67,7 @@ export class CommissionsService {
       baseAmount: input.baseAmount,
       commissionRate,
       commissionAmount: Math.round(input.baseAmount * commissionRate),
-      status: 'estimated'
+      status: input.status ?? defaultStatus
     };
 
     return this.commissions.save(commission);

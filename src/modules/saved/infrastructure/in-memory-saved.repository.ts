@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { SavedRepository } from '../application/saved.service';
+import type { SavedOutfit, SavedRepository } from '../application/saved.service';
 
 @Injectable()
 export class InMemorySavedRepository implements SavedRepository {
@@ -20,5 +20,9 @@ export class InMemorySavedRepository implements SavedRepository {
 
   async unfollowCreator(userId: string, creatorId: string): Promise<void> {
     this.follows.delete(`${userId}:${creatorId}`);
+  }
+
+  async findSavedOutfits(_userId: string, _input: { limit: number }): Promise<SavedOutfit[]> {
+    return [];
   }
 }

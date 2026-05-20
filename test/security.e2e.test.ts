@@ -3,9 +3,12 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminAuditService } from '../src/modules/admin-audit/application/admin-audit.service';
+import { AdminService } from '../src/modules/admin/application/admin.service';
 import { IdentityService } from '../src/modules/identity/application/identity.service';
 import type { AuthenticatedUser } from '../src/modules/identity/domain/user.types';
 import { AUTH_TOKEN_VERIFIER } from '../src/modules/identity/infrastructure/auth/auth-token-verifier';
+import { ProductsService } from '../src/modules/products/application/products.service';
+import { PRODUCT_REPOSITORY } from '../src/modules/products/domain/product.types';
 import { DatabaseService } from '../src/shared/infrastructure/database/database.service';
 
 const baseUser: AuthenticatedUser = {
@@ -27,6 +30,13 @@ describe('security regressions', () => {
   const adminAuditService = {
     record: vi.fn()
   };
+  const adminService = {
+    getSummary: vi.fn(),
+    listQueue: vi.fn()
+  };
+  const productsService = {
+    reviewProduct: vi.fn()
+  };
 
   beforeEach(async () => {
     vi.stubEnv('SUPABASE_URL', 'https://example.supabase.co');
@@ -41,6 +51,27 @@ describe('security regressions', () => {
         ...input
       })
     );
+    adminService.getSummary.mockResolvedValue({
+      queues: { applications: 0, products: 0, outfits: 0, orders: 0, commissions: 0 }
+    });
+    productsService.reviewProduct.mockResolvedValue({
+      product: {
+        id: '33333333-3333-4333-8333-333333333333',
+        brandId: '44444444-4444-4444-8444-444444444444',
+        name: 'Jacket',
+        slug: 'jacket',
+        description: 'A jacket',
+        category: 'outerwear',
+        genderTarget: null,
+        status: 'active',
+        basePrice: 12000,
+        currency: 'CHF',
+        material: null,
+        careInstructions: null
+      },
+      variants: [],
+      images: []
+    });
 
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({
@@ -61,6 +92,14 @@ describe('security regressions', () => {
       .useValue(identityService)
       .overrideProvider(AdminAuditService)
       .useValue(adminAuditService)
+      .overrideProvider(AdminService)
+      .useValue(adminService)
+      .overrideProvider(ProductsService)
+      .useValue(productsService)
+      .overrideProvider(PRODUCT_REPOSITORY)
+      .useValue({
+        findById: vi.fn()
+      })
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -83,6 +122,11 @@ describe('security regressions', () => {
       .set('Authorization', 'Bearer test.jwt.token')
       .send({})
       .expect(403);
+  });
+
+  it('rejects customer users from admin summaries', async () => {
+    await request(app?.getHttpServer()).get('/admin/summaries').set('Authorization', 'Bearer test.jwt.token').expect(403);
+    expect(adminService.getSummary).not.toHaveBeenCalled();
   });
 
   it('records admin audit actor from the authenticated user, not from headers', async () => {
@@ -109,6 +153,41 @@ describe('security regressions', () => {
         adminUserId: adminUser.id,
         action: 'product.reviewed',
         targetType: 'product'
+      })
+    );
+  });
+
+  it('audits product reviews with the authenticated admin actor', async () => {
+    const adminUser: AuthenticatedUser = {
+      ...baseUser,
+      id: '11111111-1111-4111-8111-111111111111',
+      roles: ['admin']
+    };
+    identityService.resolveCurrentUser.mockResolvedValue(adminUser);
+
+    await request(app?.getHttpServer())
+      .patch('/products/33333333-3333-4333-8333-333333333333/review')
+      .set('Authorization', 'Bearer test.jwt.token')
+      .send({
+        decision: 'active',
+        reviewerId: '22222222-2222-4222-8222-222222222222'
+      })
+      .expect(200);
+
+    expect(productsService.reviewProduct).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333', {
+      decision: 'active',
+      reviewerId: adminUser.id
+    });
+    expect(adminAuditService.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adminUserId: adminUser.id,
+        action: 'product.reviewed',
+        targetType: 'product',
+        targetId: '33333333-3333-4333-8333-333333333333',
+        payload: {
+          decision: 'active',
+          rejectionReason: null
+        }
       })
     );
   });

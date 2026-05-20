@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
+import { AdminAuditModule } from '../admin-audit/admin-audit.module';
 import { BrandsModule } from '../brands/brands.module';
 import { BrandsService } from '../brands/brands.service';
 import { BRANDS_SERVICE } from '../brands/brands.tokens';
@@ -13,7 +14,7 @@ import { DrizzleApplicationsRepository } from './drizzle-applications.repository
 import { APPLICATIONS_REPOSITORY, PROFILE_PROVISIONING_PORT } from './types/application.types';
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, CreatorsModule, BrandsModule],
+  imports: [DatabaseModule, IdentityModule, CreatorsModule, BrandsModule, AdminAuditModule],
   controllers: [ApplicationsController],
   providers: [
     ApplicationsService,

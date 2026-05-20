@@ -117,4 +117,13 @@ export class CartService {
 
     return this.carts.save(cart);
   }
+
+  async getActiveForCheckout(userId: string): Promise<Cart> {
+    const cart = await this.carts.findActiveByUserId(userId);
+    if (!cart || !cart.brandId || cart.items.length === 0) {
+      throw new BadRequestException('Cannot checkout an empty cart');
+    }
+
+    return cart;
+  }
 }

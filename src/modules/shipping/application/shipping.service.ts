@@ -17,6 +17,7 @@ export interface Shipment {
 
 export interface ShipmentRepository {
   save(shipment: Shipment): Promise<Shipment>;
+  findByOrderId?(orderId: string): Promise<Shipment | null>;
 }
 
 export interface UpdateShipmentInput {
@@ -33,6 +34,15 @@ export class ShippingService {
 
   createManualShipment(orderId: string, brandId: string): Shipment {
     return { id: randomUUID(), orderId, brandId, status: 'pending' };
+  }
+
+  async createPendingForPaidOrder(orderId: string, brandId: string): Promise<Shipment> {
+    const existing = await this.shipments.findByOrderId?.(orderId);
+    if (existing) {
+      return existing;
+    }
+
+    return this.shipments.save(this.createManualShipment(orderId, brandId));
   }
 
   async updateStatus(input: UpdateShipmentInput): Promise<Shipment> {

@@ -9,4 +9,9 @@ export class InMemoryShipmentRepository implements ShipmentRepository {
     this.shipments.set(shipment.id, structuredClone(shipment));
     return structuredClone(shipment);
   }
+
+  async findByOrderId(orderId: string): Promise<Shipment | null> {
+    const shipment = [...this.shipments.values()].find((candidate) => candidate.orderId === orderId);
+    return shipment ? structuredClone(shipment) : null;
+  }
 }
