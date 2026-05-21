@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import {
   applicationReviews,
@@ -21,7 +21,7 @@ const activeStatuses = ['submitted', 'under_review', 'waitlisted', 'needs_more_i
 
 @Injectable()
 export class DrizzleApplicationsRepository implements ApplicationsRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async findActiveCreatorApplication(userId: string): Promise<CreatorApplicationRow | undefined> {
     return this.database.db.query.creatorApplications.findFirst({

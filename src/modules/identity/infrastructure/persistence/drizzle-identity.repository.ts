@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../../../../shared/infrastructure/database/database.service';
 import { userRoles, users, type UserRoleRow, type UserRow } from '../../../../shared/infrastructure/database/schema';
@@ -7,7 +7,7 @@ import type { AuthenticatedUser, SupabaseJwtClaims, UserProfilePatch, UserRole }
 
 @Injectable()
 export class DrizzleIdentityRepository implements IdentityRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async findById(userId: string): Promise<AuthenticatedUser | null> {
     const rows = await this.database.db.select().from(users).where(eq(users.id, userId)).limit(1);

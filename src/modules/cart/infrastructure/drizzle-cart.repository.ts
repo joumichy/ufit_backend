@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, eq } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { cartItems, carts, type CartItemRow, type CartRow } from '../../../shared/infrastructure/database/schema';
@@ -6,7 +6,7 @@ import type { Cart, CartLine, CartRepository } from '../application/cart.service
 
 @Injectable()
 export class DrizzleCartRepository implements CartRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async findActiveByUserId(userId: string): Promise<Cart | undefined> {
     const [cart] = await this.database.db

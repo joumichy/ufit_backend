@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { count, desc, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
@@ -19,7 +19,7 @@ const commissionStatuses = ['pending', 'estimated'] as const;
 
 @Injectable()
 export class DrizzleAdminRepository implements AdminRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async countQueues(): Promise<Record<AdminQueueName, number>> {
     const [creatorApplicationCount, brandApplicationCount, productCount, outfitCount, orderCount, commissionCount] = await Promise.all([

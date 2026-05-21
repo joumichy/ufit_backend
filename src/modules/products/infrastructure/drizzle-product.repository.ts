@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { eq, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { productImages, products, productVariants } from '../../../shared/infrastructure/database/schema';
@@ -6,7 +6,7 @@ import type { Product, ProductDetail, ProductImage, ProductRepository, ProductSt
 
 @Injectable()
 export class DrizzleProductRepository implements ProductRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async createProduct(input: Parameters<ProductRepository['createProduct']>[0]): Promise<Product> {
     const [row] = await this.database.db

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../shared/infrastructure/database/database.service';
 import {
@@ -11,7 +11,7 @@ import type { CreatorsRepository } from './creators.repository';
 
 @Injectable()
 export class DrizzleCreatorsRepository implements CreatorsRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async findProfileByUserId(userId: string): Promise<CreatorProfileRow | undefined> {
     return this.database.db.query.creatorProfiles.findFirst({

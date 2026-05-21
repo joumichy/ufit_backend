@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, eq } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { commissionRules, commissions, creatorGrades, creatorProfiles } from '../../../shared/infrastructure/database/schema';
@@ -7,7 +7,7 @@ import type { CommissionRuleResolver } from '../../orders/application/orders.ser
 
 @Injectable()
 export class DrizzleCommissionRepository implements CommissionRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async save(commission: Commission): Promise<Commission> {
     const [row] = await this.database.db
@@ -41,7 +41,7 @@ export class DrizzleCommissionRepository implements CommissionRepository {
 
 @Injectable()
 export class DrizzleCommissionRuleResolver implements CommissionRuleResolver {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async resolve(input: { brandId: string; productId: string; creatorId: string; snapshotRate: number }) {
     const [creator] = await this.database.db

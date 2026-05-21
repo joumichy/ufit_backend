@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, lt } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { outfitImages, outfitItems, outfits } from '../../../shared/infrastructure/database/schema';
@@ -6,7 +6,7 @@ import type { Outfit, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, O
 
 @Injectable()
 export class DrizzleOutfitRepository implements OutfitRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async createOutfit(input: Parameters<OutfitRepository['createOutfit']>[0]): Promise<Outfit> {
     const [row] = await this.database.db

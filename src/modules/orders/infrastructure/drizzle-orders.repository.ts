@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
@@ -23,7 +23,7 @@ import type {
 
 @Injectable()
 export class DrizzleOrderRepository implements OrderRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async save(order: Order): Promise<Order> {
     await this.database.db.transaction(async (tx) => {
@@ -152,7 +152,7 @@ export class DrizzleOrderRepository implements OrderRepository {
 
 @Injectable()
 export class DrizzlePaymentRepository implements PaymentRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async findByProviderPaymentIntentId(provider: PaymentRecord['provider'], providerPaymentIntentId: string): Promise<PaymentRecord | undefined> {
     const [row] = await this.database.db
@@ -222,7 +222,7 @@ function isUniqueViolation(error: unknown): boolean {
 
 @Injectable()
 export class DrizzleStockRepository implements StockRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async decrementAvailable(productVariantId: string, quantity: number): Promise<void> {
     const rows = await this.database.db
@@ -242,7 +242,7 @@ export class DrizzleStockRepository implements StockRepository {
 
 @Injectable()
 export class DrizzleProductSnapshotReader implements ProductSnapshotReader {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async buildSnapshot(productVariantId: string): Promise<Record<string, unknown>> {
     const [variant] = await this.database.db.select().from(productVariants).where(eq(productVariants.id, productVariantId)).limit(1);

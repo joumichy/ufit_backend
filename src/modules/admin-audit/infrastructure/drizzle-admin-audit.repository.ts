@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { adminActionLogs } from '../../../shared/infrastructure/database/schema';
 import type { AdminActionLog, AdminAuditRepository } from '../application/admin-audit.service';
 
 @Injectable()
 export class DrizzleAdminAuditRepository implements AdminAuditRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async save(log: AdminActionLog): Promise<AdminActionLog> {
     const [row] = await this.database.db

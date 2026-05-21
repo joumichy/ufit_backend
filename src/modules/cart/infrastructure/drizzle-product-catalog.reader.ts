@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { products, productVariants } from '../../../shared/infrastructure/database/schema';
@@ -6,7 +6,7 @@ import type { ProductCatalogReader, ProductVariantQuote } from '../application/c
 
 @Injectable()
 export class DrizzleProductCatalogReader implements ProductCatalogReader {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async getVariantQuote(productVariantId: string): Promise<ProductVariantQuote> {
     const [row] = await this.database.db

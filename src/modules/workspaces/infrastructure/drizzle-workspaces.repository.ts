@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, inArray, sql, sum } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
@@ -32,7 +32,7 @@ const paidOrderStatuses = ['paid', 'preparing', 'shipped', 'delivered'] as const
 
 @Injectable()
 export class DrizzleWorkspacesRepository implements WorkspacesRepository {
-  constructor(private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
   async findCreatorProfileByUserId(userId: string): Promise<CreatorWorkspaceProfile | null> {
     const [row] = await this.database.db
