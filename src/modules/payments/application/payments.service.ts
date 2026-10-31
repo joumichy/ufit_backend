@@ -18,10 +18,20 @@ import {
   type StripePaymentFinalizer,
 } from "./stripe-payment-finalizer";
 
+import {
+  CANCELLATION,
+  type CancellationClaim,
+} from "../../orders/domain/order-lifecycle";
+import {
+  reverseStripeCancellation,
+  type StripeCancellationResult,
+} from "../infrastructure/stripe-order-cancellation";
+import { STRIPE_ORDER_METADATA, STRIPE_COMMERCE } from "./stripe-commerce";
+
 export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
 export type StripePaymentsClient = Pick<
   StripeSDK,
-  "paymentIntents" | "webhooks"
+  "paymentIntents" | "webhooks" | "refunds"
 >;
 export interface NativePaymentIntentResult {
   orderId: string;
@@ -39,6 +49,18 @@ export class PaymentsService {
     private readonly orders: OrdersService,
   ) {}
 
+  async reverseCancellation(
+    claim: CancellationClaim,
+  ): Promise<StripeCancellationResult> {
+    if (!claim.paymentIntentId)
+      return { settlement: { outcome: CANCELLATION.outcome.notCharged } };
+    if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
+      throw new ServiceUnavailableException(
+        "Stripe payments are not configured",
+      );
+    return reverseStripeCancellation(this.stripe, claim);
+  }
+
   async createPaymentIntent(order: Order): Promise<NativePaymentIntentResult> {
     if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
       throw new ServiceUnavailableException(
@@ -51,7 +73,7 @@ export class PaymentsService {
             amount: order.totalAmount,
             currency: order.currency.toLowerCase(),
             payment_method_types: ["card"],
-            metadata: { order_id: order.id },
+            metadata: { [STRIPE_ORDER_METADATA.orderId]: order.id },
             transfer_group: `order:${order.id}`,
           },
           { idempotencyKey: `payment-intent:${order.id}` },
@@ -87,10 +109,10 @@ export class PaymentsService {
     } catch {
       throw new UnauthorizedException("Invalid Stripe webhook signature");
     }
-    if (event.type !== "payment_intent.succeeded")
+    if (event.type !== STRIPE_COMMERCE.paymentSucceeded)
       return { received: true, duplicate: false };
     const intent = event.data.object;
-    const orderId = intent.metadata.order_id;
+    const orderId = intent.metadata[STRIPE_ORDER_METADATA.orderId];
     if (!orderId) return { received: true, duplicate: false };
     if (
       !Number.isSafeInteger(intent.amount_received) ||

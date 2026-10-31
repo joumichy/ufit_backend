@@ -10,6 +10,7 @@ import {
   cartItems,
   carts,
   commissions,
+  orderCancellations,
   orderItems,
   orders,
   orderStatusHistory,
@@ -22,6 +23,13 @@ import type {
   StripePaidPayment,
   StripePaymentFinalizer,
 } from "../application/stripe-payment-finalizer";
+
+import {
+  CANCELLATION,
+  ORDER_LIMIT,
+  ORDER_PAYMENT,
+  ORDER_STATUS,
+} from "../../orders/domain/order-lifecycle";
 
 @Injectable()
 export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
@@ -82,6 +90,32 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
           throw new ConflictException("Payment is linked to another operation");
         return { duplicate: true };
       }
+      if (
+        order.status === ORDER_STATUS.cancelling ||
+        order.status === ORDER_STATUS.cancelled
+      ) {
+        const [cancellation] = await tx
+          .select()
+          .from(orderCancellations)
+          .where(eq(orderCancellations.orderId, order.id))
+          .limit(ORDER_LIMIT.singleRow);
+        if (!cancellation)
+          throw new ConflictException(CANCELLATION.failures.changed);
+        await tx
+          .insert(payments)
+          .values({
+            orderId: order.id,
+            provider: ORDER_PAYMENT.provider,
+            providerPaymentIntentId: input.paymentIntentId,
+            status:
+              cancellation.paymentOutcome === CANCELLATION.outcome.refunded
+                ? ORDER_PAYMENT.status.refunded
+                : ORDER_PAYMENT.status.succeeded,
+            amount: input.amount,
+            currency: input.currency,
+          });
+        return { duplicate: false };
+      }
       if (order.status !== "pending_payment")
         throw new ConflictException("Order no longer accepts payment");
       const items = await tx
@@ -119,41 +153,35 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
             message: "Stock is unavailable for this paid order",
           });
       }
-      await tx
-        .insert(payments)
-        .values({
-          orderId: order.id,
-          provider: "stripe",
-          providerPaymentIntentId: input.paymentIntentId,
-          status: "succeeded",
-          amount: input.amount,
-          currency: input.currency,
-        });
-      await tx
-        .insert(shipments)
-        .values({
-          orderId: order.id,
-          brandId: order.brandId,
-          status: "pending",
-        });
+      await tx.insert(payments).values({
+        orderId: order.id,
+        provider: "stripe",
+        providerPaymentIntentId: input.paymentIntentId,
+        status: "succeeded",
+        amount: input.amount,
+        currency: input.currency,
+      });
+      await tx.insert(shipments).values({
+        orderId: order.id,
+        brandId: order.brandId,
+        status: "pending",
+      });
       for (const item of items) {
         if (!item.sourceCreatorId || !item.sourceOutfitId) continue;
         const rateBasisPoints = Math.round(Number(item.commissionRate) * 10000);
         const commissionAmount = Number(
           (BigInt(item.totalPrice) * BigInt(rateBasisPoints) + 5000n) / 10000n,
         );
-        await tx
-          .insert(commissions)
-          .values({
-            orderItemId: item.id,
-            creatorId: item.sourceCreatorId,
-            brandId: order.brandId,
-            sourceOutfitId: item.sourceOutfitId,
-            baseAmount: item.totalPrice,
-            commissionRate: item.commissionRate,
-            commissionAmount,
-            status: "pending",
-          });
+        await tx.insert(commissions).values({
+          orderItemId: item.id,
+          creatorId: item.sourceCreatorId,
+          brandId: order.brandId,
+          sourceOutfitId: item.sourceOutfitId,
+          baseAmount: item.totalPrice,
+          commissionRate: item.commissionRate,
+          commissionAmount,
+          status: "pending",
+        });
       }
       await tx
         .update(orders)
@@ -163,14 +191,12 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
           updatedAt: new Date(),
         })
         .where(eq(orders.id, order.id));
-      await tx
-        .insert(orderStatusHistory)
-        .values({
-          orderId: order.id,
-          fromStatus: "pending_payment",
-          toStatus: "paid",
-          reason: "payment_confirmed",
-        });
+      await tx.insert(orderStatusHistory).values({
+        orderId: order.id,
+        fromStatus: "pending_payment",
+        toStatus: "paid",
+        reason: "payment_confirmed",
+      });
       if (order.cartId) {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${"ufit-cart:" + order.customerId}, 0))`,

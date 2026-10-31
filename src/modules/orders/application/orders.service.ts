@@ -13,14 +13,12 @@ import {
   type CommissionRuleInput,
 } from "../../commissions/application/commissions.service";
 
-export type OrderStatus =
-  | "pending_payment"
-  | "paid"
-  | "preparing"
-  | "shipped"
-  | "delivered"
-  | "cancelled"
-  | "refunded";
+import {
+  ORDER_STATUS,
+  customerOrderActions,
+  type OrderStatus,
+} from "../domain/order-lifecycle";
+export type { OrderStatus } from "../domain/order-lifecycle";
 
 export interface ShippingAddressSnapshot {
   fullName: string;
@@ -53,9 +51,21 @@ export interface Order {
   sourceCreatorId?: string;
   sourceOutfitId?: string;
   status: OrderStatus;
+  createdAt: string;
+  actions: { cancel: boolean; resumePayment: boolean };
+  cancellation?: { status: string; outcome?: string };
+  shipment?: {
+    id: string;
+    status: string;
+    carrier?: string;
+    trackingNumber?: string;
+    trackingUrl?: string;
+    shippedAt?: string;
+    deliveredAt?: string;
+  };
   subtotalAmount: number;
   shippingAmount: number;
-  taxAmount?: number;
+  taxAmount: number;
   cartId?: string;
   checkoutRequestId?: string;
   checkoutFingerprint?: string;
@@ -63,7 +73,7 @@ export interface Order {
   totalAmount: number;
   currency: string;
   shippingAddress: ShippingAddressSnapshot;
-  paymentProvider: "stripe" | "stripe";
+  paymentProvider: "stripe";
   stripePaymentIntentId?: string;
   items: OrderItemSnapshot[];
 }
@@ -181,7 +191,9 @@ export class OrdersService {
       brandId: cart.brandId,
       sourceCreatorId: cart.sourceCreatorId,
       sourceOutfitId: cart.sourceOutfitId,
-      status: "pending_payment",
+      status: ORDER_STATUS.pendingPayment,
+      createdAt: new Date().toISOString(),
+      actions: customerOrderActions(ORDER_STATUS.pendingPayment),
       subtotalAmount,
       shippingAmount: terms.quote.shippingAmount,
       taxAmount: terms.quote.taxAmount,

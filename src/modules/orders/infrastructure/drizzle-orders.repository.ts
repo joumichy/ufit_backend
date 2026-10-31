@@ -4,10 +4,15 @@ import {
   Inject,
   Injectable,
 } from "@nestjs/common";
-import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { DatabaseService } from "../../../shared/infrastructure/database/database.service";
 import {
   orderItems,
+  shipments,
+  orderCancellations,
+  type OrderRow,
+  type OrderItemRow,
+  type ShipmentRow,
   orders,
   orderStatusHistory,
   productImages,
@@ -21,6 +26,14 @@ import type {
   ProductSnapshotReader,
   ShippingAddressSnapshot,
 } from "../application/orders.service";
+
+import {
+  ORDER_LIMIT,
+  ORDER_STATUS,
+  customerOrderActions,
+  type OrderStatus,
+} from "../domain/order-lifecycle";
+const ORDER_READ = { cursor: "Invalid order cursor" } as const;
 
 @Injectable()
 export class DrizzleOrderRepository implements OrderRepository {
@@ -42,7 +55,7 @@ export class DrizzleOrderRepository implements OrderRepository {
           status: order.status,
           subtotalAmount: order.subtotalAmount,
           shippingAmount: order.shippingAmount,
-          taxAmount: order.taxAmount ?? 0,
+          taxAmount: order.taxAmount,
           cartId: order.cartId,
           checkoutRequestId: order.checkoutRequestId,
           checkoutFingerprint: order.checkoutFingerprint,
@@ -137,7 +150,7 @@ export class DrizzleOrderRepository implements OrderRepository {
       .where(
         and(
           eq(orders.id, orderId),
-          eq(orders.status, "pending_payment"),
+          eq(orders.status, ORDER_STATUS.pendingPayment),
           sql`(${orders.stripePaymentIntentId} is null or ${orders.stripePaymentIntentId} = ${intentId})`,
         ),
       )
@@ -149,30 +162,62 @@ export class DrizzleOrderRepository implements OrderRepository {
   }
 
   async listForCustomer(userId: string, limit: number, cursor?: string) {
-    const pageOverflow = 1;
+    let anchor: OrderRow | undefined;
+    if (cursor) {
+      [anchor] = await this.database.db
+        .select()
+        .from(orders)
+        .where(and(eq(orders.id, cursor), eq(orders.customerId, userId)))
+        .limit(ORDER_LIMIT.singleRow);
+      if (!anchor) throw new BadRequestException(ORDER_READ.cursor);
+    }
     const rows = await this.database.db
-      .select({ id: orders.id })
+      .select()
       .from(orders)
       .where(
         and(
           eq(orders.customerId, userId),
-          cursor ? lt(orders.id, cursor) : undefined,
+          anchor
+            ? or(
+                lt(orders.createdAt, anchor.createdAt),
+                and(
+                  eq(orders.createdAt, anchor.createdAt),
+                  lt(orders.id, anchor.id),
+                ),
+              )
+            : undefined,
         ),
       )
-      .orderBy(desc(orders.id))
-      .limit(limit + pageOverflow);
-    const selected = rows.slice(0, limit);
-    const items = await Promise.all(
-      selected.map(async (row) => {
-        const order = await this.findById(row.id);
-        if (!order)
-          throw new BadRequestException("Order disappeared during retrieval");
-        return order;
-      }),
-    );
+      .orderBy(desc(orders.createdAt), desc(orders.id))
+      .limit(limit + ORDER_LIMIT.overflow);
+    const selected = rows.slice(ORDER_LIMIT.firstRow, limit);
+    const ids = selected.map((row) => row.id);
+    if (!ids.length) return { items: [], nextCursor: null };
+    const [items, shipping, cancellations] = await Promise.all([
+      this.database.db
+        .select()
+        .from(orderItems)
+        .where(inArray(orderItems.orderId, ids)),
+      this.database.db
+        .select()
+        .from(shipments)
+        .where(inArray(shipments.orderId, ids)),
+      this.database.db
+        .select()
+        .from(orderCancellations)
+        .where(inArray(orderCancellations.orderId, ids)),
+    ]);
     return {
-      items,
-      nextCursor: rows.length > limit ? selected.at(-1)!.id : null,
+      items: selected.map((row) =>
+        projectOrder(
+          row,
+          items.filter((item) => item.orderId === row.id),
+          shipping.find((value) => value.orderId === row.id),
+          cancellations.find((value) => value.orderId === row.id),
+        ),
+      ),
+      nextCursor:
+        rows.length > limit ? selected.at(ORDER_LIMIT.lastRow)!.id : null,
     };
   }
 
@@ -181,51 +226,88 @@ export class DrizzleOrderRepository implements OrderRepository {
       .select()
       .from(orders)
       .where(eq(orders.id, orderId))
-      .limit(1);
-    if (!order) {
-      return undefined;
-    }
-
-    const items = await this.database.db
-      .select()
-      .from(orderItems)
-      .where(eq(orderItems.orderId, orderId));
-    return {
-      id: order.id,
-      orderNumber: order.orderNumber,
-      customerId: order.customerId,
-      brandId: order.brandId,
-      sourceCreatorId: order.sourceCreatorId ?? undefined,
-      sourceOutfitId: order.sourceOutfitId ?? undefined,
-      status: order.status as Order["status"],
-      subtotalAmount: order.subtotalAmount,
-      shippingAmount: order.shippingAmount,
-      taxAmount: order.taxAmount,
-      cartId: order.cartId ?? undefined,
-      checkoutRequestId: order.checkoutRequestId ?? undefined,
-      checkoutFingerprint: order.checkoutFingerprint ?? undefined,
-      commerceSnapshot: order.commerceSnapshot ?? undefined,
-      totalAmount: order.totalAmount,
-      currency: order.currency,
-      shippingAddress: order.shippingAddress as ShippingAddressSnapshot,
-      paymentProvider: order.paymentProvider as Order["paymentProvider"],
-      stripePaymentIntentId: order.stripePaymentIntentId ?? undefined,
-      items: items.map(
-        (item): OrderItemSnapshot => ({
-          id: item.id,
-          productId: item.productId,
-          productVariantId: item.productVariantId,
-          productSnapshot: item.productSnapshot as Record<string, unknown>,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-          commissionRate: Number(item.commissionRate),
-          sourceCreatorId: item.sourceCreatorId ?? undefined,
-          sourceOutfitId: item.sourceOutfitId ?? undefined,
-        }),
-      ),
-    };
+      .limit(ORDER_LIMIT.singleRow);
+    if (!order) return undefined;
+    const [items, [shipment], [cancellation]] = await Promise.all([
+      this.database.db
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId)),
+      this.database.db
+        .select()
+        .from(shipments)
+        .where(eq(shipments.orderId, orderId))
+        .limit(ORDER_LIMIT.singleRow),
+      this.database.db
+        .select()
+        .from(orderCancellations)
+        .where(eq(orderCancellations.orderId, orderId))
+        .limit(ORDER_LIMIT.singleRow),
+    ]);
+    return projectOrder(order, items, shipment, cancellation);
   }
+}
+
+function projectOrder(
+  order: OrderRow,
+  items: OrderItemRow[],
+  shipment?: ShipmentRow,
+  cancellation?: typeof orderCancellations.$inferSelect,
+): Order {
+  return {
+    id: order.id,
+    orderNumber: order.orderNumber,
+    customerId: order.customerId,
+    brandId: order.brandId,
+    sourceCreatorId: order.sourceCreatorId ?? undefined,
+    sourceOutfitId: order.sourceOutfitId ?? undefined,
+    status: order.status as Order["status"],
+    createdAt: order.createdAt.toISOString(),
+    actions: customerOrderActions(order.status as OrderStatus),
+    shipment: shipment
+      ? {
+          id: shipment.id,
+          status: shipment.status,
+          carrier: shipment.carrier ?? undefined,
+          trackingNumber: shipment.trackingNumber ?? undefined,
+          trackingUrl: shipment.trackingUrl ?? undefined,
+          shippedAt: shipment.shippedAt?.toISOString(),
+          deliveredAt: shipment.deliveredAt?.toISOString(),
+        }
+      : undefined,
+    cancellation: cancellation
+      ? {
+          status: cancellation.status,
+          outcome: cancellation.paymentOutcome ?? undefined,
+        }
+      : undefined,
+    subtotalAmount: order.subtotalAmount,
+    shippingAmount: order.shippingAmount,
+    taxAmount: order.taxAmount,
+    cartId: order.cartId ?? undefined,
+    checkoutRequestId: order.checkoutRequestId ?? undefined,
+    checkoutFingerprint: order.checkoutFingerprint ?? undefined,
+    commerceSnapshot: order.commerceSnapshot ?? undefined,
+    totalAmount: order.totalAmount,
+    currency: order.currency,
+    shippingAddress: order.shippingAddress as ShippingAddressSnapshot,
+    paymentProvider: order.paymentProvider as Order["paymentProvider"],
+    stripePaymentIntentId: order.stripePaymentIntentId ?? undefined,
+    items: items.map(
+      (item): OrderItemSnapshot => ({
+        id: item.id,
+        productId: item.productId,
+        productVariantId: item.productVariantId,
+        productSnapshot: item.productSnapshot as Record<string, unknown>,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+        commissionRate: Number(item.commissionRate),
+        sourceCreatorId: item.sourceCreatorId ?? undefined,
+        sourceOutfitId: item.sourceOutfitId ?? undefined,
+      }),
+    ),
+  };
 }
 
 @Injectable()

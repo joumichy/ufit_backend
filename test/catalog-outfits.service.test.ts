@@ -57,7 +57,7 @@ class MemoryProductRepository implements ProductRepository {
 
   async findActiveByIds(productIds: string[]): Promise<ProductDetail[]> {
     const details = await Promise.all(productIds.map((productId) => this.findById(productId)));
-    return details.filter((detail): detail is ProductDetail => Boolean(detail) && detail.product.status === 'active');
+    return details.filter((detail): detail is ProductDetail => detail !== null && detail.product.status === 'active');
   }
 
   async updateStatus(productId: string, status: ProductStatus, reviewerId?: string, rejectionReason?: string): Promise<Product> {

@@ -9,6 +9,9 @@ function makeOrder(): Order {
     customerId: "customer-1",
     brandId: "brand-1",
     status: "pending_payment",
+    createdAt: "2026-10-31T12:00:00.000Z",
+    actions: {cancel:true,resumePayment:true},
+    taxAmount:0,
     subtotalAmount: 5000,
     shippingAmount: 900,
     totalAmount: 5900,
@@ -20,7 +23,7 @@ function makeOrder(): Order {
       city: "Zurich",
       country: "CH",
     },
-    paymentProvider: "placeholder",
+    paymentProvider: "stripe",
     items: [
       {
         id: "item-1",

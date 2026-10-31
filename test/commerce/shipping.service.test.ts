@@ -1,49 +1,119 @@
-import { BadRequestException } from '@nestjs/common';
-import { describe, expect, it } from 'vitest';
-import { ShippingService, type Shipment, type ShipmentRepository } from '../../src/modules/shipping/application/shipping.service';
-
-class FakeShipmentRepository implements ShipmentRepository {
-  private readonly shipments = new Map<string, Shipment>();
-
-  async save(shipment: Shipment): Promise<Shipment> {
-    this.shipments.set(shipment.id, structuredClone(shipment));
-    return structuredClone(shipment);
-  }
-
-  async findByOrderId(orderId: string): Promise<Shipment | null> {
-    const shipment = [...this.shipments.values()].find((candidate) => candidate.orderId === orderId);
-    return shipment ? structuredClone(shipment) : null;
-  }
+import { describe, expect, it, vi } from "vitest";
+import {
+  applyShipmentUpdate,
+  ShippingService,
+  SHIPMENT_STATUS,
+} from "../../src/modules/shipping/application/shipping.service";
+import { InMemoryShipmentRepository } from "../../src/modules/shipping/infrastructure/in-memory-shipping.repository";
+const fixture = {
+  order: "order",
+  brand: "brand",
+  actor: { id: "brand-user", roles: ["brand_owner"] },
+  carrier: "Poste de qualification",
+  tracking: "QUALIFICATION",
+  url: "https://example.test/tracking",
+};
+function setup() {
+  const repository = new InMemoryShipmentRepository();
+  const brands = {
+    getProfileForMember: vi.fn().mockResolvedValue({ id: fixture.brand }),
+  };
+  return {
+    repository,
+    brands,
+    service: new ShippingService(repository, brands as never),
+  };
 }
-
-describe('ShippingService', () => {
-  it('requires carrier and tracking number when a shipment becomes shipped', async () => {
-    const service = new ShippingService(new FakeShipmentRepository());
-    const shipment = service.createManualShipment('order-1', 'brand-1');
-    const preparing = await service.updateStatus({ shipment, nextStatus: 'preparing' });
-
-    await expect(service.updateStatus({ shipment: preparing, nextStatus: 'shipped' })).rejects.toBeInstanceOf(
-      BadRequestException
+describe("ShippingService", () => {
+  it("requires carrier and tracking when marking a persisted shipment shipped", async () => {
+    const { service, repository } = setup();
+    const shipment = await repository.save(
+      service.createManualShipment(fixture.order, fixture.brand),
     );
-
-    const shipped = await service.updateStatus({
-      shipment: preparing,
-      nextStatus: 'shipped',
-      carrier: 'Swiss Post',
-      trackingNumber: 'TRACK-1'
+    const preparing = await service.updateForActor(
+      fixture.actor as never,
+      shipment.id,
+      { nextStatus: SHIPMENT_STATUS.preparing },
+    );
+    await expect(
+      service.updateForActor(fixture.actor as never, shipment.id, {
+        nextStatus: SHIPMENT_STATUS.shipped,
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    const shipped = await service.updateForActor(
+      fixture.actor as never,
+      preparing.id,
+      {
+        nextStatus: SHIPMENT_STATUS.shipped,
+        carrier: fixture.carrier,
+        trackingNumber: fixture.tracking,
+        trackingUrl: fixture.url,
+      },
+    );
+    expect(shipped).toMatchObject({
+      status: SHIPMENT_STATUS.shipped,
+      carrier: fixture.carrier,
+      trackingNumber: fixture.tracking,
     });
-
-    expect(shipped.status).toBe('shipped');
     expect(shipped.shippedAt).toBeDefined();
   });
-
-  it('creates one pending shipment per paid order', async () => {
-    const service = new ShippingService(new FakeShipmentRepository());
-
-    const first = await service.createPendingForPaidOrder('order-1', 'brand-1');
-    const second = await service.createPendingForPaidOrder('order-1', 'brand-1');
-
-    expect(first.status).toBe('pending');
+  it("checks membership against the stored brand, not a shipment supplied by the caller", async () => {
+    const { service, repository, brands } = setup();
+    const shipment = await repository.save(
+      service.createManualShipment(fixture.order, fixture.brand),
+    );
+    await expect(
+      service.updateForActor(fixture.actor as never, shipment.id, {
+        nextStatus: SHIPMENT_STATUS.preparing,
+        shipment: { brandId: "another-brand" },
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    brands.getProfileForMember.mockRejectedValueOnce(
+      new Error("membership rejected"),
+    );
+    await expect(
+      service.updateForActor(fixture.actor as never, shipment.id, {
+        nextStatus: SHIPMENT_STATUS.preparing,
+      }),
+    ).rejects.toThrow("membership rejected");
+    expect(brands.getProfileForMember).toHaveBeenCalledWith(
+      fixture.brand,
+      fixture.actor.id,
+    );
+    expect((await repository.findById(shipment.id))?.status).toBe(
+      SHIPMENT_STATUS.pending,
+    );
+  });
+  it("does not restart a cancelled shipment", () => {
+    expect(() =>
+      applyShipmentUpdate(
+        {
+          id: "shipment",
+          orderId: fixture.order,
+          brandId: fixture.brand,
+          status: SHIPMENT_STATUS.cancelled,
+        },
+        { nextStatus: SHIPMENT_STATUS.preparing },
+      ),
+    ).toThrow();
+  });
+  it("reuses the paid-order shipment and makes the same transition idempotent", async () => {
+    const { service } = setup();
+    const first = await service.createPendingForPaidOrder(
+      fixture.order,
+      fixture.brand,
+    );
+    const second = await service.createPendingForPaidOrder(
+      fixture.order,
+      fixture.brand,
+    );
     expect(second.id).toBe(first.id);
+    const a = await service.updateForActor(fixture.actor as never, first.id, {
+      nextStatus: SHIPMENT_STATUS.preparing,
+    });
+    const b = await service.updateForActor(fixture.actor as never, first.id, {
+      nextStatus: SHIPMENT_STATUS.preparing,
+    });
+    expect(b).toEqual(a);
   });
 });

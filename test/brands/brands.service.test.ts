@@ -51,6 +51,8 @@ function application(): BrandApplicationRow {
 
 function buildService(repositoryOverrides: Partial<BrandsRepository> = {}) {
   const repository: BrandsRepository = {
+    findSettings: vi.fn().mockResolvedValue(undefined),
+    saveCommercePolicy: async () => {throw new Error('Commerce policy is outside this profile fixture');},
     findProfileByApplicationId: vi.fn().mockResolvedValue(undefined),
     findProfileById: vi.fn().mockResolvedValue(brandProfile()),
     createProfile: vi.fn().mockResolvedValue(brandProfile()),

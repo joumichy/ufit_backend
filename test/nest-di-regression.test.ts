@@ -14,6 +14,7 @@ import {
   DrizzleOrderRepository,
   DrizzleProductSnapshotReader,
 } from '../src/modules/orders/infrastructure/drizzle-orders.repository';
+import {DrizzleOrderCancellationRepository} from '../src/modules/orders/infrastructure/drizzle-order-cancellation.repository';
 import { DrizzleOutfitRepository } from '../src/modules/outfits/infrastructure/drizzle-outfit.repository';
 import {DrizzleStripePaymentFinalizer} from '../src/modules/payments/infrastructure/drizzle-stripe-payment-finalizer';
 import { DrizzleProductRepository } from '../src/modules/products/infrastructure/drizzle-product.repository';
@@ -36,6 +37,7 @@ const databaseBackedProviders = [
   DrizzleIdentityRepository,
   DrizzleOrderRepository,
   DrizzleProductSnapshotReader,
+  DrizzleOrderCancellationRepository,
   DrizzleOutfitRepository,
   DrizzleStripePaymentFinalizer,
   DrizzleProductRepository,
@@ -56,7 +58,7 @@ describe('Nest dependency injection metadata regressions', () => {
 
     for (const provider of databaseBackedProviders) {
       const instance = moduleRef.get(provider);
-      expect((instance as { database?: unknown }).database).toBe(database);
+      expect(Reflect.get(instance, 'database')).toBe(database);
     }
   });
 });
