@@ -4,7 +4,8 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../../../shared/infrastructure/database/database.service";
 import {
   commissions,
@@ -30,6 +31,7 @@ import {
 
 const SHIPMENT_CANCELLED = "cancelled";
 const ROW_LOCK = "update";
+const RECOVERY_ROW = "cancellation_recovery";
 const ORDER_NOT_FOUND = "Order not found";
 @Injectable()
 export class DrizzleOrderCancellationRepository
@@ -65,6 +67,7 @@ export class DrizzleOrderCancellationRepository
             orderId: order.id,
             requestedBy: customerId,
             originalStatus: order.status,
+            reason: CANCELLATION.reason.customer,
             status: CANCELLATION.status.requested,
           })
           .returning();
@@ -72,20 +75,19 @@ export class DrizzleOrderCancellationRepository
           .update(orders)
           .set({ status: ORDER_STATUS.cancelling, updatedAt: new Date() })
           .where(eq(orders.id, order.id));
-        await tx
-          .insert(orderStatusHistory)
-          .values({
-            orderId: order.id,
-            fromStatus: order.status,
-            toStatus: ORDER_STATUS.cancelling,
-            changedBy: customerId,
-            reason: CANCELLATION.reasons.requested,
-          });
+        await tx.insert(orderStatusHistory).values({
+          orderId: order.id,
+          fromStatus: order.status,
+          toStatus: ORDER_STATUS.cancelling,
+          changedBy: customerId,
+          reason: CANCELLATION.reasons.requested,
+        });
       }
       return {
         id: cancellation.id,
         orderId: order.id,
         originalStatus: cancellation.originalStatus as OrderStatus,
+        reason: cancellation.reason as CancellationClaim["reason"],
         status: cancellation.status as CancellationClaim["status"],
         amount: order.totalAmount,
         currency: order.currency,
@@ -93,6 +95,72 @@ export class DrizzleOrderCancellationRepository
         refundId: cancellation.stripeRefundId ?? undefined,
       };
     });
+  }
+  async findPending(orderId: string): Promise<CancellationClaim | null> {
+    const [row] = await this.database.db
+      .select({ cancellation: orderCancellations, order: orders })
+      .from(orderCancellations)
+      .innerJoin(orders, eq(orders.id, orderCancellations.orderId))
+      .where(
+        and(
+          eq(orderCancellations.orderId, orderId),
+          eq(orderCancellations.status, CANCELLATION.status.requested),
+        ),
+      )
+      .limit(ORDER_LIMIT.singleRow);
+    return row ? this.toClaim(row) : null;
+  }
+  async claimRecoverable(): Promise<CancellationClaim[]> {
+    const queue = alias(orderCancellations, RECOVERY_ROW);
+    return this.database.db.transaction(async (tx) => {
+      const rows = await tx
+        .select({ cancellation: queue, order: orders })
+        .from(queue)
+        .innerJoin(orders, eq(orders.id, queue.orderId))
+        .where(
+          and(
+            eq(queue.status, CANCELLATION.status.requested),
+            lte(queue.nextRecoveryAt, new Date()),
+          ),
+        )
+        .orderBy(asc(queue.nextRecoveryAt), asc(queue.id))
+        .limit(CANCELLATION.recovery.batchSize)
+        .for(ROW_LOCK, { of: queue, skipLocked: true });
+      if (rows.length)
+        await tx
+          .update(orderCancellations)
+          .set({
+            nextRecoveryAt: new Date(
+              Date.now() + CANCELLATION.recovery.leaseMilliseconds,
+            ),
+          })
+          .where(
+            inArray(
+              orderCancellations.id,
+              rows.map((row) => row.cancellation.id),
+            ),
+          );
+      return rows.map((row) => this.toClaim(row));
+    });
+  }
+  private toClaim({
+    order,
+    cancellation,
+  }: {
+    order: typeof orders.$inferSelect;
+    cancellation: typeof orderCancellations.$inferSelect;
+  }): CancellationClaim {
+    return {
+      id: cancellation.id,
+      orderId: order.id,
+      originalStatus: cancellation.originalStatus as OrderStatus,
+      reason: cancellation.reason as CancellationClaim["reason"],
+      status: cancellation.status as CancellationClaim["status"],
+      amount: order.totalAmount,
+      currency: order.currency,
+      paymentIntentId: order.stripePaymentIntentId ?? undefined,
+      refundId: cancellation.stripeRefundId ?? undefined,
+    };
   }
   async rememberRefund(
     claim: CancellationClaim,
@@ -204,14 +272,12 @@ export class DrizzleOrderCancellationRepository
         .update(orders)
         .set({ status: ORDER_STATUS.cancelled, updatedAt: new Date() })
         .where(eq(orders.id, order.id));
-      await tx
-        .insert(orderStatusHistory)
-        .values({
-          orderId: order.id,
-          fromStatus: ORDER_STATUS.cancelling,
-          toStatus: ORDER_STATUS.cancelled,
-          reason: CANCELLATION.reasons.completed,
-        });
+      await tx.insert(orderStatusHistory).values({
+        orderId: order.id,
+        fromStatus: ORDER_STATUS.cancelling,
+        toStatus: ORDER_STATUS.cancelled,
+        reason: CANCELLATION.reasons.completed,
+      });
       await tx
         .update(orderCancellations)
         .set({

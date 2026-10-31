@@ -6,6 +6,10 @@ export interface StripePaidPayment {
   amount: number;
   currency: string;
 }
+export interface StripePaymentFinalization {
+  duplicate: boolean;
+  reversalRequired: boolean;
+}
 export interface StripePaymentFinalizer {
-  confirm(input: StripePaidPayment): Promise<{ duplicate: boolean }>;
+  confirm(input: StripePaidPayment): Promise<StripePaymentFinalization>;
 }

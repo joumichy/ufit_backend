@@ -26,6 +26,7 @@ import {
   reverseStripeCancellation,
   type StripeCancellationResult,
 } from "../infrastructure/stripe-order-cancellation";
+import { OrderCancellationService } from "../../orders/application/order-cancellation.service";
 import { STRIPE_ORDER_METADATA, STRIPE_COMMERCE } from "./stripe-commerce";
 
 export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
@@ -47,6 +48,8 @@ export class PaymentsService {
     private readonly finalizer: StripePaymentFinalizer,
     @Inject(forwardRef(() => OrdersService))
     private readonly orders: OrdersService,
+    @Inject(forwardRef(() => OrderCancellationService))
+    private readonly cancellations: OrderCancellationService,
   ) {}
 
   async reverseCancellation(
@@ -126,6 +129,7 @@ export class PaymentsService {
       amount: intent.amount_received,
       currency: intent.currency.toUpperCase(),
     });
-    return { received: true, ...result };
+    if (result.reversalRequired) await this.cancellations.recoverOrder(orderId);
+    return { received: true, duplicate: result.duplicate };
   }
 }

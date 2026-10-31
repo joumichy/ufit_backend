@@ -18,6 +18,7 @@ const fixture = {
     id: "cancellation",
     orderId: "order",
     originalStatus: ORDER_STATUS.paid,
+    reason: CANCELLATION.reason.customer,
     status: CANCELLATION.status.requested,
     amount: 13790,
     currency: "CHF",
@@ -42,12 +43,10 @@ function setup() {
   return {
     paymentIntents: {
       retrieve: vi.fn().mockResolvedValue(fixture.intent),
-      cancel: vi
-        .fn()
-        .mockResolvedValue({
-          ...fixture.intent,
-          status: STRIPE_PAYMENT_STATE.cancelled,
-        }),
+      cancel: vi.fn().mockResolvedValue({
+        ...fixture.intent,
+        status: STRIPE_PAYMENT_STATE.cancelled,
+      }),
     },
     refunds: {
       list: vi.fn().mockResolvedValue({ data: [], has_more: false }),
@@ -145,5 +144,23 @@ describe("Stripe order cancellation", () => {
       reverseStripeCancellation(stripe as never, fixture.claim),
     ).rejects.toMatchObject({ status: 409 });
     expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+  it("refunds an unavailable paid order without labeling it a customer-requested refund", async () => {
+    const stripe = setup();
+    await reverseStripeCancellation(stripe as never, {
+      ...fixture.claim,
+      reason: CANCELLATION.reason.stockUnavailable,
+    });
+    expect(stripe.refunds.create).toHaveBeenCalledWith(
+      {
+        payment_intent: fixture.intent.id,
+        amount: fixture.claim.amount,
+        metadata: {
+          [STRIPE_ORDER_METADATA.orderId]: fixture.claim.orderId,
+          [STRIPE_ORDER_METADATA.cancellationId]: fixture.claim.id,
+        },
+      },
+      { idempotencyKey: stripeCancellationRefundKey(fixture.claim.id) },
+    );
   });
 });

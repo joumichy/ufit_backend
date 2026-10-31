@@ -17,6 +17,7 @@ import {
   ORDER_STATUS,
   customerOrderActions,
   type OrderStatus,
+  type CancellationClaim,
 } from "../domain/order-lifecycle";
 export type { OrderStatus } from "../domain/order-lifecycle";
 
@@ -53,7 +54,11 @@ export interface Order {
   status: OrderStatus;
   createdAt: string;
   actions: { cancel: boolean; resumePayment: boolean };
-  cancellation?: { status: string; outcome?: string };
+  cancellation?: {
+    status: string;
+    reason: CancellationClaim["reason"];
+    outcome?: string;
+  };
   shipment?: {
     id: string;
     status: string;

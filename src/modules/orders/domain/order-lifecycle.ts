@@ -13,7 +13,17 @@ export const CANCELLATION = {
   repository: Symbol("OrderCancellationRepository"),
   status: { requested: "requested", succeeded: "succeeded" },
   outcome: { notCharged: "not_charged", refunded: "refunded" },
+  reason: {
+    customer: "customer_requested",
+    stockUnavailable: "stock_unavailable",
+  },
+  recovery: {
+    batchSize: 5,
+    pollMilliseconds: 15000,
+    leaseMilliseconds: 120000,
+  },
   reasons: {
+    stockUnavailable: "paid_order_stock_unavailable",
     requested: "customer_cancellation_requested",
     completed: "customer_cancellation_completed",
   },
@@ -57,6 +67,7 @@ export interface CancellationClaim {
   id: string;
   orderId: string;
   originalStatus: OrderStatus;
+  reason: (typeof CANCELLATION.reason)[keyof typeof CANCELLATION.reason];
   status: (typeof CANCELLATION.status)[keyof typeof CANCELLATION.status];
   amount: number;
   currency: string;
@@ -69,6 +80,8 @@ export type CancellationSettlement = {
 };
 export interface OrderCancellationRepository {
   claim(customerId: string, orderId: string): Promise<CancellationClaim>;
+  findPending(orderId: string): Promise<CancellationClaim | null>;
+  claimRecoverable(): Promise<CancellationClaim[]>;
   rememberRefund(claim: CancellationClaim, refundId: string): Promise<void>;
   complete(
     claim: CancellationClaim,
@@ -76,12 +89,16 @@ export interface OrderCancellationRepository {
   ): Promise<void>;
 }
 
-export function customerOrderActions(status: OrderStatus) {
+export function customerOrderActions(
+  status: OrderStatus,
+  reason?: CancellationClaim["reason"],
+) {
   return {
     cancel:
-      status === ORDER_STATUS.pendingPayment ||
-      status === ORDER_STATUS.paid ||
-      status === ORDER_STATUS.cancelling,
+      reason !== CANCELLATION.reason.stockUnavailable &&
+      (status === ORDER_STATUS.pendingPayment ||
+        status === ORDER_STATUS.paid ||
+        status === ORDER_STATUS.cancelling),
     resumePayment: status === ORDER_STATUS.pendingPayment,
   };
 }

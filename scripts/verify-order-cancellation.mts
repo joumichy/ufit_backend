@@ -25,6 +25,9 @@ import {
 const fixture = {
   quantity: 2,
   rate: "0.1200",
+  availableStock: 4,
+  shortageLineCount: 2,
+  second: 1,
   zero: 0,
   single: 1,
   registry: homedir() + "/.codex/private/ufit/qualification.credentials.json",
@@ -78,12 +81,7 @@ try {
         "Qualification stock is unavailable",
       );
       const startingStock = variant.stockQuantity;
-      const nested = {
-        db: {
-          transaction: <T,>(callback: (nestedTx: typeof tx) => Promise<T>) =>
-            tx.transaction(callback),
-        },
-      } as DatabaseService;
+      const nested = { db: tx } as unknown as DatabaseService;
       const cancellations = new DrizzleOrderCancellationRepository(nested);
       const finalizer = new DrizzleStripePaymentFinalizer(nested);
       async function create(
@@ -140,38 +138,31 @@ try {
               stockQuantity: sql`${productVariants.stockQuantity}-${fixture.quantity}`,
             })
             .where(eq(productVariants.id, variant.id));
-          await tx
-            .insert(payments)
-            .values({
-              orderId: id,
-              provider: "stripe",
-              providerPaymentIntentId: intent,
-              status: "succeeded",
-              amount: order.totalAmount,
-              currency: order.currency,
-            });
-          await tx
-            .insert(shipments)
-            .values({
-              orderId: id,
-              brandId: order.brandId,
-              status:
-                status === ORDER_STATUS.preparing ? "preparing" : "pending",
-            });
-          await tx
-            .insert(commissions)
-            .values({
-              orderItemId: item.id,
-              creatorId: registry.creator.profileId,
-              brandId: order.brandId,
-              sourceOutfitId: registry.qualification.outfitId,
-              baseAmount: order.totalAmount,
-              commissionRate: fixture.rate,
-              commissionAmount: Math.round(
-                order.totalAmount * Number(fixture.rate),
-              ),
-              status: "pending",
-            });
+          await tx.insert(payments).values({
+            orderId: id,
+            provider: "stripe",
+            providerPaymentIntentId: intent,
+            status: "succeeded",
+            amount: order.totalAmount,
+            currency: order.currency,
+          });
+          await tx.insert(shipments).values({
+            orderId: id,
+            brandId: order.brandId,
+            status: status === ORDER_STATUS.preparing ? "preparing" : "pending",
+          });
+          await tx.insert(commissions).values({
+            orderItemId: item.id,
+            creatorId: registry.creator.profileId,
+            brandId: order.brandId,
+            sourceOutfitId: registry.qualification.outfitId,
+            baseAmount: order.totalAmount,
+            commissionRate: fixture.rate,
+            commissionAmount: Math.round(
+              order.totalAmount * Number(fixture.rate),
+            ),
+            status: "pending",
+          });
         }
         return { order, item };
       }
@@ -262,6 +253,116 @@ try {
         "Preparation did not prevent cancellation",
       );
       passed++;
+      const variants = await tx
+        .select()
+        .from(productVariants)
+        .where(eq(productVariants.productId, product.id));
+      const orderedVariants = [...variants].sort((a, b) =>
+        a.id.localeCompare(b.id),
+      );
+      assert(
+        orderedVariants.length > fixture.single,
+        "Two qualification variants are required",
+      );
+      const available = orderedVariants[fixture.zero],
+        unavailable = orderedVariants[fixture.second];
+      await tx
+        .update(productVariants)
+        .set({ stockQuantity: fixture.availableStock })
+        .where(eq(productVariants.id, available.id));
+      await tx
+        .update(productVariants)
+        .set({ stockQuantity: fixture.zero })
+        .where(eq(productVariants.id, unavailable.id));
+      const short = await create(ORDER_STATUS.pendingPayment);
+      const secondVariant =
+        variant.id === available.id ? unavailable : available;
+      await tx
+        .insert(orderItems)
+        .values({
+          orderId: short.order.id,
+          productId: product.id,
+          productVariantId: secondVariant.id,
+          productSnapshot: { name: product.name },
+          quantity: fixture.quantity,
+          unitPrice: product.basePrice,
+          totalPrice: product.basePrice * fixture.quantity,
+          commissionRate: fixture.rate,
+        });
+      const shortTotal =
+        product.basePrice * fixture.quantity * fixture.shortageLineCount;
+      await tx
+        .update(orders)
+        .set({ subtotalAmount: shortTotal, totalAmount: shortTotal })
+        .where(eq(orders.id, short.order.id));
+      const shortConfirmation = {
+        eventId: fixture.eventPrefix + randomUUID(),
+        orderId: short.order.id,
+        paymentIntentId: short.order.stripePaymentIntentId!,
+        amount: shortTotal,
+        currency: short.order.currency,
+      };
+      const shortage = await finalizer.confirm(shortConfirmation);
+      const shortageReplay = await finalizer.confirm(shortConfirmation);
+      const stocks = await tx
+        .select()
+        .from(productVariants)
+        .where(inArray(productVariants.id, [available.id, unavailable.id]));
+      const [shortOrder] = await tx
+        .select()
+        .from(orders)
+        .where(eq(orders.id, short.order.id));
+      const [shortPayment] = await tx
+        .select()
+        .from(payments)
+        .where(eq(payments.orderId, short.order.id));
+      const [shortShipments] = await tx
+        .select({ value: count() })
+        .from(shipments)
+        .where(eq(shipments.orderId, short.order.id));
+      const [shortCommissions] = await tx
+        .select({ value: count() })
+        .from(commissions)
+        .where(eq(commissions.orderItemId, short.item.id));
+      const shortClaim = await cancellations.findPending(short.order.id);
+      assert(
+        shortage.reversalRequired &&
+          shortageReplay.duplicate &&
+          shortageReplay.reversalRequired &&
+          shortOrder.status === ORDER_STATUS.cancelling &&
+          shortPayment.status === "succeeded" &&
+          shortShipments.value === fixture.zero &&
+          shortCommissions.value === fixture.zero &&
+          stocks.find((row) => row.id === available.id)?.stockQuantity ===
+            fixture.availableStock &&
+          stocks.find((row) => row.id === unavailable.id)?.stockQuantity ===
+            fixture.zero &&
+          shortClaim?.reason === CANCELLATION.reason.stockUnavailable,
+        "Paid stock shortage did not preserve inventory and queue its refund",
+      );
+      passed++;
+      const leased = await cancellations.claimRecoverable();
+      const duplicateLease = await cancellations.claimRecoverable();
+      assert(
+        leased.some((row) => row.id === shortClaim.id) &&
+          !duplicateLease.some((row) => row.id === shortClaim.id),
+        "Recovery request was leased twice before expiry",
+      );
+      await cancellations.complete(shortClaim, {
+        outcome: CANCELLATION.outcome.refunded,
+        refundId: fixture.refundPrefix + randomUUID(),
+      });
+      const restored = await tx
+        .select()
+        .from(productVariants)
+        .where(eq(productVariants.id, available.id));
+      assert(
+        restored[fixture.zero].stockQuantity === fixture.availableStock &&
+          (await cancellations.findPending(short.order.id)) === null &&
+          !(await finalizer.confirm(shortConfirmation)).reversalRequired,
+        "Refund of an unfulfilled order changed stock or remained recoverable",
+      );
+      passed++;
       throw new VerificationRollback();
     });
   } catch (error) {
@@ -283,6 +384,8 @@ try {
         "paid reversal exactly once",
         "late paid webhook during cancellation",
         "preparation prevents cancellation",
+        "multi-variant stock savepoint and durable refund",
+        "recovery lease and stock-neutral completion",
       ],
     }),
   );

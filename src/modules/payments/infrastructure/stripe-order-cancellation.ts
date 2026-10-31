@@ -81,7 +81,9 @@ export async function reverseStripeCancellation(
     {
       payment_intent: intent.id,
       amount: claim.amount,
-      reason: STRIPE_COMMERCE.cancellationReason,
+      ...(claim.reason === CANCELLATION.reason.customer
+        ? { reason: STRIPE_COMMERCE.cancellationReason }
+        : {}),
       metadata: {
         [STRIPE_ORDER_METADATA.orderId]: claim.orderId,
         [STRIPE_ORDER_METADATA.cancellationId]: claim.id,

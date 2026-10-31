@@ -125,6 +125,10 @@ export const orderCancellations = ufitSchema.table("order_cancellations", {
     onDelete: "set null",
   }),
   originalStatus: text("original_status").notNull(),
+  reason: text("reason").notNull(),
+  nextRecoveryAt: timestamp("next_recovery_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
   status: text("status").notNull(),
   paymentOutcome: text("payment_outcome"),
   stripeRefundId: text("stripe_refund_id").unique(),

@@ -10,8 +10,8 @@ function makeOrder(): Order {
     brandId: "brand-1",
     status: "pending_payment",
     createdAt: "2026-10-31T12:00:00.000Z",
-    actions: {cancel:true,resumePayment:true},
-    taxAmount:0,
+    actions: { cancel: true, resumePayment: true },
+    taxAmount: 0,
     subtotalAmount: 5000,
     shippingAmount: 900,
     totalAmount: 5900,
@@ -59,30 +59,35 @@ describe("PaymentsService", () => {
   function setup() {
     const stripe = {
       paymentIntents: {
-        create: vi
-          .fn()
-          .mockResolvedValue({
-            id: "pi_test",
-            client_secret: "test_client_secret",
-          }),
-        retrieve: vi
-          .fn()
-          .mockResolvedValue({
-            id: "pi_test",
-            client_secret: "test_client_secret",
-          }),
+        create: vi.fn().mockResolvedValue({
+          id: "pi_test",
+          client_secret: "test_client_secret",
+        }),
+        retrieve: vi.fn().mockResolvedValue({
+          id: "pi_test",
+          client_secret: "test_client_secret",
+        }),
       },
       webhooks: { constructEvent: vi.fn() },
     };
     const finalizer = {
-      confirm: vi.fn().mockResolvedValue({ duplicate: false }),
+      confirm: vi
+        .fn()
+        .mockResolvedValue({ duplicate: false, reversalRequired: false }),
     };
     const orders = { attachPaymentIntent: vi.fn() };
+    const cancellations = { recoverOrder: vi.fn() };
     return {
       stripe,
       finalizer,
       orders,
-      service: new PaymentsService(stripe as never, finalizer, orders as never),
+      cancellations,
+      service: new PaymentsService(
+        stripe as never,
+        finalizer,
+        orders as never,
+        cancellations as never,
+      ),
     };
   }
   it("creates a card-only PaymentIntent from the persisted total, with a stable idempotency key", async () => {
@@ -196,5 +201,34 @@ describe("PaymentsService", () => {
     });
     await service.handleStripeWebhook(Buffer.from("{}"), "signature");
     expect(finalizer.confirm).not.toHaveBeenCalled();
+  });
+  it("resumes durable compensation even when a signed successful event is replayed", async () => {
+    const { service, stripe, finalizer, cancellations } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      id: "evt_paid",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_test",
+          metadata: { order_id: "order-1" },
+          amount_received: 5900,
+          currency: "chf",
+        },
+      },
+    });
+    finalizer.confirm.mockResolvedValue({
+      duplicate: true,
+      reversalRequired: true,
+    });
+    await expect(
+      service.handleStripeWebhook(Buffer.from("signed payload"), "signature"),
+    ).resolves.toEqual({ received: true, duplicate: true });
+    expect(cancellations.recoverOrder).toHaveBeenCalledWith("order-1");
+    cancellations.recoverOrder.mockRejectedValueOnce(
+      new Error("Provider temporarily unavailable"),
+    );
+    await expect(
+      service.handleStripeWebhook(Buffer.from("signed payload"), "signature"),
+    ).rejects.toThrow("Provider temporarily unavailable");
   });
 });

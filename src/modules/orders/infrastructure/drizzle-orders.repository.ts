@@ -32,8 +32,12 @@ import {
   ORDER_STATUS,
   customerOrderActions,
   type OrderStatus,
+  type CancellationClaim,
 } from "../domain/order-lifecycle";
-const ORDER_READ = { cursor: "Invalid order cursor" } as const;
+const ORDER_READ = {
+  cursor: "Invalid order cursor",
+  snapshot: { isolationLevel: "repeatable read", accessMode: "read only" },
+} as const;
 
 @Injectable()
 export class DrizzleOrderRepository implements OrderRepository {
@@ -162,89 +166,84 @@ export class DrizzleOrderRepository implements OrderRepository {
   }
 
   async listForCustomer(userId: string, limit: number, cursor?: string) {
-    let anchor: OrderRow | undefined;
-    if (cursor) {
-      [anchor] = await this.database.db
+    return this.database.db.transaction(async (tx) => {
+      let anchor: OrderRow | undefined;
+      if (cursor) {
+        [anchor] = await tx
+          .select()
+          .from(orders)
+          .where(and(eq(orders.id, cursor), eq(orders.customerId, userId)))
+          .limit(ORDER_LIMIT.singleRow);
+        if (!anchor) throw new BadRequestException(ORDER_READ.cursor);
+      }
+      const rows = await tx
         .select()
         .from(orders)
-        .where(and(eq(orders.id, cursor), eq(orders.customerId, userId)))
-        .limit(ORDER_LIMIT.singleRow);
-      if (!anchor) throw new BadRequestException(ORDER_READ.cursor);
-    }
-    const rows = await this.database.db
-      .select()
-      .from(orders)
-      .where(
-        and(
-          eq(orders.customerId, userId),
-          anchor
-            ? or(
-                lt(orders.createdAt, anchor.createdAt),
-                and(
-                  eq(orders.createdAt, anchor.createdAt),
-                  lt(orders.id, anchor.id),
-                ),
-              )
-            : undefined,
+        .where(
+          and(
+            eq(orders.customerId, userId),
+            anchor
+              ? or(
+                  lt(orders.createdAt, anchor.createdAt),
+                  and(
+                    eq(orders.createdAt, anchor.createdAt),
+                    lt(orders.id, anchor.id),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(desc(orders.createdAt), desc(orders.id))
+        .limit(limit + ORDER_LIMIT.overflow);
+      const selected = rows.slice(ORDER_LIMIT.firstRow, limit);
+      const ids = selected.map((row) => row.id);
+      if (!ids.length) return { items: [], nextCursor: null };
+      const [items, shipping, cancellations] = await Promise.all([
+        tx.select().from(orderItems).where(inArray(orderItems.orderId, ids)),
+        tx.select().from(shipments).where(inArray(shipments.orderId, ids)),
+        tx
+          .select()
+          .from(orderCancellations)
+          .where(inArray(orderCancellations.orderId, ids)),
+      ]);
+      return {
+        items: selected.map((row) =>
+          projectOrder(
+            row,
+            items.filter((item) => item.orderId === row.id),
+            shipping.find((value) => value.orderId === row.id),
+            cancellations.find((value) => value.orderId === row.id),
+          ),
         ),
-      )
-      .orderBy(desc(orders.createdAt), desc(orders.id))
-      .limit(limit + ORDER_LIMIT.overflow);
-    const selected = rows.slice(ORDER_LIMIT.firstRow, limit);
-    const ids = selected.map((row) => row.id);
-    if (!ids.length) return { items: [], nextCursor: null };
-    const [items, shipping, cancellations] = await Promise.all([
-      this.database.db
-        .select()
-        .from(orderItems)
-        .where(inArray(orderItems.orderId, ids)),
-      this.database.db
-        .select()
-        .from(shipments)
-        .where(inArray(shipments.orderId, ids)),
-      this.database.db
-        .select()
-        .from(orderCancellations)
-        .where(inArray(orderCancellations.orderId, ids)),
-    ]);
-    return {
-      items: selected.map((row) =>
-        projectOrder(
-          row,
-          items.filter((item) => item.orderId === row.id),
-          shipping.find((value) => value.orderId === row.id),
-          cancellations.find((value) => value.orderId === row.id),
-        ),
-      ),
-      nextCursor:
-        rows.length > limit ? selected.at(ORDER_LIMIT.lastRow)!.id : null,
-    };
+        nextCursor:
+          rows.length > limit ? selected.at(ORDER_LIMIT.lastRow)!.id : null,
+      };
+    }, ORDER_READ.snapshot);
   }
 
   async findById(orderId: string): Promise<Order | undefined> {
-    const [order] = await this.database.db
-      .select()
-      .from(orders)
-      .where(eq(orders.id, orderId))
-      .limit(ORDER_LIMIT.singleRow);
-    if (!order) return undefined;
-    const [items, [shipment], [cancellation]] = await Promise.all([
-      this.database.db
+    return this.database.db.transaction(async (tx) => {
+      const [order] = await tx
         .select()
-        .from(orderItems)
-        .where(eq(orderItems.orderId, orderId)),
-      this.database.db
-        .select()
-        .from(shipments)
-        .where(eq(shipments.orderId, orderId))
-        .limit(ORDER_LIMIT.singleRow),
-      this.database.db
-        .select()
-        .from(orderCancellations)
-        .where(eq(orderCancellations.orderId, orderId))
-        .limit(ORDER_LIMIT.singleRow),
-    ]);
-    return projectOrder(order, items, shipment, cancellation);
+        .from(orders)
+        .where(eq(orders.id, orderId))
+        .limit(ORDER_LIMIT.singleRow);
+      if (!order) return undefined;
+      const [items, [shipment], [cancellation]] = await Promise.all([
+        tx.select().from(orderItems).where(eq(orderItems.orderId, orderId)),
+        tx
+          .select()
+          .from(shipments)
+          .where(eq(shipments.orderId, orderId))
+          .limit(ORDER_LIMIT.singleRow),
+        tx
+          .select()
+          .from(orderCancellations)
+          .where(eq(orderCancellations.orderId, orderId))
+          .limit(ORDER_LIMIT.singleRow),
+      ]);
+      return projectOrder(order, items, shipment, cancellation);
+    }, ORDER_READ.snapshot);
   }
 }
 
@@ -263,7 +262,10 @@ function projectOrder(
     sourceOutfitId: order.sourceOutfitId ?? undefined,
     status: order.status as Order["status"],
     createdAt: order.createdAt.toISOString(),
-    actions: customerOrderActions(order.status as OrderStatus),
+    actions: customerOrderActions(
+      order.status as OrderStatus,
+      cancellation?.reason as CancellationClaim["reason"] | undefined,
+    ),
     shipment: shipment
       ? {
           id: shipment.id,
@@ -278,6 +280,7 @@ function projectOrder(
     cancellation: cancellation
       ? {
           status: cancellation.status,
+          reason: cancellation.reason as CancellationClaim["reason"],
           outcome: cancellation.paymentOutcome ?? undefined,
         }
       : undefined,

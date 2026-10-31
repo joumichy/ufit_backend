@@ -12,6 +12,7 @@ import {
 import { CANCELLATION } from "./domain/order-lifecycle";
 import { OrderCancellationService } from "./application/order-cancellation.service";
 import { DrizzleOrderCancellationRepository } from "./infrastructure/drizzle-order-cancellation.repository";
+import { OrderCancellationWorker } from "./infrastructure/order-cancellation.worker";
 import { OrdersController } from "./presentation/orders.controller";
 
 @Module({
@@ -26,6 +27,7 @@ import { OrdersController } from "./presentation/orders.controller";
     OrdersService,
     OrderCheckoutService,
     OrderCancellationService,
+    OrderCancellationWorker,
     DrizzleOrderCancellationRepository,
     {
       provide: CANCELLATION.repository,
@@ -39,6 +41,6 @@ import { OrdersController } from "./presentation/orders.controller";
     DrizzleOrderRepository,
     DrizzleProductSnapshotReader,
   ],
-  exports: [OrdersService, "OrderRepository"],
+  exports: [OrdersService, OrderCancellationService, "OrderRepository"],
 })
 export class OrdersModule {}
