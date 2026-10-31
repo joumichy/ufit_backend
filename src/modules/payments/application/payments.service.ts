@@ -7,6 +7,8 @@ import {
   forwardRef,
 } from "@nestjs/common";
 import type Stripe from "stripe";
+import { ConnectAccountsService } from "./connect-accounts.service";
+import { CONNECT } from "../domain/connect-account";
 type StripeSDK = InstanceType<typeof Stripe>;
 import { getEnv } from "../../../config/env";
 import {
@@ -29,10 +31,16 @@ import {
 import { OrderCancellationService } from "../../orders/application/order-cancellation.service";
 import { STRIPE_ORDER_METADATA, STRIPE_COMMERCE } from "./stripe-commerce";
 
-export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
+export { STRIPE_CLIENT } from "./stripe-commerce";
+import { STRIPE_CLIENT } from "./stripe-commerce";
 export type StripePaymentsClient = Pick<
   StripeSDK,
-  "paymentIntents" | "webhooks" | "refunds"
+  | "paymentIntents"
+  | "webhooks"
+  | "refunds"
+  | "accounts"
+  | "accountLinks"
+  | "countrySpecs"
 >;
 export interface NativePaymentIntentResult {
   orderId: string;
@@ -50,6 +58,8 @@ export class PaymentsService {
     private readonly orders: OrdersService,
     @Inject(forwardRef(() => OrderCancellationService))
     private readonly cancellations: OrderCancellationService,
+    @Inject(ConnectAccountsService)
+    private readonly connect: ConnectAccountsService,
   ) {}
 
   async reverseCancellation(
@@ -69,6 +79,12 @@ export class PaymentsService {
       throw new ServiceUnavailableException(
         "Stripe payments are not configured",
       );
+    await this.connect.assertSaleRecipients(
+      order.brandId,
+      order.items.flatMap((item) =>
+        item.sourceCreatorId ? [item.sourceCreatorId] : [],
+      ),
+    );
     const intent = order.stripePaymentIntentId
       ? await this.stripe.paymentIntents.retrieve(order.stripePaymentIntentId)
       : await this.stripe.paymentIntents.create(
@@ -111,6 +127,10 @@ export class PaymentsService {
       event = this.stripe.webhooks.constructEvent(payload, signature, secret);
     } catch {
       throw new UnauthorizedException("Invalid Stripe webhook signature");
+    }
+    if (event.type === CONNECT.eventUpdated) {
+      await this.connect.accountUpdated(event.data.object.id, event.livemode);
+      return { received: true, duplicate: false };
     }
     if (event.type !== STRIPE_COMMERCE.paymentSucceeded)
       return { received: true, duplicate: false };

@@ -77,16 +77,19 @@ describe("PaymentsService", () => {
     };
     const orders = { attachPaymentIntent: vi.fn() };
     const cancellations = { recoverOrder: vi.fn() };
+    const connect = { assertSaleRecipients: vi.fn(), accountUpdated: vi.fn() };
     return {
       stripe,
       finalizer,
       orders,
       cancellations,
+      connect,
       service: new PaymentsService(
         stripe as never,
         finalizer,
         orders as never,
         cancellations as never,
+        connect as never,
       ),
     };
   }
@@ -230,5 +233,32 @@ describe("PaymentsService", () => {
     await expect(
       service.handleStripeWebhook(Buffer.from("signed payload"), "signature"),
     ).rejects.toThrow("Provider temporarily unavailable");
+  });
+  it("does not prepare a payment for an unconfigured Connect recipient", async () => {
+    const { service, stripe, connect } = setup();
+    connect.assertSaleRecipients.mockRejectedValueOnce(
+      new Error("Connect recipient incomplete"),
+    );
+    await expect(service.createPaymentIntent(makeOrder())).rejects.toThrow(
+      "Connect recipient incomplete",
+    );
+    expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
+  });
+  it("synchronizes the owned connected account for a signed account.updated event", async () => {
+    const { service, stripe, connect, finalizer } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      type: "account.updated",
+      livemode: false,
+      data: { object: { id: "acct_recipient" } },
+    });
+    await service.handleStripeWebhook(
+      Buffer.from("signed payload"),
+      "signature",
+    );
+    expect(connect.accountUpdated).toHaveBeenCalledWith(
+      "acct_recipient",
+      false,
+    );
+    expect(finalizer.confirm).not.toHaveBeenCalled();
   });
 });

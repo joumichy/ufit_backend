@@ -90,6 +90,9 @@ const brandMetrics: BrandWorkspaceMetrics = {
 };
 
 class FakeWorkspacesRepository implements WorkspacesRepository {
+  async listBrandsForUser(): Promise<{items: BrandWorkspaceProfile[]; nextCursor: string | null}> {
+    return {items: [brandProfile], nextCursor: null};
+  }
   creator: CreatorWorkspaceProfile | null = creatorProfile;
   brand: BrandWorkspaceProfile | null = brandProfile;
   lastPage: Required<WorkspacePageInput> | undefined;

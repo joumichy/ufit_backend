@@ -23,7 +23,10 @@ import { DrizzleShipmentRepository } from '../src/modules/shipping/infrastructur
 import { DrizzleWorkspacesRepository } from '../src/modules/workspaces/infrastructure/drizzle-workspaces.repository';
 import { DatabaseService } from '../src/shared/infrastructure/database/database.service';
 
+import { DrizzleConnectAccountsRepository } from '../src/modules/payments/infrastructure/drizzle-connect-accounts.repository';
+
 const databaseBackedProviders = [
+  DrizzleConnectAccountsRepository,
   DrizzleAdminAuditRepository,
   DrizzleAdminRepository,
   DrizzleApplicationsRepository,

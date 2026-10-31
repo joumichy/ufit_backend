@@ -1,3 +1,4 @@
+export const STRIPE_CLIENT = Symbol("STRIPE_CLIENT");
 export const STRIPE_ORDER_METADATA = {
   orderId: "order_id",
   cancellationId: "cancellation_id",

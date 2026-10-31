@@ -13,10 +13,16 @@ function pageFromQuery(limit?: string, offset?: string) {
   };
 }
 
+const MEMBERSHIPS_ROUTE = "me/workspaces";
 @Controller()
 @UseGuards(AuthGuard, RoleGuard)
 export class WorkspacesController {
   constructor(@Inject(WorkspacesService) private readonly workspacesService: WorkspacesService) {}
+
+  @Get(MEMBERSHIPS_ROUTE)
+  memberships(@CurrentUser() user: AuthenticatedUser, @Query() raw: unknown) {
+    return this.workspacesService.listForUser(user.id, raw);
+  }
 
   @Get('creators/me/dashboard')
   @Roles('creator')
