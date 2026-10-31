@@ -1,3 +1,4 @@
+import type { DatabaseSession } from "../../shared/infrastructure/database/database-session";
 import { COMMERCE_POLICY_KEY, type BrandCommercePolicy } from './commerce-policy';
 import { Inject, Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
@@ -15,7 +16,7 @@ import type { BrandsRepository } from './brands.repository';
 
 @Injectable()
 export class DrizzleBrandsRepository implements BrandsRepository {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
 
   async findSettings(brandProfileId: string) {
     return this.database.db.query.brandSettings.findFirst({where: eq(brandSettings.brandProfileId,brandProfileId)});

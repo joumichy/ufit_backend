@@ -1,3 +1,4 @@
+import { APPLICATION } from "../src/modules/applications/types/application-contract";
 import { createClient } from '@supabase/supabase-js';
 import { Pool } from 'pg';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -50,20 +51,33 @@ try {
   const {data: verifiedAdmin} = await authority.auth.admin.getUserById(admin.authId!);
   if (!verifiedAdmin.user?.user_metadata.ufit_qualification) throw new Error('Only the private qualification account may be bootstrapped');
   await pool.query(`insert into ${schema}.user_roles (user_id, role) values ($1, $2) on conflict (user_id,role) do nothing`, [admin.userId, 'super_admin']);
-  for (const role of ['creator','brand'] as const) {
+  for (const role of [APPLICATION.kind.creator,APPLICATION.kind.brand] as const) {
     const account = registry[role]!;
+    const commonURL = 'https://example.test/ufit-qualification';
+    const payload = role === APPLICATION.kind.creator ? {displayName: 'Créateur Ufit — Qualification', email: account.email, portfolioUrl: commonURL,
+      motivation: 'Qualification des parcours de création et publication de tenues Ufit.',
+      dossier: {instagramUrl: commonURL, dominantStyle: 'Éditorial', brandsWorn: 'Marques de qualification',
+        outfitExampleUrls: [commonURL + '/one', commonURL + '/two', commonURL + '/three']}}
+      : {brandName: 'Marque Ufit — Qualification', email: account.email, websiteUrl: commonURL, productCategory: 'Vêtements',
+        positioning: 'Catalogue de qualification du commerce Ufit en environnement de développement.',
+        dossier: {instagramUrl: commonURL, country: 'CH', priceRange: 'Gamme de qualification', lookbookUrl: commonURL,
+          shippingCapabilities: 'Expédition manuelle de qualification', returnPolicy: 'Retours de qualification sous trente jours'}};
+    const collection = APPLICATION.collection[role];
     if (!account.applicationId) {
-      const payload = role === 'creator' ? {displayName: 'Créateur Ufit — Qualification', email: account.email, portfolioUrl: 'https://example.test/ufit-qualification', motivation: 'Qualification des parcours de création et publication de tenues Ufit.'}
-        : {brandName: 'Marque Ufit — Qualification', email: account.email, websiteUrl: 'https://example.test/ufit-qualification', productCategory: 'Vêtements', positioning: 'Catalogue de qualification du commerce Ufit en environnement de développement.'};
-      account.applicationId = (await api(account, `applications/${role === 'creator' ? 'creators' : 'brands'}`, 'POST', payload)).id;
+      account.applicationId = (await api(account, `applications/${collection}`, 'POST', payload)).id;
       await persist();
     }
-    const table = role === 'creator' ? 'creator_applications' : 'brand_applications';
-    const {rows} = await pool.query(`select status from ${schema}.${table} where id=$1`,[account.applicationId]);
-    const requiredRole = role === 'creator' ? 'creator' : 'brand_owner';
+    let application = await api(admin, `admin/applications/${role}/${account.applicationId}`);
+    if (application.status !== APPLICATION.status.accepted && !application.dossier) {
+      if (!([APPLICATION.status.rejected, APPLICATION.status.needsMoreInfo] as string[]).includes(application.status)) application = await api(admin,
+        `admin/applications/${role}/${account.applicationId}/reviews`, 'POST', {decision: APPLICATION.decision.needsMoreInfo, expectedVersion: application.version, notes: 'Compléter le dossier de qualification.'});
+      application = await api(account, `applications/${collection}/${account.applicationId}`, 'PATCH', {...payload, expectedVersion: application.version});
+    }
+    const requiredRole = APPLICATION.role[role];
     const roles = (await api(account, 'me')).roles as string[];
-    if (rows[0]?.status !== 'accepted' || !roles.includes(requiredRole)) await api(admin, `admin/applications/${role}/${account.applicationId}/reviews`, 'POST', {decision:'accept'});
-    const profiles = role === 'creator' ? 'creator_profiles' : 'brand_profiles';
+    if (application.status !== APPLICATION.status.accepted || !roles.includes(requiredRole)) await api(admin,
+      `admin/applications/${role}/${account.applicationId}/reviews`, 'POST', {decision: APPLICATION.decision.accept, expectedVersion: application.version});
+    const profiles = role === APPLICATION.kind.creator ? 'creator_profiles' : 'brand_profiles';
     const {rows: profilesRows} = await pool.query(`select id from ${schema}.${profiles} where application_id=$1`,[account.applicationId]);
     account.profileId = profilesRows[0]?.id;
     if (!account.profileId) throw new Error('Accepted qualification application has no profile');

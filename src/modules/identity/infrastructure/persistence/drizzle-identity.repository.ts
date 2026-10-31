@@ -1,3 +1,4 @@
+import type { DatabaseSession } from "../../../../shared/infrastructure/database/database-session";
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { DatabaseService } from '../../../../shared/infrastructure/database/database.service';
@@ -7,7 +8,7 @@ import type { AuthenticatedUser, SupabaseJwtClaims, UserProfilePatch, UserRole }
 
 @Injectable()
 export class DrizzleIdentityRepository implements IdentityRepository {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
 
   async ensureRole(userId: string, role: UserRole): Promise<void> {
     await this.database.db.insert(userRoles).values({ userId, role })

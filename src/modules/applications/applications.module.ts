@@ -1,32 +1,24 @@
+import { DrizzleApplicationReader } from "./drizzle-application-reader";
+import { ApplicationQueriesController } from "./application-queries.controller";
+import { DrizzleApplicationWorkflow } from "./drizzle-application-workflow";
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { AdminAuditModule } from '../admin-audit/admin-audit.module';
-import { BrandsModule } from '../brands/brands.module';
-import { BrandsService } from '../brands/brands.service';
-import { BRANDS_SERVICE } from '../brands/brands.tokens';
-import { CreatorsModule } from '../creators/creators.module';
-import { CreatorsService } from '../creators/creators.service';
-import { CREATORS_SERVICE } from '../creators/creators.tokens';
 import { IdentityModule } from '../identity/identity.module';
 import { ApplicationsController } from './applications.controller';
 import { ApplicationsService } from './applications.service';
 import { DrizzleApplicationsRepository } from './drizzle-applications.repository';
-import { APPLICATIONS_REPOSITORY, PROFILE_PROVISIONING_PORT } from './types/application.types';
+import { APPLICATIONS_REPOSITORY, APPLICATION_WORKFLOW } from './types/application.types';
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, CreatorsModule, BrandsModule, AdminAuditModule],
-  controllers: [ApplicationsController],
+  imports: [DatabaseModule, IdentityModule, AdminAuditModule],
+  controllers: [ApplicationsController, ApplicationQueriesController],
   providers: [
     ApplicationsService,
+    DrizzleApplicationReader,
     { provide: APPLICATIONS_REPOSITORY, useClass: DrizzleApplicationsRepository },
-    {
-      provide: PROFILE_PROVISIONING_PORT,
-      useFactory: (creatorsService: CreatorsService, brandsService: BrandsService) => ({
-        provisionCreatorFromApplication: creatorsService.provisionFromApplication.bind(creatorsService),
-        provisionBrandFromApplication: brandsService.provisionFromApplication.bind(brandsService)
-      }),
-      inject: [CREATORS_SERVICE, BRANDS_SERVICE]
-    }
+    DrizzleApplicationWorkflow,
+    {provide: APPLICATION_WORKFLOW, useExisting: DrizzleApplicationWorkflow}
   ]
 })
 export class ApplicationsModule {}

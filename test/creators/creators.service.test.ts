@@ -32,6 +32,8 @@ function application(): CreatorApplicationRow {
     portfolioUrl: 'https://example.com/mira',
     motivation: 'I curate sharp outfits for independent labels.',
     audienceSummary: null,
+    dossier: null,
+    version: 1,
     status: 'accepted',
     submittedAt: now,
     updatedAt: now

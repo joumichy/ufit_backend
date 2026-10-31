@@ -1,3 +1,5 @@
+import { creatorDossier, brandDossier } from "./application-fixtures";
+import type { ApplicationWorkflow } from "../../src/modules/applications/types/application.types";
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { ApplicationsService } from '../../src/modules/applications/applications.service';
@@ -15,6 +17,8 @@ function creatorApplication(overrides: Partial<CreatorApplicationRow> = {}): Cre
     portfolioUrl: 'https://example.com/mira',
     motivation: 'I curate sharp outfits for independent labels.',
     audienceSummary: null,
+    dossier: creatorDossier,
+    version: 1,
     status: 'submitted',
     submittedAt: now,
     updatedAt: now,
@@ -31,6 +35,8 @@ function brandApplication(overrides: Partial<BrandApplicationRow> = {}): BrandAp
     websiteUrl: 'https://example.com',
     productCategory: 'Outerwear',
     positioning: 'Responsible outerwear for editorial outfits.',
+    dossier: brandDossier,
+    version: 1,
     status: 'submitted',
     submittedAt: now,
     updatedAt: now,
@@ -40,14 +46,20 @@ function brandApplication(overrides: Partial<BrandApplicationRow> = {}): BrandAp
 
 function buildService(repositoryOverrides: Partial<ApplicationsRepository> = {}) {
   const repository: ApplicationsRepository = {
+    lockApplicant: vi.fn().mockResolvedValue("active"),
+    hasCreatorProfile: vi.fn().mockResolvedValue(false),
+    lockCreatorApplication: vi.fn().mockResolvedValue(creatorApplication()),
+    lockBrandApplication: vi.fn().mockResolvedValue(brandApplication()),
+    updateCreatorApplication: vi.fn().mockResolvedValue(creatorApplication({version: 3})),
+    updateBrandApplication: vi.fn().mockResolvedValue(brandApplication({version: 3})),
     findActiveCreatorApplication: vi.fn().mockResolvedValue(undefined),
     findActiveBrandApplication: vi.fn().mockResolvedValue(undefined),
     createCreatorApplication: vi.fn().mockResolvedValue(creatorApplication()),
     createBrandApplication: vi.fn().mockResolvedValue(brandApplication()),
     findCreatorApplication: vi.fn().mockResolvedValue(creatorApplication()),
     findBrandApplication: vi.fn().mockResolvedValue(brandApplication()),
-    updateCreatorApplicationStatus: vi.fn().mockResolvedValue(creatorApplication({ status: 'accepted' })),
-    updateBrandApplicationStatus: vi.fn().mockResolvedValue(brandApplication({ status: 'accepted' })),
+    updateCreatorApplicationStatus: vi.fn().mockResolvedValue(creatorApplication({ status: 'accepted', version: 2 })),
+    updateBrandApplicationStatus: vi.fn().mockResolvedValue(brandApplication({ status: 'accepted', version: 2 })),
     createReview: vi.fn().mockResolvedValue({
       id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
       applicationType: 'creator',
@@ -65,7 +77,8 @@ function buildService(repositoryOverrides: Partial<ApplicationsRepository> = {})
   };
 
   const identity = { ensureRole: vi.fn().mockResolvedValue(undefined) };
-  return { service: new ApplicationsService(repository, provisioning, identity), repository, provisioning, identity };
+  const workflow: ApplicationWorkflow = {run: operation => operation({applications: repository, provisioning, identity})};
+  return { service: new ApplicationsService(repository, workflow), repository, provisioning, identity };
 }
 
 describe('ApplicationsService', () => {
@@ -74,6 +87,7 @@ describe('ApplicationsService', () => {
 
     await expect(
       service.submitCreatorApplication({
+        dossier: creatorDossier,
         userId: '11111111-1111-1111-1111-111111111111',
         displayName: 'Mira Studio',
         email: 'mira@example.com',
@@ -92,6 +106,7 @@ describe('ApplicationsService', () => {
 
     await expect(
       service.submitCreatorApplication({
+        dossier: creatorDossier,
         userId: '11111111-1111-1111-1111-111111111111',
         displayName: 'Mira Studio',
         email: 'mira@example.com',
@@ -105,6 +120,7 @@ describe('ApplicationsService', () => {
     const { service, repository, provisioning, identity } = buildService();
 
     const result = await service.reviewApplication({
+      expectedVersion: 1,
       applicationType: 'creator',
       applicationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       reviewerUserId: '99999999-9999-9999-9999-999999999999',
@@ -120,14 +136,16 @@ describe('ApplicationsService', () => {
 
   it('waitlists a brand application without provisioning a profile', async () => {
     const { service, repository, provisioning } = buildService({
-      updateBrandApplicationStatus: vi.fn().mockResolvedValue(brandApplication({ status: 'waitlisted' }))
+      updateBrandApplicationStatus: vi.fn().mockResolvedValue(brandApplication({ status: 'waitlisted', version: 2 }))
     });
 
     const result = await service.reviewApplication({
+      expectedVersion: 1,
       applicationType: 'brand',
       applicationId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
       reviewerUserId: '99999999-9999-9999-9999-999999999999',
-      decision: 'waitlist'
+      decision: 'waitlist',
+      notes: 'Dossier en liste d’attente'
     });
 
     expect(result.application.status).toBe('waitlisted');
@@ -142,6 +160,7 @@ describe('ApplicationsService', () => {
 
     await expect(
       service.reviewApplication({
+      expectedVersion: 1,
         applicationType: 'creator',
         applicationId: 'missing',
         reviewerUserId: '99999999-9999-9999-9999-999999999999',

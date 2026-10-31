@@ -1,14 +1,19 @@
-import { IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { Transform } from "class-transformer";
+import { trimApplicationText } from "./application-text";
+import { IsIn, IsInt, IsOptional, IsString, Length, Min } from 'class-validator';
+import { APPLICATION, APPLICATION_DECISIONS } from "../types/application-contract";
 import type { ApplicationDecision } from '../types/application.types';
 
-const decisions: ApplicationDecision[] = ['accept', 'reject', 'waitlist', 'needs_more_info'];
 
 export class ReviewApplicationRequest {
-  @IsIn(decisions)
+  @IsInt() @Min(APPLICATION.limits.initialVersion)
+  expectedVersion!: number;
+  @IsIn(APPLICATION_DECISIONS)
   decision!: ApplicationDecision;
 
   @IsOptional()
   @IsString()
-  @Length(2, 2000)
+  @Transform(trimApplicationText)
+  @Length(APPLICATION.limits.detailMin, APPLICATION.limits.textMax)
   notes?: string;
 }

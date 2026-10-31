@@ -43,6 +43,8 @@ function application(): BrandApplicationRow {
     websiteUrl: 'https://example.com',
     productCategory: 'Outerwear',
     positioning: 'Responsible outerwear for editorial outfits.',
+    dossier: null,
+    version: 1,
     status: 'accepted',
     submittedAt: now,
     updatedAt: now

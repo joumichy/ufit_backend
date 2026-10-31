@@ -1,3 +1,4 @@
+import type { CreatorApplicationDossier, BrandApplicationDossier } from "../../../modules/applications/types/application-contract";
 import { sql } from 'drizzle-orm';
 import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
@@ -100,7 +101,9 @@ export const creatorApplications = ufitSchema.table(
       .references(() => users.id),
     displayName: text('display_name').notNull(),
     email: text('email').notNull(),
-    portfolioUrl: text('portfolio_url').notNull(),
+    portfolioUrl: text('portfolio_url'),
+    dossier: jsonb('dossier').$type<CreatorApplicationDossier>(),
+    version: integer('version').notNull().default(1),
     motivation: text('motivation').notNull(),
     audienceSummary: text('audience_summary'),
     status: applicationStatusEnum('status').notNull().default('submitted'),
@@ -108,6 +111,7 @@ export const creatorApplications = ufitSchema.table(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
+    queueIdx: index('creator_applications_queue_idx').on(table.status, table.submittedAt.desc(), table.id.desc()),
     userStatusIdx: index('idx_creator_applications_user_status').on(table.userId, table.status),
     activeUserUnique: uniqueIndex('uidx_creator_applications_active_user')
       .on(table.userId)
@@ -127,11 +131,14 @@ export const brandApplications = ufitSchema.table(
     websiteUrl: text('website_url').notNull(),
     productCategory: text('product_category').notNull(),
     positioning: text('positioning').notNull(),
+    dossier: jsonb('dossier').$type<BrandApplicationDossier>(),
+    version: integer('version').notNull().default(1),
     status: applicationStatusEnum('status').notNull().default('submitted'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
+    queueIdx: index('brand_applications_queue_idx').on(table.status, table.submittedAt.desc(), table.id.desc()),
     userStatusIdx: index('idx_brand_applications_user_status').on(table.userId, table.status),
     activeUserUnique: uniqueIndex('uidx_brand_applications_active_user')
       .on(table.userId)
