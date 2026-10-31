@@ -56,10 +56,6 @@ export const userRoles = ufitSchema.table(
   })
 );
 
-export type UserRow = typeof users.$inferSelect;
-export type NewUserRow = typeof users.$inferInsert;
-export type UserRoleRow = typeof userRoles.$inferSelect;
-export type NewUserRoleRow = typeof userRoles.$inferInsert;
 
 export const applicationStatusEnum = ufitSchema.enum('application_status', [
   'submitted',
@@ -308,18 +304,6 @@ export const brandSettings = ufitSchema.table('brand_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 });
 
-export type CreatorApplicationRow = typeof creatorApplications.$inferSelect;
-export type NewCreatorApplicationRow = typeof creatorApplications.$inferInsert;
-export type BrandApplicationRow = typeof brandApplications.$inferSelect;
-export type NewBrandApplicationRow = typeof brandApplications.$inferInsert;
-export type ApplicationReviewRow = typeof applicationReviews.$inferSelect;
-export type NewApplicationReviewRow = typeof applicationReviews.$inferInsert;
-export type CreatorProfileRow = typeof creatorProfiles.$inferSelect;
-export type NewCreatorProfileRow = typeof creatorProfiles.$inferInsert;
-export type BrandProfileRow = typeof brandProfiles.$inferSelect;
-export type NewBrandProfileRow = typeof brandProfiles.$inferInsert;
-export type BrandMemberRow = typeof brandMembers.$inferSelect;
-export type NewBrandMemberRow = typeof brandMembers.$inferInsert;
 
 export const genderTargetEnum = ufitSchema.enum('gender_target', ['male', 'female', 'unisex']);
 export const productStatusEnum = ufitSchema.enum('product_status', ['draft', 'under_review', 'active', 'rejected', 'archived']);
@@ -570,22 +554,6 @@ export const featuredSlots = ufitSchema.table(
   })
 );
 
-export type ProductRow = typeof products.$inferSelect;
-export type NewProductRow = typeof products.$inferInsert;
-export type ProductVariantRow = typeof productVariants.$inferSelect;
-export type NewProductVariantRow = typeof productVariants.$inferInsert;
-export type ProductImageRow = typeof productImages.$inferSelect;
-export type NewProductImageRow = typeof productImages.$inferInsert;
-export type OutfitRow = typeof outfits.$inferSelect;
-export type NewOutfitRow = typeof outfits.$inferInsert;
-export type OutfitItemRow = typeof outfitItems.$inferSelect;
-export type NewOutfitItemRow = typeof outfitItems.$inferInsert;
-export type OutfitImageRow = typeof outfitImages.$inferSelect;
-export type NewOutfitImageRow = typeof outfitImages.$inferInsert;
-export type EditorialCollectionRow = typeof editorialCollections.$inferSelect;
-export type NewEditorialCollectionRow = typeof editorialCollections.$inferInsert;
-export type EditorialCollectionItemRow = typeof editorialCollectionItems.$inferSelect;
-export type NewEditorialCollectionItemRow = typeof editorialCollectionItems.$inferInsert;
 
 export const savedOutfits = ufitSchema.table(
   'saved_outfits',
@@ -688,6 +656,11 @@ export const orders = ufitSchema.table(
     status: text('status').notNull().default('pending_payment'),
     subtotalAmount: integer('subtotal_amount').notNull(),
     shippingAmount: integer('shipping_amount').notNull().default(0),
+    taxAmount: integer('tax_amount').notNull().default(0),
+    cartId: uuid('cart_id').references(() => carts.id),
+    checkoutRequestId: uuid('checkout_request_id'),
+    checkoutFingerprint: text('checkout_fingerprint'),
+    commerceSnapshot: jsonb('commerce_snapshot').$type<Record<string, unknown>>(),
     totalAmount: integer('total_amount').notNull(),
     currency: text('currency').notNull().default('CHF'),
     shippingAddress: jsonb('shipping_address').notNull(),
@@ -697,6 +670,7 @@ export const orders = ufitSchema.table(
     ...timestamps
   },
   (table) => ({
+    checkoutRequestUnique: uniqueIndex('orders_customer_checkout_request_unique').on(table.customerId, table.checkoutRequestId),
     customerIdIndex: index('orders_customer_id_idx').on(table.customerId),
     brandStatusIndex: index('orders_brand_id_status_idx').on(table.brandId, table.status),
     createdAtIndex: index('orders_created_at_idx').on(table.createdAt)
@@ -899,21 +873,4 @@ export const adminActionLogs = ufitSchema.table(
   })
 );
 
-export type SavedOutfitRow = typeof savedOutfits.$inferSelect;
-export type CreatorFollowRow = typeof creatorFollows.$inferSelect;
-export type CartRow = typeof carts.$inferSelect;
-export type NewCartRow = typeof carts.$inferInsert;
-export type CartItemRow = typeof cartItems.$inferSelect;
-export type NewCartItemRow = typeof cartItems.$inferInsert;
-export type OrderRow = typeof orders.$inferSelect;
-export type NewOrderRow = typeof orders.$inferInsert;
-export type OrderItemRow = typeof orderItems.$inferSelect;
-export type NewOrderItemRow = typeof orderItems.$inferInsert;
-export type PaymentRow = typeof payments.$inferSelect;
-export type StripeWebhookEventRow = typeof stripeWebhookEvents.$inferSelect;
-export type NewStripeWebhookEventRow = typeof stripeWebhookEvents.$inferInsert;
-export type CommissionRow = typeof commissions.$inferSelect;
-export type NewCommissionRow = typeof commissions.$inferInsert;
-export type ShipmentRow = typeof shipments.$inferSelect;
-export type NewShipmentRow = typeof shipments.$inferInsert;
-export type AdminActionLogRow = typeof adminActionLogs.$inferSelect;
+export type { UserRow, NewUserRow, UserRoleRow, NewUserRoleRow, CreatorApplicationRow, NewCreatorApplicationRow, BrandApplicationRow, NewBrandApplicationRow, ApplicationReviewRow, NewApplicationReviewRow, CreatorProfileRow, NewCreatorProfileRow, BrandProfileRow, NewBrandProfileRow, BrandMemberRow, NewBrandMemberRow, ProductRow, NewProductRow, ProductVariantRow, NewProductVariantRow, ProductImageRow, NewProductImageRow, OutfitRow, NewOutfitRow, OutfitItemRow, NewOutfitItemRow, OutfitImageRow, NewOutfitImageRow, EditorialCollectionRow, NewEditorialCollectionRow, EditorialCollectionItemRow, NewEditorialCollectionItemRow, SavedOutfitRow, CreatorFollowRow, CartRow, NewCartRow, CartItemRow, NewCartItemRow, OrderRow, NewOrderRow, OrderItemRow, NewOrderItemRow, PaymentRow, StripeWebhookEventRow, NewStripeWebhookEventRow, CommissionRow, NewCommissionRow, ShipmentRow, NewShipmentRow, AdminActionLogRow } from './schema.rows';

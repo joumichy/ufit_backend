@@ -7,6 +7,7 @@ interface CatalogRow {
   productId: string;
   productStatus: string;
   brandId: string;
+  brandStatus: string;
   basePrice: number;
   currency: string;
   productVariantId: string;
@@ -20,6 +21,7 @@ function activeCatalogRow(overrides: Partial<CatalogRow> = {}): CatalogRow {
     productId: 'product-1',
     productStatus: 'active',
     brandId: 'brand-1',
+    brandStatus: 'active',
     basePrice: 12000,
     currency: 'CHF',
     productVariantId: 'variant-1',
@@ -70,6 +72,7 @@ describe('DrizzleProductCatalogReader', () => {
 
   it.each([
     ['missing variant', []],
+    ['suspended brand', [activeCatalogRow({ brandStatus: 'suspended' })]],
     ['inactive product', [activeCatalogRow({ productStatus: 'draft' })]],
     ['archived variant', [activeCatalogRow({ variantStatus: 'archived' })]],
     ['out-of-stock variant status', [activeCatalogRow({ variantStatus: 'out_of_stock' })]],

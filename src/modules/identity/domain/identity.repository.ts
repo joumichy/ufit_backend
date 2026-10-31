@@ -3,6 +3,7 @@ import type { AuthenticatedUser, SupabaseJwtClaims, UserProfilePatch, UserRole }
 export const IDENTITY_REPOSITORY = Symbol('IDENTITY_REPOSITORY');
 
 export interface IdentityRepository {
+  ensureRole(userId: string, role: UserRole): Promise<void>;
   findById(userId: string): Promise<AuthenticatedUser | null>;
   findBySupabaseUserId(supabaseUserId: string): Promise<AuthenticatedUser | null>;
   createFromSupabaseClaims(claims: SupabaseJwtClaims): Promise<AuthenticatedUser>;

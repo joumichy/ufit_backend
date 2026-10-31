@@ -1,15 +1,18 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PRODUCT_REPOSITORY, type ProductDetail, type ProductRepository } from '../../products/domain/product.types';
-import { OUTFIT_REPOSITORY, type OutfitDetail, type OutfitItem, type OutfitRepository } from '../domain/outfit.types';
+import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository } from '../domain/outfit.types';
 import { CreateOutfitDto, ReviewOutfitDto } from './dto/outfit.dto';
+
+export interface OutfitPriceDto { currency: string; min: number; max: number }
 
 export interface OutfitCardDto {
   id: string;
   title: string;
   coverImageUrl: string;
-  totalPriceMin: number;
-  totalPriceMax: number;
-  currency: string;
+  prices: OutfitPriceDto[];
+  author: OutfitAuthor | null;
+  creatorId: string | null;
+  brandId: string | null;
   publishedAt: string | null;
 }
 
@@ -78,7 +81,6 @@ export class OutfitsService {
       await this.outfits.addImages(outfit.id, input.images);
     }
 
-    await this.recalculateServerTotals(outfit.id);
     return this.requireOutfit(outfit.id);
   }
 
@@ -87,7 +89,6 @@ export class OutfitsService {
     if (detail.outfit.status !== 'draft' && detail.outfit.status !== 'rejected') {
       throw new BadRequestException('Only draft or rejected outfits can be submitted');
     }
-    await this.recalculateServerTotals(outfitId);
     await this.outfits.updateStatus(outfitId, 'under_review', 'private');
     return this.requireOutfit(outfitId);
   }
@@ -119,8 +120,10 @@ export class OutfitsService {
     const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
     const rows = await this.outfits.findPublishedPage({ limit: limit + 1, cursor: input.cursor });
     const page = rows.slice(0, limit);
+    const productIds = this.uniqueShoppableProductIds(page.flatMap(detail => detail.items));
+    const products = await this.products.findActiveByIds(productIds);
     return {
-      items: page.map((detail) => this.toOutfitCard(detail)),
+      items: page.map((detail) => this.toOutfitCard(detail, products)),
       nextCursor: rows.length > limit ? (page.at(-1)?.outfit.id ?? null) : null
     };
   }
@@ -133,14 +136,15 @@ export class OutfitsService {
     return this.toOutfitDetail(detail, await this.products.findActiveByIds(this.uniqueShoppableProductIds(detail.items)));
   }
 
-  toOutfitCard(detail: OutfitDetail): OutfitCardDto {
+  toOutfitCard(detail: OutfitDetail, products: ProductDetail[]): OutfitCardDto {
     return {
       id: detail.outfit.id,
       title: detail.outfit.title,
       coverImageUrl: detail.outfit.coverImageUrl,
-      totalPriceMin: detail.outfit.totalPriceMin,
-      totalPriceMax: detail.outfit.totalPriceMax,
-      currency: 'CHF',
+      prices: this.priceGroups(detail.items, products),
+      author: detail.author,
+      creatorId: detail.outfit.creatorId,
+      brandId: detail.outfit.brandId,
       publishedAt: detail.outfit.publishedAt?.toISOString() ?? null
     };
   }
@@ -148,7 +152,7 @@ export class OutfitsService {
   toOutfitDetail(detail: OutfitDetail, products: ProductDetail[]): OutfitDetailDto {
     const byId = new Map(products.map((product) => [product.product.id, product]));
     return {
-      ...this.toOutfitCard(detail),
+      ...this.toOutfitCard(detail, products),
       description: detail.outfit.description,
       creatorId: detail.outfit.creatorId,
       brandId: detail.outfit.brandId,
@@ -180,12 +184,20 @@ export class OutfitsService {
     };
   }
 
-  private async recalculateServerTotals(outfitId: string): Promise<void> {
-    const detail = await this.requireOutfit(outfitId);
-    const productDetails = await this.products.findActiveByIds(this.uniqueShoppableProductIds(detail.items));
-    const prices = productDetails.map((product) => this.minProductPrice(product));
-    const total = prices.reduce((sum, price) => sum + price, 0);
-    await this.outfits.updateTotals(outfitId, total, total);
+  private priceGroups(items: OutfitItem[], products: ProductDetail[]): OutfitPriceDto[] {
+    const selectedIds = new Set(this.uniqueShoppableProductIds(items));
+    const groups = new Map<string, OutfitPriceDto>();
+    for (const detail of products) {
+      if (!selectedIds.has(detail.product.id)) continue;
+      const prices = detail.variants.filter(variant => variant.status === 'active')
+        .map(variant => variant.priceOverride ?? detail.product.basePrice);
+      const minimum = prices.length ? Math.min(...prices) : detail.product.basePrice;
+      const maximum = prices.length ? Math.max(...prices) : detail.product.basePrice;
+      const group = groups.get(detail.product.currency);
+      if (group) { group.min += minimum; group.max += maximum; }
+      else { groups.set(detail.product.currency, { currency: detail.product.currency, min: minimum, max: maximum }); }
+    }
+    return [...groups.values()].sort((left, right) => left.currency.localeCompare(right.currency));
   }
 
   private assertItemsAreCoherent(items: Array<{ productId?: string; externalLabel?: string; isShoppable: boolean }>): void {

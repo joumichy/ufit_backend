@@ -1,29 +1,31 @@
-import { Body, Controller, Inject, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
-import { CartService } from '../../cart/application/cart.service';
+import { OrderCheckoutService } from '../application/order-checkout.service';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
-import { PaymentsService } from '../../payments/application/payments.service';
-import { OrdersService, type ShippingAddressSnapshot } from '../application/orders.service';
-
-interface CheckoutBody {
-  shippingAddress: ShippingAddressSnapshot;
-  shippingAmount?: number;
-}
+import { OrderPageQuery } from './dto/order-page.query';
+import { OrdersService } from '../application/orders.service';
 
 @Controller('orders')
 @UseGuards(AuthGuard)
 export class OrdersController {
   constructor(
     @Inject(OrdersService) private readonly ordersService: OrdersService,
-    @Inject(CartService) private readonly cartService: CartService,
-    @Inject(PaymentsService) private readonly paymentsService: PaymentsService
+    @Inject(OrderCheckoutService) private readonly checkoutService: OrderCheckoutService
   ) {}
 
+  @Get()
+  list(@CurrentUser() user: AuthenticatedUser, @Query() query: OrderPageQuery) {
+    return this.ordersService.listForCustomer(user.id, query.limit, query.cursor);
+  }
+
+  @Get(':id')
+  detail(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.ordersService.getForCustomer(user.id, id);
+  }
+
   @Post('checkout')
-  async checkout(@CurrentUser() user: AuthenticatedUser, @Body() body: CheckoutBody) {
-    const cart = await this.cartService.getActiveForCheckout(user.id);
-    const order = await this.ordersService.createPendingFromCart(cart, body.shippingAddress, body.shippingAmount ?? 0);
-    return this.paymentsService.createCheckoutSession(order);
+  checkout(@CurrentUser() user: AuthenticatedUser, @Body() body: unknown) {
+    return this.checkoutService.checkout(user.id, body);
   }
 }

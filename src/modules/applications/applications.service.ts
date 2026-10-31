@@ -1,3 +1,4 @@
+import { IDENTITY_REPOSITORY, type IdentityRepository } from '../identity/domain/identity.repository';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { BrandApplicationRow, CreatorApplicationRow } from '../../shared/infrastructure/database/schema';
 import {
@@ -22,7 +23,8 @@ const decisionToStatus: Record<ReviewApplicationInput['decision'], ApplicationSt
 export class ApplicationsService {
   constructor(
     @Inject(APPLICATIONS_REPOSITORY) private readonly applicationsRepository: ApplicationsRepository,
-    @Inject(PROFILE_PROVISIONING_PORT) private readonly profileProvisioning: ProfileProvisioningPort
+    @Inject(PROFILE_PROVISIONING_PORT) private readonly profileProvisioning: ProfileProvisioningPort,
+    @Inject(IDENTITY_REPOSITORY) private readonly identity: Pick<IdentityRepository, 'ensureRole'>
   ) {}
 
   async submitCreatorApplication(input: SubmitCreatorApplicationInput): Promise<CreatorApplicationRow> {
@@ -56,6 +58,7 @@ export class ApplicationsService {
       const updated = await this.applicationsRepository.updateCreatorApplicationStatus(input.applicationId, status);
       if (status === 'accepted') {
         await this.profileProvisioning.provisionCreatorFromApplication(updated);
+        await this.identity.ensureRole(updated.userId, 'creator');
       }
       return { application: updated };
     }
@@ -69,6 +72,7 @@ export class ApplicationsService {
     const updated = await this.applicationsRepository.updateBrandApplicationStatus(input.applicationId, status);
     if (status === 'accepted') {
       await this.profileProvisioning.provisionBrandFromApplication(updated);
+      await this.identity.ensureRole(updated.userId, 'brand_owner');
     }
     return { application: updated };
   }

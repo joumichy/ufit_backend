@@ -64,7 +64,8 @@ function buildService(repositoryOverrides: Partial<ApplicationsRepository> = {})
     provisionBrandFromApplication: vi.fn().mockResolvedValue(undefined)
   };
 
-  return { service: new ApplicationsService(repository, provisioning), repository, provisioning };
+  const identity = { ensureRole: vi.fn().mockResolvedValue(undefined) };
+  return { service: new ApplicationsService(repository, provisioning, identity), repository, provisioning, identity };
 }
 
 describe('ApplicationsService', () => {
@@ -101,7 +102,7 @@ describe('ApplicationsService', () => {
   });
 
   it('accepts a creator application and provisions the profile', async () => {
-    const { service, repository, provisioning } = buildService();
+    const { service, repository, provisioning, identity } = buildService();
 
     const result = await service.reviewApplication({
       applicationType: 'creator',
@@ -114,6 +115,7 @@ describe('ApplicationsService', () => {
     expect(result.application.status).toBe('accepted');
     expect(repository.createReview).toHaveBeenCalledOnce();
     expect(provisioning.provisionCreatorFromApplication).toHaveBeenCalledOnce();
+    expect(identity.ensureRole).toHaveBeenCalledWith(result.application.userId, 'creator');
   });
 
   it('waitlists a brand application without provisioning a profile', async () => {

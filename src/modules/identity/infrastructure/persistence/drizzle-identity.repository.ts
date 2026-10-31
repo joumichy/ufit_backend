@@ -9,6 +9,11 @@ import type { AuthenticatedUser, SupabaseJwtClaims, UserProfilePatch, UserRole }
 export class DrizzleIdentityRepository implements IdentityRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
+  async ensureRole(userId: string, role: UserRole): Promise<void> {
+    await this.database.db.insert(userRoles).values({ userId, role })
+      .onConflictDoNothing({ target: [userRoles.userId, userRoles.role] });
+  }
+
   async findById(userId: string): Promise<AuthenticatedUser | null> {
     const rows = await this.database.db.select().from(users).where(eq(users.id, userId)).limit(1);
     const user = rows[0];

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { CartService, type Cart, type CartRepository, type ProductCatalogReader } from '../../src/modules/cart/application/cart.service';
 
@@ -6,13 +6,15 @@ class FakeCartRepository implements CartRepository {
   cart?: Cart;
 
   async findActiveByUserId(): Promise<Cart | undefined> {
-    return this.cart;
+    return this.cart?.status === 'active' ? structuredClone(this.cart) : undefined;
   }
 
-  async save(cart: Cart): Promise<Cart> {
-    this.cart = structuredClone(cart);
-    return structuredClone(cart);
+  async mutate(_userId: string, update: (cart: Cart | undefined) => Cart | undefined): Promise<Cart | undefined> {
+    const updated = update(await this.findActiveByUserId());
+    if (updated) this.cart = structuredClone(updated);
+    return updated ? structuredClone(updated) : undefined;
   }
+
 }
 
 describe('CartService', () => {
@@ -30,12 +32,12 @@ describe('CartService', () => {
         };
       }
     };
-    const service = new CartService(carts, catalog);
+    const service = new CartService(carts, catalog, {findById: async () => null});
 
     await service.addItem({ userId: 'user-1', productVariantId: 'variant-a', quantity: 1 });
 
     await expect(service.addItem({ userId: 'user-1', productVariantId: 'variant-b', quantity: 1 })).rejects.toBeInstanceOf(
-      BadRequestException
+      ConflictException
     );
   });
 
@@ -53,11 +55,21 @@ describe('CartService', () => {
         };
       }
     };
-    const service = new CartService(carts, catalog);
+    const service = new CartService(carts, catalog, {findById: async () => null});
 
     const cart = await service.addItem({ userId: 'user-1', productVariantId: 'variant-1', quantity: 2 });
 
     expect(cart.items[0]?.unitPrice).toBe(12990);
     expect(cart.subtotalAmount).toBe(25980);
   });
+  it('rejects attribution to an outfit outside the published catalogue before persisting', async () => {
+    const carts = new FakeCartRepository();
+    const catalog: ProductCatalogReader = { async getVariantQuote(productVariantId) {
+      return { productId: 'product-1', productVariantId, brandId: 'brand-1', unitPrice: 1000, currency: 'CHF', stockQuantity: 5 };
+    } };
+    const service = new CartService(carts, catalog, {findById: async () => null});
+    await expect(service.addItem({userId: 'user-1', productVariantId: 'variant-1', quantity: 1, sourceOutfitId: 'unavailable-outfit'})).rejects.toBeInstanceOf(BadRequestException);
+    expect(carts.cart).toBeUndefined();
+  });
+
 });

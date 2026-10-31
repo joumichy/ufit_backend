@@ -1,11 +1,11 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
-import { OrdersModule } from '../orders/orders.module';
-import { PaymentsService, STRIPE_WEBHOOK_EVENTS } from './application/payments.service';
-import { DrizzleStripeWebhookEventRepository } from './infrastructure/drizzle-stripe-webhook-events.repository';
-import { InMemoryStripeWebhookEventRepository } from './infrastructure/in-memory-stripe-webhook-events.repository';
-import { stripeClientProvider } from './infrastructure/stripe-client.provider';
-import { PaymentsWebhookController } from './presentation/payments-webhook.controller';
+import { Module, forwardRef } from "@nestjs/common";
+import { DatabaseModule } from "../../shared/infrastructure/database/database.module";
+import { OrdersModule } from "../orders/orders.module";
+import { PaymentsService } from "./application/payments.service";
+import { STRIPE_PAYMENT_FINALIZER } from "./application/stripe-payment-finalizer";
+import { DrizzleStripePaymentFinalizer } from "./infrastructure/drizzle-stripe-payment-finalizer";
+import { stripeClientProvider } from "./infrastructure/stripe-client.provider";
+import { PaymentsWebhookController } from "./presentation/payments-webhook.controller";
 
 @Module({
   imports: [DatabaseModule, forwardRef(() => OrdersModule)],
@@ -13,10 +13,12 @@ import { PaymentsWebhookController } from './presentation/payments-webhook.contr
   providers: [
     PaymentsService,
     stripeClientProvider,
-    { provide: STRIPE_WEBHOOK_EVENTS, useExisting: DrizzleStripeWebhookEventRepository },
-    DrizzleStripeWebhookEventRepository,
-    InMemoryStripeWebhookEventRepository
+    {
+      provide: STRIPE_PAYMENT_FINALIZER,
+      useExisting: DrizzleStripePaymentFinalizer,
+    },
+    DrizzleStripePaymentFinalizer,
   ],
-  exports: [PaymentsService]
+  exports: [PaymentsService],
 })
 export class PaymentsModule {}

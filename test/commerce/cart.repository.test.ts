@@ -83,7 +83,10 @@ describe('DrizzleCartRepository', () => {
     const deleteQuery = {
       where: vi.fn().mockResolvedValue(undefined)
     };
+    const read = {from: vi.fn().mockReturnThis(), where: vi.fn().mockReturnThis(), limit: vi.fn().mockResolvedValue([])};
     const tx = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: vi.fn().mockReturnValue(read),
       insert: vi.fn().mockReturnValueOnce(cartInsert).mockReturnValueOnce(itemInsert),
       delete: vi.fn().mockReturnValue(deleteQuery)
     };
@@ -94,7 +97,7 @@ describe('DrizzleCartRepository', () => {
     } as unknown as DatabaseService;
     const repository = new DrizzleCartRepository(database);
 
-    const saved = await repository.save({
+    const saved = await repository.mutate('user-1', () => ({
       id: 'cart-1',
       userId: 'user-1',
       status: 'active',
@@ -114,8 +117,9 @@ describe('DrizzleCartRepository', () => {
           sourceCreatorId: 'creator-1'
         }
       ]
-    });
+    }));
 
+    expect(tx.execute).toHaveBeenCalledOnce();
     expect(database.db.transaction).toHaveBeenCalledOnce();
     expect(cartInsert.values).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -136,6 +140,6 @@ describe('DrizzleCartRepository', () => {
         sourceCreatorId: 'creator-1'
       })
     ]);
-    expect(saved.items[0]?.sourceCreatorId).toBe('creator-1');
+    expect(saved?.items[0]?.sourceCreatorId).toBe('creator-1');
   });
 });

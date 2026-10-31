@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, lt } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
-import { outfitImages, outfitItems, outfits } from '../../../shared/infrastructure/database/schema';
-import type { Outfit, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility } from '../domain/outfit.types';
+import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfits, users } from '../../../shared/infrastructure/database/schema';
+import type { Outfit, OutfitAuthor, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility } from '../domain/outfit.types';
 
 @Injectable()
 export class DrizzleOutfitRepository implements OutfitRepository {
@@ -40,7 +40,22 @@ export class DrizzleOutfitRepository implements OutfitRepository {
       this.database.db.select().from(outfitItems).where(eq(outfitItems.outfitId, outfitId)),
       this.database.db.select().from(outfitImages).where(eq(outfitImages.outfitId, outfitId))
     ]);
-    return { outfit, items, images };
+    return { outfit, items, images, author: await this.findAuthor(outfit) };
+  }
+
+  private async findAuthor(outfit: Outfit): Promise<OutfitAuthor | null> {
+    if (outfit.creatorId) {
+      const [creator] = await this.database.db.select({ id: creatorProfiles.id, name: creatorProfiles.displayName, avatarUrl: users.avatarUrl })
+        .from(creatorProfiles).innerJoin(users, eq(creatorProfiles.userId, users.id))
+        .where(and(eq(creatorProfiles.id, outfit.creatorId), eq(creatorProfiles.status, 'active'), eq(users.status, 'active'))).limit(1);
+      return creator ? { ...creator, kind: 'creator' } : null;
+    }
+    if (outfit.brandId) {
+      const [brand] = await this.database.db.select({ id: brandProfiles.id, name: brandProfiles.brandName }).from(brandProfiles)
+        .where(and(eq(brandProfiles.id, outfit.brandId), eq(brandProfiles.status, 'active'))).limit(1);
+      return brand ? { ...brand, kind: 'brand', avatarUrl: null } : null;
+    }
+    return null;
   }
 
   async updateStatus(

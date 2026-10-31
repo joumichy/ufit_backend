@@ -41,7 +41,15 @@ export interface OutfitImage {
   position: number;
 }
 
+export interface OutfitAuthor {
+  id: string;
+  kind: 'creator' | 'brand';
+  name: string;
+  avatarUrl: string | null;
+}
+
 export interface OutfitDetail {
+  author: OutfitAuthor | null;
   outfit: Outfit;
   items: OutfitItem[];
   images: OutfitImage[];

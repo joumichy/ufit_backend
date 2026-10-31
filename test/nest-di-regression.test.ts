@@ -12,12 +12,10 @@ import { DrizzleEditorialRepository } from '../src/modules/editorial/infrastruct
 import { DrizzleIdentityRepository } from '../src/modules/identity/infrastructure/persistence/drizzle-identity.repository';
 import {
   DrizzleOrderRepository,
-  DrizzlePaymentRepository,
   DrizzleProductSnapshotReader,
-  DrizzleStockRepository
 } from '../src/modules/orders/infrastructure/drizzle-orders.repository';
 import { DrizzleOutfitRepository } from '../src/modules/outfits/infrastructure/drizzle-outfit.repository';
-import { DrizzleStripeWebhookEventRepository } from '../src/modules/payments/infrastructure/drizzle-stripe-webhook-events.repository';
+import {DrizzleStripePaymentFinalizer} from '../src/modules/payments/infrastructure/drizzle-stripe-payment-finalizer';
 import { DrizzleProductRepository } from '../src/modules/products/infrastructure/drizzle-product.repository';
 import { DrizzleSavedRepository } from '../src/modules/saved/infrastructure/drizzle-saved.repository';
 import { DrizzleShipmentRepository } from '../src/modules/shipping/infrastructure/drizzle-shipping.repository';
@@ -37,11 +35,9 @@ const databaseBackedProviders = [
   DrizzleEditorialRepository,
   DrizzleIdentityRepository,
   DrizzleOrderRepository,
-  DrizzlePaymentRepository,
   DrizzleProductSnapshotReader,
-  DrizzleStockRepository,
   DrizzleOutfitRepository,
-  DrizzleStripeWebhookEventRepository,
+  DrizzleStripePaymentFinalizer,
   DrizzleProductRepository,
   DrizzleSavedRepository,
   DrizzleShipmentRepository,

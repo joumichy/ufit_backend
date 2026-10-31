@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.build.json",
     "db:migrate": "tsx src/shared/infrastructure/database/migrate.ts",
     "db:verify": "tsx scripts/verify-database.ts",
-    "dev": "tsx watch src/main.ts",
+    "dev": "node scripts/dev.mjs",
     "start": "node dist/src/main.js",
     "test": "vitest run",
     "test:watch": "vitest"

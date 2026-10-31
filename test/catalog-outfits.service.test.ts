@@ -116,6 +116,7 @@ class MemoryOutfitRepository implements OutfitRepository {
     return outfit
       ? {
           outfit,
+          author: null,
           items: this.items.filter((item) => item.outfitId === outfitId),
           images: this.images.filter((image) => image.outfitId === outfitId)
         }
@@ -257,8 +258,33 @@ describe('Products and outfits services', () => {
     });
 
     expect(outfit.items).toHaveLength(2);
-    expect(outfit.outfit.totalPriceMin).toBe(24000);
-    expect(outfit.outfit.totalPriceMax).toBe(24000);
+    await outfitsService.submitOutfit(outfit.outfit.id);
+    await outfitsService.reviewOutfit(outfit.outfit.id, { decision: 'published' });
+    expect((await outfitsService.getPublicDetail(outfit.outfit.id)).prices).toEqual([{currency: 'CHF', min: 24000, max: 24000}]);
+  });
+
+  it('publishes separate canonical price groups for international outfits', async () => {
+    const { productsService, outfitsService } = services();
+    const definitions = [{ currency: 'CHF', price: 10090 }, { currency: 'EUR', price: 9000 }];
+    const items: Array<{productId: string; itemType: 'top'; position: number; isRequired: boolean; isShoppable: boolean}> = [];
+    for (const [position, definition] of definitions.entries()) {
+      const detail = await productsService.createProduct({ brandId: id('brand'), name: definition.currency,
+        slug: definition.currency, description: 'International price contract', category: 'top',
+        basePrice: definition.price, currency: definition.currency,
+        variants: [{sku: definition.currency, stockQuantity: 2}] });
+      await productsService.submitProduct(detail.product.id);
+      await productsService.reviewProduct(detail.product.id, { decision: 'active' });
+      items.push({productId: detail.product.id, itemType: 'top', position, isRequired: true, isShoppable: true});
+    }
+    const outfit = await outfitsService.createOutfit({ creatorId: id('creator'), title: 'International',
+      description: 'Two independent currency totals', coverImageUrl: 'https://cdn.test/outfit.jpg', items });
+    await outfitsService.submitOutfit(outfit.outfit.id);
+    await outfitsService.reviewOutfit(outfit.outfit.id, { decision: 'published' });
+    const card = (await outfitsService.getPublicFeed({limit: 1})).items[0];
+    expect(card.prices).toEqual([{currency: 'CHF', min: 10090, max: 10090}, {currency: 'EUR', min: 9000, max: 9000}]);
+    expect(card).not.toHaveProperty('currency');
+    expect(card).not.toHaveProperty('totalPriceMax');
+    expect(card.author).toBeNull();
   });
 
   it('keeps public feed/detail limited to published outfits and paginates basics', async () => {

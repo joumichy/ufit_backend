@@ -38,11 +38,6 @@ export class DrizzleSavedRepository implements SavedRepository {
     const rows = await this.database.db
       .select({
         id: outfits.id,
-        title: outfits.title,
-        coverImageUrl: outfits.coverImageUrl,
-        totalPriceMin: outfits.totalPriceMin,
-        totalPriceMax: outfits.totalPriceMax,
-        publishedAt: outfits.publishedAt,
         savedAt: savedOutfits.createdAt
       })
       .from(savedOutfits)

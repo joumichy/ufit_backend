@@ -10,23 +10,9 @@ export interface SavedRepository {
 
 export interface SavedOutfit {
   id: string;
-  title: string;
-  coverImageUrl: string;
-  totalPriceMin: number;
-  totalPriceMax: number;
-  publishedAt: Date | null;
   savedAt: Date;
 }
-
-export interface SavedOutfitResponse {
-  id: string;
-  title: string;
-  coverImageUrl: string;
-  totalPriceMin: number;
-  totalPriceMax: number;
-  publishedAt: string | null;
-  savedAt: string;
-}
+export interface SavedOutfitResponse { id: string; savedAt: string }
 
 @Injectable()
 export class SavedService {
@@ -57,15 +43,7 @@ export class SavedService {
     const items = await this.saved.findSavedOutfits(userId, { limit });
 
     return {
-      items: items.map((item) => ({
-        id: item.id,
-        title: item.title,
-        coverImageUrl: item.coverImageUrl,
-        totalPriceMin: item.totalPriceMin,
-        totalPriceMax: item.totalPriceMax,
-        publishedAt: item.publishedAt?.toISOString() ?? null,
-        savedAt: item.savedAt.toISOString()
-      }))
+      items: items.map(item => ({ id: item.id, savedAt: item.savedAt.toISOString() }))
     };
   }
 }

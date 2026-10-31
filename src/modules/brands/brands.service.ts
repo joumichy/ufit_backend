@@ -43,6 +43,12 @@ export class BrandsService {
     await this.brandsRepository.createDefaultSettings(profile.id);
   }
 
+  async getPublicProfile(brandProfileId: string) {
+    const profile = await this.brandsRepository.findProfileById(brandProfileId);
+    if (!profile || profile.status !== 'active') throw new NotFoundException('Public brand not found');
+    return { id: profile.id, brandName: profile.brandName, slug: profile.slug, bio: profile.bio, websiteUrl: profile.websiteUrl };
+  }
+
   async getProfileForMember(brandProfileId: string, userId: string): Promise<BrandProfileRow> {
     const profile = await this.brandsRepository.findProfileById(brandProfileId);
     if (!profile) {

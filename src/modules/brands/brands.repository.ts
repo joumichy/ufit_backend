@@ -1,3 +1,5 @@
+import type { brandSettings } from '../../shared/infrastructure/database/schema';
+import type { BrandCommercePolicy } from './commerce-policy';
 import type {
   BrandApplicationRow,
   BrandMemberRow,
@@ -7,6 +9,8 @@ import type {
 } from '../../shared/infrastructure/database/schema';
 
 export interface BrandsRepository {
+  findSettings(brandProfileId: string): Promise<typeof brandSettings.$inferSelect | undefined>;
+  saveCommercePolicy(brandProfileId: string, policy: BrandCommercePolicy): Promise<void>;
   findProfileByApplicationId(applicationId: string): Promise<BrandProfileRow | undefined>;
   findProfileById(brandProfileId: string): Promise<BrandProfileRow | undefined>;
   createProfile(input: NewBrandProfileRow): Promise<BrandProfileRow>;

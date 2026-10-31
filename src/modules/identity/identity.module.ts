@@ -28,6 +28,6 @@ import { RoleGuard } from '../../shared/presentation/guards/role.guard';
       useClass: SupabaseJwtVerifier
     }
   ],
-  exports: [IdentityService, AuthGuard, RoleGuard, AdminGuard, OwnershipGuard, AUTH_TOKEN_VERIFIER]
+  exports: [IDENTITY_REPOSITORY, IdentityService, AuthGuard, RoleGuard, AdminGuard, OwnershipGuard, AUTH_TOKEN_VERIFIER]
 })
 export class IdentityModule {}

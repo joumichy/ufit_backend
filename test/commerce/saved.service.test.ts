@@ -44,11 +44,6 @@ describe('SavedService', () => {
     repository.outfits = [
       {
         id: 'outfit-1',
-        title: 'City Uniform',
-        coverImageUrl: 'https://cdn.test/outfit.jpg',
-        totalPriceMin: 10000,
-        totalPriceMax: 12000,
-        publishedAt: new Date('2026-05-20T10:00:00.000Z'),
         savedAt: new Date('2026-05-20T11:00:00.000Z')
       }
     ];
@@ -58,11 +53,6 @@ describe('SavedService', () => {
       items: [
         {
           id: 'outfit-1',
-          title: 'City Uniform',
-          coverImageUrl: 'https://cdn.test/outfit.jpg',
-          totalPriceMin: 10000,
-          totalPriceMax: 12000,
-          publishedAt: '2026-05-20T10:00:00.000Z',
           savedAt: '2026-05-20T11:00:00.000Z'
         }
       ]

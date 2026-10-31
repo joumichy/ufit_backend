@@ -1,5 +1,6 @@
+import { COMMERCE_POLICY_KEY, type BrandCommercePolicy } from './commerce-policy';
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../shared/infrastructure/database/database.service';
 import {
   brandMembers,
@@ -15,6 +16,16 @@ import type { BrandsRepository } from './brands.repository';
 @Injectable()
 export class DrizzleBrandsRepository implements BrandsRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+
+  async findSettings(brandProfileId: string) {
+    return this.database.db.query.brandSettings.findFirst({where: eq(brandSettings.brandProfileId,brandProfileId)});
+  }
+  async saveCommercePolicy(brandProfileId: string, policy: BrandCommercePolicy): Promise<void> {
+    const patch = {[COMMERCE_POLICY_KEY]:policy};
+    await this.database.db.insert(brandSettings).values({brandProfileId,metadata:patch}).onConflictDoUpdate({
+      target:brandSettings.brandProfileId,set:{metadata:sql`${brandSettings.metadata} || ${JSON.stringify(patch)}::jsonb`,updatedAt:new Date()}
+    });
+  }
 
   async findProfileByApplicationId(applicationId: string): Promise<BrandProfileRow | undefined> {
     return this.database.db.query.brandProfiles.findFirst({
