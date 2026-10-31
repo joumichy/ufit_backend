@@ -1,8 +1,10 @@
+import { GENDER_TARGETS } from '../../domain/gender-target';
+import { PRODUCT_EDITING, PRODUCT_STATUSES, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from '../../../modules/products/domain/product-contract';
 import { PROFILE_STATUS, PROFILE_STATUSES } from '../../domain/profile-editing.contract';
 import { CREATOR_SOCIAL_PLATFORMS } from '../../../modules/creators/creator-social.contract';
 import type { CreatorApplicationDossier, BrandApplicationDossier } from "../../../modules/applications/types/application-contract";
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {ufitSchema,timestamps} from './schema-base';
 export {ufitSchema} from './schema-base';
@@ -310,10 +312,10 @@ export const brandSettings = ufitSchema.table('brand_settings', {
 });
 
 
-export const genderTargetEnum = ufitSchema.enum('gender_target', ['male', 'female', 'unisex']);
-export const productStatusEnum = ufitSchema.enum('product_status', ['draft', 'under_review', 'active', 'rejected', 'archived']);
-export const productVariantStatusEnum = ufitSchema.enum('product_variant_status', ['active', 'out_of_stock', 'archived']);
-export const productImageKindEnum = ufitSchema.enum('product_image_kind', ['product', 'worn', 'detail', 'lookbook']);
+export const genderTargetEnum = ufitSchema.enum('gender_target', GENDER_TARGETS);
+export const productStatusEnum = ufitSchema.enum('product_status', PRODUCT_STATUSES);
+export const productVariantStatusEnum = ufitSchema.enum('product_variant_status', PRODUCT_VARIANT_STATUSES);
+export const productImageKindEnum = ufitSchema.enum('product_image_kind', PRODUCT_IMAGE_KINDS);
 export const outfitStatusEnum = ufitSchema.enum('outfit_status', [
   'draft',
   'submitted',
@@ -369,7 +371,10 @@ export const products = ufitSchema.table(
     description: text('description').notNull(),
     category: text('category').notNull(),
     genderTarget: genderTargetEnum('gender_target'),
-    status: productStatusEnum('status').notNull().default('draft'),
+    status: productStatusEnum('status').notNull().default(PRODUCT_STATUS.draft),
+    version: integer('version').notNull().default(PRODUCT_EDITING.versionInitial),
+    creationRequestId: uuid('creation_request_id'),
+    creationFingerprint: text('creation_fingerprint'),
     basePrice: integer('base_price').notNull(),
     currency: text('currency').notNull().default('CHF'),
     material: text('material'),
@@ -382,6 +387,9 @@ export const products = ufitSchema.table(
   },
   (table) => ({
     brandSlugUnique: uniqueIndex('products_brand_slug_unique').on(table.brandId, table.slug),
+    creationRequestUnique: uniqueIndex('products_brand_creation_request_unique').on(table.brandId, table.creationRequestId),
+    versionPositive: check('products_version_positive', sql`${table.version} >= ${PRODUCT_EDITING.versionInitial}`),
+    creationRequestPair: check('products_creation_request_pair', sql`(${table.creationRequestId} is null) = (${table.creationFingerprint} is null)`),
     brandStatusIndex: index('products_brand_status_idx').on(table.brandId, table.status),
     statusIdIndex: index('products_status_id_idx').on(table.status, table.id)
   })

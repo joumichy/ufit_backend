@@ -1,4 +1,6 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {randomUUID} from 'node:crypto';
+import {MemoryProductRepository, productFixture} from './products/memory-product.repository';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { ProductsService } from '../src/modules/products/application/products.service';
 import type { Product, ProductDetail, ProductImage, ProductRepository, ProductStatus, ProductVariant } from '../src/modules/products/domain/product.types';
@@ -8,74 +10,6 @@ import { EditorialService } from '../src/modules/editorial/application/editorial
 import type { EditorialCollection, EditorialCollectionDetail, EditorialCollectionItem, EditorialRepository } from '../src/modules/editorial/domain/editorial.types';
 
 const id = (name: string) => `00000000-0000-4000-8000-${name.padStart(12, '0').slice(0, 12)}`;
-
-class MemoryProductRepository implements ProductRepository {
-  products = new Map<string, Product>();
-  variants: ProductVariant[] = [];
-  images: ProductImage[] = [];
-  private sequence = 1;
-
-  async createProduct(input: Parameters<ProductRepository['createProduct']>[0]): Promise<Product> {
-    const product: Product = {
-      id: id(String(this.sequence++)),
-      status: input.status ?? 'draft',
-      createdAt: new Date('2026-05-20T00:00:00.000Z'),
-      updatedAt: new Date('2026-05-20T00:00:00.000Z'),
-      ...input
-    };
-    this.products.set(product.id, product);
-    return product;
-  }
-
-  async addVariants(productId: string, variants: Parameters<ProductRepository['addVariants']>[1]): Promise<ProductVariant[]> {
-    const rows = variants.map((variant) => ({
-      id: id(String(this.sequence++)),
-      productId,
-      status: variant.status ?? 'active',
-      ...variant
-    }));
-    this.variants.push(...rows);
-    return rows;
-  }
-
-  async addImages(productId: string, images: Parameters<ProductRepository['addImages']>[1]): Promise<ProductImage[]> {
-    const rows = images.map((image) => ({ id: id(String(this.sequence++)), productId, ...image }));
-    this.images.push(...rows);
-    return rows;
-  }
-
-  async findById(productId: string): Promise<ProductDetail | null> {
-    const product = this.products.get(productId);
-    return product
-      ? {
-          product,
-          variants: this.variants.filter((variant) => variant.productId === productId),
-          images: this.images.filter((image) => image.productId === productId)
-        }
-      : null;
-  }
-
-  async findActiveByIds(productIds: string[]): Promise<ProductDetail[]> {
-    const details = await Promise.all(productIds.map((productId) => this.findById(productId)));
-    return details.filter((detail): detail is ProductDetail => detail !== null && detail.product.status === 'active');
-  }
-
-  async updateStatus(productId: string, status: ProductStatus, reviewerId?: string, rejectionReason?: string): Promise<Product> {
-    const product = this.products.get(productId);
-    if (!product) {
-      throw new Error('missing product');
-    }
-    const updated = {
-      ...product,
-      status,
-      reviewedBy: reviewerId,
-      reviewedAt: status === 'active' || status === 'rejected' ? new Date('2026-05-20T00:00:00.000Z') : null,
-      rejectionReason: status === 'rejected' ? rejectionReason ?? null : null
-    };
-    this.products.set(productId, updated);
-    return updated;
-  }
-}
 
 class MemoryOutfitRepository implements OutfitRepository {
   outfits = new Map<string, Outfit>();
@@ -210,10 +144,9 @@ function services() {
 describe('Products and outfits services', () => {
   it('moves product through submit and review statuses and only exposes active products publicly', async () => {
     const { productsService } = services();
-    const detail = await productsService.createProduct({
-      brandId: id('brand'),
+    const detail = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency,
+      brandId: productFixture.brandID,
       name: 'Tailored Coat',
-      slug: 'tailored-coat',
       description: 'Structured wool coat',
       category: 'outerwear',
       basePrice: 42000,
@@ -222,29 +155,28 @@ describe('Products and outfits services', () => {
     });
 
     expect(productsService.toPublicProduct(detail)).toBeNull();
-    await expect(productsService.reviewProduct(detail.product.id, { decision: 'active' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(productsService.reviewProduct(detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' })).rejects.toBeInstanceOf(ConflictException);
 
-    const submitted = await productsService.submitProduct(detail.product.id);
+    const submitted = await productsService.submitProduct(productFixture.actor, detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version});
     expect(submitted.product.status).toBe('under_review');
 
-    const active = await productsService.reviewProduct(detail.product.id, { decision: 'active', reviewerId: id('admin') });
+    const active = await productsService.reviewProduct(detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version,  decision: 'active', reviewerId: productFixture.adminID });
     expect(active.product.status).toBe('active');
     expect(productsService.toPublicProduct(active)?.price).toEqual({ min: 42000, max: 42000, currency: 'CHF' });
   });
 
   it('allows non-shoppable outfit pieces and calculates total price from active server products', async () => {
     const { productsService, outfitsService } = services();
-    const product = await productsService.createProduct({
-      brandId: id('brand'),
+    const product = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency, images: [productFixture.image],
+      brandId: productFixture.brandID,
       name: 'Leather Loafer',
-      slug: 'leather-loafer',
       description: 'Black loafer',
       category: 'shoes',
       basePrice: 26000,
       variants: [{ sku: 'LOAFER-42', stockQuantity: 2, priceOverride: 24000 }]
     });
-    await productsService.submitProduct(product.product.id);
-    await productsService.reviewProduct(product.product.id, { decision: 'active' });
+    await productsService.submitProduct(productFixture.actor, product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version});
+    await productsService.reviewProduct(product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
 
     const outfit = await outfitsService.createOutfit({
       creatorId: id('creator'),
@@ -268,12 +200,12 @@ describe('Products and outfits services', () => {
     const definitions = [{ currency: 'CHF', price: 10090 }, { currency: 'EUR', price: 9000 }];
     const items: Array<{productId: string; itemType: 'top'; position: number; isRequired: boolean; isShoppable: boolean}> = [];
     for (const [position, definition] of definitions.entries()) {
-      const detail = await productsService.createProduct({ brandId: id('brand'), name: definition.currency,
-        slug: definition.currency, description: 'International price contract', category: 'top',
+      const detail = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), images: [productFixture.image],  brandId: productFixture.brandID, name: definition.currency,
+        description: 'International price contract', category: 'top',
         basePrice: definition.price, currency: definition.currency,
         variants: [{sku: definition.currency, stockQuantity: 2}] });
-      await productsService.submitProduct(detail.product.id);
-      await productsService.reviewProduct(detail.product.id, { decision: 'active' });
+      await productsService.submitProduct(productFixture.actor, detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version});
+      await productsService.reviewProduct(detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
       items.push({productId: detail.product.id, itemType: 'top', position, isRequired: true, isShoppable: true});
     }
     const outfit = await outfitsService.createOutfit({ creatorId: id('creator'), title: 'International',
@@ -289,17 +221,16 @@ describe('Products and outfits services', () => {
 
   it('keeps public feed/detail limited to published outfits and paginates basics', async () => {
     const { productsService, outfitsService } = services();
-    const product = await productsService.createProduct({
-      brandId: id('brand'),
+    const product = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency, images: [productFixture.image],
+      brandId: productFixture.brandID,
       name: 'Fine Knit',
-      slug: 'fine-knit',
       description: 'Merino knit',
       category: 'top',
       basePrice: 18000,
       variants: [{ sku: 'KNIT-M', stockQuantity: 5 }]
     });
-    await productsService.submitProduct(product.product.id);
-    await productsService.reviewProduct(product.product.id, { decision: 'active' });
+    await productsService.submitProduct(productFixture.actor, product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version});
+    await productsService.reviewProduct(product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
 
     const draft = await outfitsService.createOutfit({
       creatorId: id('creator'),
@@ -332,21 +263,19 @@ describe('Products and outfits services', () => {
     const editorialRepository = new MemoryEditorialRepository();
     const editorialService = new EditorialService(editorialRepository, outfitRepository, productRepository);
 
-    const activeProduct = await productsService.createProduct({
-      brandId: id('brand'),
+    const activeProduct = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency, variants: [{sku: productFixture.skuPrefix + randomUUID(), stockQuantity: productFixture.stock}], images: [productFixture.image],
+      brandId: productFixture.brandID,
       name: 'Active Belt',
-      slug: 'active-belt',
       description: 'Clean belt',
       category: 'accessory',
       basePrice: 9000
     });
-    await productsService.submitProduct(activeProduct.product.id);
-    await productsService.reviewProduct(activeProduct.product.id, { decision: 'active' });
+    await productsService.submitProduct(productFixture.actor, activeProduct.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, activeProduct.product.id)).product.version});
+    await productsService.reviewProduct(activeProduct.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, activeProduct.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
 
-    const draftProduct = await productsService.createProduct({
-      brandId: id('brand'),
+    const draftProduct = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency, variants: [{sku: productFixture.skuPrefix + randomUUID(), stockQuantity: productFixture.stock}], images: [productFixture.image],
+      brandId: productFixture.brandID,
       name: 'Draft Belt',
-      slug: 'draft-belt',
       description: 'Hidden belt',
       category: 'accessory',
       basePrice: 8000

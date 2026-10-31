@@ -1,0 +1,35 @@
+export const PRODUCT_STATUS = {draft: 'draft', underReview: 'under_review', active: 'active', rejected: 'rejected', archived: 'archived'} as const;
+export const PRODUCT_STATUSES = [PRODUCT_STATUS.draft, PRODUCT_STATUS.underReview, PRODUCT_STATUS.active, PRODUCT_STATUS.rejected, PRODUCT_STATUS.archived] as const;
+export const PRODUCT_VARIANT_STATUS = {active: 'active', outOfStock: 'out_of_stock', archived: 'archived'} as const;
+export const PRODUCT_VARIANT_STATUSES = [PRODUCT_VARIANT_STATUS.active, PRODUCT_VARIANT_STATUS.outOfStock, PRODUCT_VARIANT_STATUS.archived] as const;
+export const PRODUCT_IMAGE_KINDS = ['product', 'worn', 'detail', 'lookbook'] as const;
+export const PRODUCT_CURRENCIES = Intl.supportedValuesOf('currency');
+export const PRODUCT_ADMIN_ROLES = ['admin', 'super_admin'] as const;
+export const PRODUCT_WRITE_ROLES = ['brand_owner', 'brand_manager', ...PRODUCT_ADMIN_ROLES] as const;
+export const PRODUCT_EDITING = {
+  versionInitial: 1, versionStep: 1,
+  limits: {nameMin: 2, nameMax: 120, descriptionMin: 1, descriptionMax: 6000, categoryMin: 1, categoryMax: 100, detailMax: 2000, skuMin: 1, skuMax: 120, optionMax: 100, variantsMax: 100, imagesMax: 12, integerMin: 0, optionalTextMin: 0, integerMax: 2147483647, pageDefault: 20, pageMax: 50, pageMin: 1, pageOverflow: 1, lastIndex: -1, firstIndex: 0, readyVariants: 1, readyImages: 1},
+  persistence: {lock: 'update', readIsolation: 'repeatable read', readAccess: 'read only', uniqueViolation: '23505', skuConstraint: 'product_variants_sku_unique'},
+  creation: {hash: 'sha256', encoding: 'hex'},
+  failure: {
+    access: {code: 'product_brand_access_required', message: 'An active membership of a non-suspended brand is required'},
+    changed: {code: 'product_version_changed', message: 'The product changed; reload before editing'},
+    stockChanged: {code: 'product_stock_changed', message: 'Stock changed; reload before editing'},
+    state: {code: 'product_state_unavailable', message: 'This action is not available in the current product state'},
+    incomplete: {code: 'product_submission_incomplete', message: 'At least one active variant and one product image are required'},
+    sku: {code: 'product_sku_unavailable', message: 'One of these SKUs is already in use'},
+    images: {code: 'product_image_mismatch', message: 'Product image identifiers must belong to this product'},
+    variants: {code: 'product_variant_mismatch', message: 'Preserve every existing variant identifier when editing'},
+    request: {code: 'product_creation_request_changed', message: 'This creation request was already used for another payload'},
+    reason: {code: 'product_rejection_reason_required', message: 'A rejection reason is required'},
+    missing: 'Product not found', invalidPage: 'Invalid product page',
+  },
+} as const;
+
+const currencyFormatting = {locale: 'fr', style: 'currency', missingDigits: 'Missing currency minor unit digits'} as const;
+export const PRODUCT_CURRENCY_METADATA = PRODUCT_CURRENCIES.map(code => {
+  const minorUnitDigits = new Intl.NumberFormat(currencyFormatting.locale,
+    {style: currencyFormatting.style, currency: code}).resolvedOptions().maximumFractionDigits;
+  if (minorUnitDigits === undefined) throw new Error(currencyFormatting.missingDigits);
+  return {code, minorUnitDigits};
+});
