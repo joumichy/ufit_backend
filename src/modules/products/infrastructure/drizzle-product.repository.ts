@@ -2,7 +2,8 @@ import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, inArray, ne, notInArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import type { DatabaseSession } from '../../../shared/infrastructure/database/database-session';
-import { brandMembers, brandProfiles, productImages, products, productVariants } from '../../../shared/infrastructure/database/schema';
+import { brandMembers, brandProfiles, productImages, products, productVariants, productMediaAssets } from '../../../shared/infrastructure/database/schema';
+import { PRODUCT_MEDIA } from '../../media/domain/product-media.contract';
 import { PROFILE_EDITING, PROFILE_STATUS } from '../../../shared/domain/profile-editing.contract';
 import { PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_VARIANT_STATUS } from '../domain/product-contract';
 import type { Product, ProductContentUpdate, ProductDetail, ProductImage, ProductListPage, ProductListQuery, ProductRepository, ProductStatus, ProductVariant } from '../domain/product.types';
@@ -38,6 +39,12 @@ export class DrizzleProductRepository implements ProductRepository {
   async lockBrandMembership(brandId: string, userId: string): Promise<boolean> {
     const [row] = await this.memberQuery(brandId, userId).for(PRODUCT_EDITING.persistence.lock);
     return row !== undefined;
+  }
+  async hasReadyProductMedia(brandId: string, ids: string[]): Promise<boolean> {
+    if (!ids.length) return true;
+    const rows = await this.database.db.select({id: productMediaAssets.id}).from(productMediaAssets)
+      .where(and(inArray(productMediaAssets.id, ids), eq(productMediaAssets.brandId, brandId), eq(productMediaAssets.status, PRODUCT_MEDIA.status.ready)));
+    return rows.length === new Set(ids).size;
   }
   async lockProduct(productId: string): Promise<Product | undefined> {
     const [row] = await this.database.db.select(productProjection).from(products).where(eq(products.id, productId)).for(PRODUCT_EDITING.persistence.lock);

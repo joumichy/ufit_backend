@@ -1,11 +1,12 @@
 import {randomUUID} from 'node:crypto';
-import {BadRequestException,ConflictException,ForbiddenException} from '@nestjs/common';
+import {BadRequestException,ConflictException,ForbiddenException,ServiceUnavailableException} from '@nestjs/common';
 import {describe,expect,it} from 'vitest';
 import {PRODUCT_STATUS} from '../../src/modules/products/domain/product-contract';
 import {ProductsService} from '../../src/modules/products/application/products.service';
 import type {ProductDetail} from '../../src/modules/products/domain/product.types';
 import {MemoryProductRepository,productFixture} from './memory-product.repository';
-function setup(){const repository=new MemoryProductRepository();return{repository,service:new ProductsService(repository)};}
+import {MemoryProductMediaReader,mediaReaderFixture} from './memory-product-media.reader';
+function setup(){const repository=new MemoryProductRepository();const media=new MemoryProductMediaReader();return{repository,media,service:new ProductsService(repository,media)};}
 const create=()=>({brandId:productFixture.brandID,requestId:randomUUID(),name:productFixture.name,description:productFixture.description,category:productFixture.category,basePrice:productFixture.basePrice,currency:productFixture.currency,
  variants:[{sku:productFixture.skuPrefix+randomUUID(),stockQuantity:productFixture.stock}],images:[productFixture.image]});
 function edit(detail:ProductDetail){return{name:detail.product.name,description:detail.product.description,category:detail.product.category,basePrice:detail.product.basePrice,currency:detail.product.currency,
@@ -61,4 +62,27 @@ describe('owned product lifecycle',()=>{
   repository.members.clear();await expect(service.recoverCreation(productFixture.actor,body.brandId,body.requestId)).rejects.toBeInstanceOf(ForbiddenException);
  });
 
+ it('leaves moderation unchanged when image read links cannot be prepared',async()=>{
+  const{service,repository,media}=setup();const first=await service.createProduct(productFixture.actor,create());
+  const submitted=await service.submitProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version});
+  media.failReads=true;
+  await expect(service.reviewProduct(first.product.id,{expectedVersion:submitted.product.version,decision:PRODUCT_STATUS.active,reviewerId:productFixture.adminID})).rejects.toBeInstanceOf(ServiceUnavailableException);
+  const current=await repository.findById(first.product.id);expect(current?.product.version).toBe(submitted.product.version);expect(current?.product.status).toBe(PRODUCT_STATUS.underReview);
+ });
+ it('attaches only ready media of the product brand and persists stable URLs separately from read URLs',async()=>{
+  const{service,repository,media}=setup(),body=create(),assetID=randomUUID();
+  const url=media.locator.url(assetID),image={...productFixture.image,url};
+  await expect(service.createProduct(productFixture.actor,{...body,images:[image]})).rejects.toBeInstanceOf(BadRequestException);
+  expect(repository.products.size).toBe(productFixture.invalidVersion);
+  repository.readyMedia.set(assetID,randomUUID());
+  await expect(service.createProduct(productFixture.actor,{...body,images:[image]})).rejects.toBeInstanceOf(BadRequestException);
+  repository.readyMedia.set(assetID,body.brandId);media.assets.set(assetID,{brandId:body.brandId,displayUrl:mediaReaderFixture.signedOrigin+assetID});
+  const created=await service.createProduct(productFixture.actor,{...body,images:[image]});
+  expect(created.images[productFixture.firstIndex].url).toBe(url);
+  expect(created.images[productFixture.firstIndex].displayUrl).toBe(mediaReaderFixture.signedOrigin+assetID);
+  expect(repository.images[productFixture.firstIndex]).not.toHaveProperty('displayUrl');
+  const foreignID=randomUUID();repository.readyMedia.set(foreignID,randomUUID());
+  await expect(service.updateProduct(productFixture.actor,created.product.id,{...edit(created),name:productFixture.rollbackName,images:[{...image,url:media.locator.url(foreignID)}]})).rejects.toBeInstanceOf(BadRequestException);
+  expect((await service.getManagedProduct(productFixture.actor,created.product.id)).product.version).toBe(created.product.version);
+ });
 });

@@ -52,11 +52,14 @@ export interface ProductDetail {
 
 export interface ProductListQuery {brandId?: string; status?: ProductStatus; cursor?: string; limit: number;}
 export interface ProductListPage {items: ProductDetail[]; nextCursor: string | null;}
+export interface ProductDetailResponse extends Omit<ProductDetail, 'images'> { images: Array<ProductImage & {displayUrl: string}>; }
+export interface ProductListResponse {items: ProductDetailResponse[]; nextCursor: string | null;}
 export interface ProductRepository {
   transaction<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T>;
   readSnapshot<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T>;
   hasBrandMembership(brandId: string, userId: string): Promise<boolean>;
   lockBrandMembership(brandId: string, userId: string): Promise<boolean>;
+  hasReadyProductMedia(brandId: string, ids: string[]): Promise<boolean>;
   lockProduct(productId: string): Promise<Product | undefined>;
   findByCreationRequest(brandId: string, requestId: string): Promise<{detail: ProductDetail; fingerprint: string | null} | null>;
   list(query: ProductListQuery): Promise<ProductListPage>;

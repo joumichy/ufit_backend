@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {MemoryProductRepository, productFixture} from './products/memory-product.repository';
+import {MemoryProductMediaReader} from './products/memory-product-media.reader';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { ProductsService } from '../src/modules/products/application/products.service';
@@ -136,7 +137,7 @@ function services() {
   return {
     productRepository,
     outfitRepository,
-    productsService: new ProductsService(productRepository),
+    productsService: new ProductsService(productRepository, new MemoryProductMediaReader()),
     outfitsService: new OutfitsService(outfitRepository, productRepository)
   };
 }

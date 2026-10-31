@@ -1,4 +1,5 @@
 import { GENDER_TARGETS } from '../../domain/gender-target';
+import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
 import { PRODUCT_EDITING, PRODUCT_STATUSES, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from '../../../modules/products/domain/product-contract';
 import { PROFILE_STATUS, PROFILE_STATUSES } from '../../domain/profile-editing.contract';
 import { CREATOR_SOCIAL_PLATFORMS } from '../../../modules/creators/creator-social.contract';
@@ -812,3 +813,23 @@ export const adminActionLogs = ufitSchema.table(
 export type { UserRow, NewUserRow, UserRoleRow, NewUserRoleRow, CreatorApplicationRow, NewCreatorApplicationRow, BrandApplicationRow, NewBrandApplicationRow, ApplicationReviewRow, NewApplicationReviewRow, CreatorProfileRow, NewCreatorProfileRow, BrandProfileRow, NewBrandProfileRow, BrandMemberRow, NewBrandMemberRow, ProductRow, NewProductRow, ProductVariantRow, NewProductVariantRow, ProductImageRow, NewProductImageRow, OutfitRow, NewOutfitRow, OutfitItemRow, NewOutfitItemRow, OutfitImageRow, NewOutfitImageRow, EditorialCollectionRow, NewEditorialCollectionRow, EditorialCollectionItemRow, NewEditorialCollectionItemRow, SavedOutfitRow, CreatorFollowRow, CartRow, NewCartRow, CartItemRow, NewCartItemRow, OrderRow, NewOrderRow, OrderItemRow, NewOrderItemRow, PaymentRow, StripeWebhookEventRow, NewStripeWebhookEventRow, CommissionRow, NewCommissionRow, ShipmentRow, NewShipmentRow, AdminActionLogRow } from './schema.rows';
 
 export { connectAccounts } from "./schema.connect";
+
+export const productMediaAssets = ufitSchema.table('product_media_assets', {
+  id: uuid('id').primaryKey(),
+  brandId: uuid('brand_id').notNull().references(() => brandProfiles.id),
+  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id),
+  requestId: uuid('request_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  byteSize: integer('byte_size').notNull(),
+  contentType: text('content_type').notNull(),
+  objectPath: text('object_path').notNull(),
+  status: text('status', {enum: PRODUCT_MEDIA.statuses}).notNull().default(PRODUCT_MEDIA.status.pending),
+  ...timestamps,
+}, table => ({
+  requestUnique: uniqueIndex('product_media_brand_request_unique').on(table.brandId, table.requestId),
+  pathUnique: uniqueIndex('product_media_object_path_unique').on(table.objectPath),
+  sizeCheck: check('product_media_size_valid', sql`${table.byteSize} > 0 and ${table.byteSize} <= ${sql.raw(String(PRODUCT_MEDIA.maxBytes))}`),
+  typeCheck: check('product_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + PRODUCT_MEDIA.mime + "'")}`),
+  hashCheck: check('product_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + PRODUCT_MEDIA.hash.pattern + "'")}`),
+  statusCheck: check('product_media_status_valid', sql`${table.status} in (${sql.raw("'" + PRODUCT_MEDIA.status.pending + "', '" + PRODUCT_MEDIA.status.ready + "'")})`),
+}));

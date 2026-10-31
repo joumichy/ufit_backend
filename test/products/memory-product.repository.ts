@@ -19,6 +19,7 @@ export class MemoryProductRepository implements ProductRepository {
   images: ProductImage[] = [];
   members = new Set([productFixture.brandID + productFixture.actor.id]);
   activeBrands = new Set<string>([productFixture.brandID]);
+  readyMedia = new Map<string, string>();
   private requests = new Map<string, {id: string; fingerprint: string}>();
   async transaction<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T> {
     const before = structuredClone({products: this.products, variants: this.variants, images: this.images, requests: this.requests});
@@ -28,6 +29,7 @@ export class MemoryProductRepository implements ProductRepository {
   async readSnapshot<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T> { return operation(this); }
   async hasBrandMembership(brandId: string, userId: string) { return this.members.has(brandId + userId); }
   async lockBrandMembership(brandId: string, userId: string) { return this.members.has(brandId + userId); }
+  async hasReadyProductMedia(brandId: string, ids: string[]) { return ids.every(id => this.readyMedia.get(id) === brandId); }
   async lockProduct(productId: string) { return this.products.get(productId); }
   async findByCreationRequest(brandId: string, requestId: string) {
     const request = this.requests.get(brandId + requestId);
