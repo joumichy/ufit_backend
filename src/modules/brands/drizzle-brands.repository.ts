@@ -1,7 +1,8 @@
+import { PROFILE_EDITING, PROFILE_STATUS } from '../../shared/domain/profile-editing.contract';
 import type { DatabaseSession } from "../../shared/infrastructure/database/database-session";
 import { COMMERCE_POLICY_KEY, type BrandCommercePolicy } from './commerce-policy';
 import { Inject, Injectable } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../shared/infrastructure/database/database.service';
 import {
   brandMembers,
@@ -57,18 +58,21 @@ export class DrizzleBrandsRepository implements BrandsRepository {
   async findActiveMember(brandProfileId: string, userId: string): Promise<BrandMemberRow | undefined> {
     return this.database.db.query.brandMembers.findFirst({
       where: (table, { and, eq }) =>
-        and(eq(table.brandProfileId, brandProfileId), eq(table.userId, userId), eq(table.status, 'active'))
+        and(eq(table.brandProfileId, brandProfileId), eq(table.userId, userId), eq(table.status, PROFILE_EDITING.persistence.memberActive))
     });
   }
 
   async updateProfile(
     brandProfileId: string,
-    input: Partial<Pick<BrandProfileRow, 'brandName' | 'bio' | 'websiteUrl' | 'status'>>
-  ): Promise<BrandProfileRow> {
+    input: Partial<Pick<BrandProfileRow, 'brandName' | 'bio' | 'websiteUrl' | 'status'>>,
+    userId: string
+  ): Promise<BrandProfileRow | undefined> {
     const [row] = await this.database.db
       .update(brandProfiles)
       .set({ ...input, updatedAt: new Date() })
-      .where(eq(brandProfiles.id, brandProfileId))
+      .where(and(eq(brandProfiles.id, brandProfileId), ne(brandProfiles.status, PROFILE_STATUS.suspended),
+        sql`exists (select ${PROFILE_EDITING.persistence.existsProjection} from ${brandMembers} where ${brandMembers.brandProfileId} = ${brandProfiles.id}
+          and ${brandMembers.userId} = ${userId} and ${brandMembers.status} = ${PROFILE_EDITING.persistence.memberActive})`))
       .returning();
     return row;
   }

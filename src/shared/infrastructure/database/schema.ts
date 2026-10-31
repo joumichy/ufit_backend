@@ -1,3 +1,5 @@
+import { PROFILE_STATUS, PROFILE_STATUSES } from '../../domain/profile-editing.contract';
+import { CREATOR_SOCIAL_PLATFORMS } from '../../../modules/creators/creator-social.contract';
 import type { CreatorApplicationDossier, BrandApplicationDossier } from "../../../modules/applications/types/application-contract";
 import { sql } from 'drizzle-orm';
 import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
@@ -77,16 +79,9 @@ export const applicationDecisionEnum = ufitSchema.enum('application_decision', [
   'needs_more_info'
 ]);
 
-export const profileStatusEnum = ufitSchema.enum('profile_status', ['draft', 'active', 'paused', 'suspended']);
+export const profileStatusEnum = ufitSchema.enum('profile_status', PROFILE_STATUSES);
 
-export const socialPlatformEnum = ufitSchema.enum('social_platform', [
-  'instagram',
-  'tiktok',
-  'youtube',
-  'pinterest',
-  'website',
-  'other'
-]);
+export const socialPlatformEnum = ufitSchema.enum('social_platform', CREATOR_SOCIAL_PLATFORMS);
 
 export const brandMemberRoleEnum = ufitSchema.enum('brand_member_role', ['owner', 'manager']);
 
@@ -187,7 +182,7 @@ export const creatorProfiles = ufitSchema.table(
     slug: text('slug').notNull(),
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
-    status: profileStatusEnum('status').notNull().default('active'),
+    status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
     gradeCode: text('grade_code')
       .notNull()
       .default('seed')
@@ -272,7 +267,7 @@ export const brandProfiles = ufitSchema.table(
     slug: text('slug').notNull(),
     websiteUrl: text('website_url'),
     bio: text('bio'),
-    status: profileStatusEnum('status').notNull().default('active'),
+    status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },

@@ -13,11 +13,14 @@ export class CreatorsController {
 
   @Get('me')
   async getOwnProfile(@CurrentUser() user: AuthenticatedUser) {
-    return mapCreatorProfile(await this.creatorsService.getOwnProfile(user.id));
+    const details = await this.creatorsService.getOwnDetails(user.id);
+    return mapCreatorProfile(details.profile, details.socialAccounts);
   }
 
   @Patch('me')
   async updateOwnProfile(@CurrentUser() user: AuthenticatedUser, @Body() body: UpdateCreatorProfileRequest) {
-    return mapCreatorProfile(await this.creatorsService.updateOwnProfile(user.id, body));
+    await this.creatorsService.updateOwnProfile(user.id, body);
+    const details = await this.creatorsService.getOwnDetails(user.id);
+    return mapCreatorProfile(details.profile, details.socialAccounts);
   }
 }

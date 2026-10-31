@@ -42,6 +42,7 @@ function application(): CreatorApplicationRow {
 
 function buildService(repositoryOverrides: Partial<CreatorsRepository> = {}) {
   const repository: CreatorsRepository = {
+    findDetailsByUserId: vi.fn().mockResolvedValue({profile: profile(), socialAccounts: []}),
     findProfileByUserId: vi.fn().mockResolvedValue(profile()),
     findProfileByApplicationId: vi.fn().mockResolvedValue(undefined),
     createProfile: vi.fn().mockResolvedValue(profile()),
@@ -85,7 +86,7 @@ describe('CreatorsService', () => {
     await expect(service.updateOwnProfile('11111111-1111-1111-1111-111111111111', { bio: 'Updated' })).resolves.toMatchObject({
       bio: 'Updated'
     });
-    expect(repository.updateProfile).toHaveBeenCalledWith('33333333-3333-3333-3333-333333333333', { bio: 'Updated' });
+    expect(repository.updateProfile).toHaveBeenCalledWith('33333333-3333-3333-3333-333333333333', { bio: 'Updated' }, '11111111-1111-1111-1111-111111111111');
   });
 
   it('blocks suspended creators from updating their profile', async () => {

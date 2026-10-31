@@ -1,21 +1,13 @@
-import { IsIn, IsOptional, IsString, IsUrl, Length } from 'class-validator';
-
+import { Transform } from 'class-transformer';
+import { IsIn, IsOptional, IsString, IsUrl, Length, ValidateIf } from 'class-validator';
+import { PROFILE_EDITING, type WritableProfileStatus } from '../../../shared/domain/profile-editing.contract';
+import { profileFieldProvided, trimNullableProfileText, trimProfileText } from '../../../shared/presentation/dto/profile-input';
 export class UpdateBrandProfileRequest {
-  @IsOptional()
-  @IsString()
-  @Length(2, 120)
-  brandName?: string;
-
-  @IsOptional()
-  @IsUrl({ require_tld: false })
-  websiteUrl?: string;
-
-  @IsOptional()
-  @IsString()
-  @Length(0, 1000)
-  bio?: string;
-
-  @IsOptional()
-  @IsIn(['active', 'paused'])
-  status?: 'active' | 'paused';
+  @ValidateIf(profileFieldProvided) @Transform(trimProfileText) @IsString()
+  @Length(PROFILE_EDITING.limits.nameMin, PROFILE_EDITING.limits.brandNameMax) brandName?: string;
+  @Transform(trimNullableProfileText) @IsOptional()
+  @IsUrl({...PROFILE_EDITING.url, protocols: [...PROFILE_EDITING.url.protocols]}) websiteUrl?: string | null;
+  @Transform(trimNullableProfileText) @IsOptional() @IsString()
+  @Length(PROFILE_EDITING.limits.bioMin, PROFILE_EDITING.limits.bioMax) bio?: string | null;
+  @ValidateIf(profileFieldProvided) @IsIn([...PROFILE_EDITING.writableStatuses]) status?: WritableProfileStatus;
 }

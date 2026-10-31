@@ -19,8 +19,9 @@ export interface BrandsRepository {
   findActiveMember(brandProfileId: string, userId: string): Promise<BrandMemberRow | undefined>;
   updateProfile(
     brandProfileId: string,
-    input: Partial<Pick<BrandProfileRow, 'brandName' | 'bio' | 'websiteUrl' | 'status'>>
-  ): Promise<BrandProfileRow>;
+    input: Partial<Pick<BrandProfileRow, 'brandName' | 'bio' | 'websiteUrl' | 'status'>>,
+    userId: string
+  ): Promise<BrandProfileRow | undefined>;
 }
 
 export type BrandApplicationForProvisioning = Pick<

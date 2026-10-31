@@ -1,3 +1,4 @@
+import { PROFILE_EDITING, PROFILE_STATUS } from '../../shared/domain/profile-editing.contract';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { BrandApplicationRow, BrandProfileRow } from '../../shared/infrastructure/database/schema';
 import type { BrandsRepository } from './brands.repository';
@@ -45,7 +46,7 @@ export class BrandsService {
 
   async getPublicProfile(brandProfileId: string) {
     const profile = await this.brandsRepository.findProfileById(brandProfileId);
-    if (!profile || profile.status !== 'active') throw new NotFoundException('Public brand not found');
+    if (!profile || profile.status !== PROFILE_STATUS.active) throw new NotFoundException('Public brand not found');
     return { id: profile.id, brandName: profile.brandName, slug: profile.slug, bio: profile.bio, websiteUrl: profile.websiteUrl };
   }
 
@@ -69,10 +70,12 @@ export class BrandsService {
     input: UpdateBrandProfileRequest
   ): Promise<BrandProfileRow> {
     const profile = await this.getProfileForMember(brandProfileId, userId);
-    if (profile.status === 'suspended') {
+    if (profile.status === PROFILE_STATUS.suspended) {
       throw new ForbiddenException('Suspended brands cannot be updated');
     }
 
-    return this.brandsRepository.updateProfile(brandProfileId, input);
+    const updated = await this.brandsRepository.updateProfile(brandProfileId, input, userId);
+    if (!updated) throw new ForbiddenException(PROFILE_EDITING.failure.changed);
+    return updated;
   }
 }
