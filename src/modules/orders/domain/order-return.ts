@@ -26,6 +26,7 @@ export function returnActions(document: OrderReturn, actor: ReturnActor): Return
       case RETURN_STATUS.requested: return [RETURN_ACTION.withdraw];
       case RETURN_STATUS.approved: return [RETURN_ACTION.send, RETURN_ACTION.withdraw];
       case RETURN_STATUS.rejected: return [RETURN_ACTION.dispute, RETURN_ACTION.withdraw];
+      case RETURN_STATUS.inTransit: return [RETURN_ACTION.updateTracking];
       default: return [];
     }
   }
@@ -64,6 +65,9 @@ export function applyReturnAction(document: OrderReturn, actor: ReturnActor, inp
     case RETURN_ACTION.send:
       result.status = RETURN_STATUS.inTransit;
       result.tracking = {carrier: input.carrier, trackingNumber: input.trackingNumber, trackingUrl: input.trackingUrl ?? null, sentAt: now}; break;
+    case RETURN_ACTION.updateTracking:
+      if (!document.tracking) throw new ConflictException(ORDER_RETURN.failure.persisted);
+      result.tracking = {...document.tracking, carrier: input.carrier, trackingNumber: input.trackingNumber, trackingUrl: input.trackingUrl ?? null}; break;
     case RETURN_ACTION.receive: {
       if (input.items.length !== document.items.length) throw new ConflictException(ORDER_RETURN.failure.quantity);
       const choices = new Map(input.items.map(item => [item.orderItemId, item.restockQuantity]));

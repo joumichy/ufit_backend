@@ -14,8 +14,9 @@ journal Ufit (mobile4588853/Lab9a137dc), galerie publique et notes comprises
 sans livraison de toute l’application ni intégration à charlie.
 
 Les conditions commerciales possèdent une lecture privée et une écriture versionnée
-pour marque active/en pause ou administrateur autorisé. La lecture publique et le
-contrat de devis restent inchangés. Migration0017 additive appliquée :18migrations
+pour marque active/en pause ou administrateur autorisé. La lecture publique est
+conservée ; le devis porte désormais le code de remboursement décrit ci-dessous.
+Migration0017 additive appliquée :18migrations
 et checksums vérifiés ;189tests/39fichiers, build/types et qualificationAPI/SQL passent.
 Concurrence, propriété, rôles/statuts actuels et rollback sont qualifiés ; données
 financières existantes conservées. Formulaire propriétaire iOS250a52c/Lab401cac5
@@ -26,8 +27,26 @@ paiement/commission, actions d’expédition versionnées et incidents résolubl
 Migration0018 appliquée,19migrations/checksums vérifiés ;203tests/40fichiers et
 build/types passent. API/scopes/pagination,12scénariosSQL avecrollback et
 5contrôlesd’annulation qualifiés. Deux commandes concurrentes201/409 : une seule
-transition ; incident résolu, commande existante toujours en préparation.
-Le parcours iPhone de traitement des commandes reste à construire.
+transition. Le cycle natif marque/client est maintenant qualifié à la portée du
+journal : expédition, incident, résolution, correction du suivi et livraison
+persistante (mobile791a7e8/Lab b15586e). Préparation native depuis un achat neuf,
+pagination native>20 et accessibilité globale restent ouvertes.
+
+Retours : options/prévisualisation serveur, création idempotente avec fingerprint,
+décisions versionnées, scopes client/marque/admin, réception/stock/tentative
+atomiques et worker de remboursement sont raccordés. Migration0019 appliquée :
+20 migrations/checksums vérifiés, montants historiques conservés ;238tests dans
+43fichiers et build/types passent. SQL réel :13cas avec rollback ; vérificateur
+maintenu :9scénarios, trois retours avec taxes cumulatives et livraison finale,
+aucune ligne persistée ni appel Stripe.
+
+API réelle et Stripe TEST : refus marque, contestation et arbitrage admin, puis
+réception concurrente201/409 ; un seul remboursement partiel de12990CHF confirmé
+par le worker et Stripe, stock+1 une fois, commission d’origine conservée avec
+ajustement. Une unité de la commande reste pour le parcours natif. Écrans de
+retour SwiftUI/Lab et remboursement final13790CHF à qualifier. Dashboards par
+devise, créances sur commissions payées et transferts/réversions Connect restent
+ouverts ; aucune production ni application complète livrée n’est revendiquée.
 
 ## Socle MVP historique
 

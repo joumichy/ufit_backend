@@ -23,12 +23,12 @@ export async function refundStripeReturn(stripe: ReturnStripeClient, claim: Retu
     do {
       const page = await stripe.refunds.list({payment_intent: intent.id, limit: STRIPE_COMMERCE.pageLimit, starting_after: cursor});
       const matches = page.data.filter(candidate => candidate.metadata?.[STRIPE_RETURN.metadata.returnId] === claim.returnId && candidate.metadata?.[STRIPE_RETURN.metadata.attemptId] === claim.attemptId);
-      if (matches.length > STRIPE_RETURN.maximumAttemptMatches) throw new ConflictException(RETURN_REFUND.failure.mismatch);
-      refund = matches.at(ORDER_RETURN.limit.firstRow);
+      if (matches.length > STRIPE_RETURN.maximumAttemptMatches || (refund && matches.length > ORDER_RETURN.amount.zero)) throw new ConflictException(RETURN_REFUND.failure.mismatch);
+      if (matches.length) refund = matches.at(ORDER_RETURN.limit.firstRow);
       const next = page.has_more ? page.data.at(STRIPE_COMMERCE.lastIndex)?.id : undefined;
       if (page.has_more && (!next || next === cursor)) throw new ConflictException(RETURN_REFUND.failure.mismatch);
       cursor = next;
-    } while (!refund && cursor);
+    } while (cursor);
   }
   refund ??= await stripe.refunds.create({payment_intent: intent.id, amount: claim.amount, reason: STRIPE_COMMERCE.cancellationReason,
     metadata: {[STRIPE_ORDER_METADATA.orderId]: claim.orderId, [STRIPE_RETURN.metadata.returnId]: claim.returnId, [STRIPE_RETURN.metadata.attemptId]: claim.attemptId}},

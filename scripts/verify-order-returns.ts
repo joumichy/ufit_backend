@@ -100,11 +100,14 @@ async function verify(): Promise<void> {
       current = await service.act(admin, adminScope, current.id, {action: 'arbitrate_approve', expectedVersion: 3, reason: fixture.reason, instructions: fixture.instructions});
       assert.equal(current.brandDecision?.decision, 'rejected'); assert(current.adminDecision?.reason); passed++;
       current = await service.act(customer, customerScope, current.id, {action: 'send', expectedVersion: 4, carrier: 'Qualification', trackingNumber: current.id});
-      const receive = {action: 'receive', expectedVersion: 5, items: [{orderItemId: itemId, restockQuantity: 1}]};
+      const sentAt = current.tracking!.sentAt;
+      current = await service.act(customer, customerScope, current.id, {action: 'update_tracking', expectedVersion: 5, carrier: 'Qualification', trackingNumber: fixture.orderPrefix + current.id, trackingUrl: null});
+      assert.equal(current.tracking!.sentAt, sentAt);
+      const receive = {action: 'receive', expectedVersion: 6, items: [{orderItemId: itemId, restockQuantity: 1}]};
       await assert.rejects(tx.transaction(async nested => {
         await new OrderReturnsService(new DrizzleOrderReturnRepository({db: nested})).act(brand, brandScope, current.id, receive); throw new VerificationRollback();
       }), VerificationRollback);
-      assert.equal((await service.detail(customer, customerScope, current.id)).version, 5);
+      assert.equal((await service.detail(customer, customerScope, current.id)).version, 6);
       assert.equal((await tx.select({value: count()}).from(orderReturnRefunds).innerJoin(orderReturns, eq(orderReturns.id, orderReturnRefunds.returnId)).where(eq(orderReturns.orderId, id)))[fixture.zero].value, 0); passed++;
       current = await service.act(brand, brandScope, current.id, receive);
       await denied(() => service.act(brand, brandScope, current.id, receive), 409);
@@ -114,12 +117,12 @@ async function verify(): Promise<void> {
       }
       const firstClaim = await claim(), firstRefundId = fixture.refundPrefix + firstClaim.attemptId;
       await refunds.settle(firstClaim, {state: 'pending', refundId: firstRefundId, providerStatus: 'pending'});
-      assert.equal((await service.detail(customer, customerScope, current.id)).version, 7);
+      assert.equal((await service.detail(customer, customerScope, current.id)).version, 8);
       await refunds.settle(firstClaim, {state: 'pending', refundId: firstRefundId, providerStatus: 'pending'});
-      assert.equal((await service.detail(customer, customerScope, current.id)).version, 7);
+      assert.equal((await service.detail(customer, customerScope, current.id)).version, 8);
       await refunds.settle(firstClaim, {state: 'succeeded', refundId: firstRefundId, providerStatus: 'succeeded'});
       await refunds.settle(firstClaim, {state: 'succeeded', refundId: firstRefundId, providerStatus: 'succeeded'});
-      assert.equal((await service.detail(customer, customerScope, current.id)).version, 8); passed++;
+      assert.equal((await service.detail(customer, customerScope, current.id)).version, 9); passed++;
       const second = await create(); current = second.document; assert.equal(second.quote.amounts.totalAmount, 108);
       current = await service.act(brand, brandScope, current.id, {action: 'approve', expectedVersion: 1, instructions: fixture.instructions});
       current = await service.act(brand, brandScope, current.id, {action: 'receive', expectedVersion: 2, items: [{orderItemId: itemId, restockQuantity: 0}]});
@@ -157,7 +160,7 @@ async function verify(): Promise<void> {
     }), VerificationRollback);
     for (const [table, hash] of before) assert.equal(await digest(table), hash, 'Return verification did not restore ' + table);
     const [remaining] = await database.db.select({value: count()}).from(orders).where(inArray(orders.id, createdOrders)); assert.equal(remaining.value, fixture.zero);
-    console.log(JSON.stringify({repositoryScenarios: passed, persistedQualificationRows: remaining.value, noStripeCalls: true, threePartialRefundsConserve405MinorUnits: true, allBusinessAndFinancialTablesRestored: true}));
+    console.log(JSON.stringify({repositoryScenarios: passed, persistedQualificationRows: remaining.value, noStripeCalls: true, returnTrackingCorrectionPreservesSendingDate: true, threePartialRefundsConserve405MinorUnits: true, allBusinessAndFinancialTablesRestored: true}));
   } finally {await database.onModuleDestroy();}
 }
 void verify().catch(error => {console.error(error instanceof Error ? error.message : 'Return verification failed'); process.exitCode = 1;});

@@ -9,6 +9,7 @@ export type ReturnStatus = typeof RETURN_STATUS[keyof typeof RETURN_STATUS];
 export const RETURN_ACTION = {
   approve: 'approve', reject: 'reject', withdraw: 'withdraw', dispute: 'dispute', send: 'send', receive: 'receive',
   arbitrateApprove: 'arbitrate_approve', arbitrateReject: 'arbitrate_reject', retryRefund: 'retry_refund',
+  updateTracking: 'update_tracking',
 } as const;
 export type ReturnActionName = typeof RETURN_ACTION[keyof typeof RETURN_ACTION];
 export const ORDER_RETURN = {
@@ -57,6 +58,7 @@ export const orderReturnActionSchema = z.discriminatedUnion(ORDER_RETURN.protoco
   z.object({action: z.literal(RETURN_ACTION.withdraw), expectedVersion}).strict(),
   z.object({action: z.literal(RETURN_ACTION.dispute), expectedVersion, reason}).strict(),
   z.object({action: z.literal(RETURN_ACTION.send), expectedVersion, ...parcelTrackingFields}).strict(),
+  z.object({action: z.literal(RETURN_ACTION.updateTracking), expectedVersion, ...parcelTrackingFields}).strict(),
   z.object({action: z.literal(RETURN_ACTION.receive), expectedVersion, items: receivedItems}).strict(),
   z.object({action: z.literal(RETURN_ACTION.arbitrateApprove), expectedVersion, reason, instructions}).strict(),
   z.object({action: z.literal(RETURN_ACTION.arbitrateReject), expectedVersion, reason}).strict(),

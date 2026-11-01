@@ -69,6 +69,12 @@ describe('Stripe order return refunds', () => {
     expect(await refundStripeReturn(stripe, {...claim(), refundId: fixture.refund})).toMatchObject({state: 'succeeded'});
     expect(state.reads).toEqual([fixture.intent, fixture.refund]); expect(state.creations).toBe(0);
   });
+  it('refuses multiple provider refunds for one attempt even when they occupy different pages', async () => {
+    const {state, stripe} = setup(); state.pageSize = 1;
+    state.refunds = [refund(), {...refund(), id: 're_duplicate'}];
+    await expect(refundStripeReturn(stripe, claim())).rejects.toMatchObject({response: {code: 'order_return_payment_mismatch'}});
+    expect(state.creations).toBe(0);
+  });
   it('keeps pending and requires_action distinct from provider success and preserves failed/canceled states', async () => {
     for (const [providerStatus, expected] of [['pending', 'pending'], ['requires_action', 'pending'], ['failed', 'failed'], ['canceled', 'failed']] as const) {
       const {state, stripe} = setup(); state.refunds = [{...refund(), status: providerStatus}];

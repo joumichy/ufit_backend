@@ -31,6 +31,13 @@ describe('Versioned return actions', () => {
     applyReturnAction(initial, 'brand', command({action: 'approve', expectedVersion: 1, instructions: fixture.instructions}), fixture.now);
     expect(initial).toEqual(before);
   });
+  it('lets the customer correct return tracking without resetting the parcel sending date', () => {
+    const sent = applyReturnAction(approve(), 'customer', command({action: 'send', expectedVersion: 2, carrier: 'La Poste', trackingNumber: 'RETURNQUAL', trackingUrl: 'https://example.test/return'}), fixture.now);
+    expect(returnActions(sent, 'customer')).toEqual(['update_tracking']);
+    const corrected = applyReturnAction(sent, 'customer', command({action: 'update_tracking', expectedVersion: 3, carrier: 'La Poste', trackingNumber: 'CORRECTED', trackingUrl: null}), '2026-11-03T10:00:00.000Z');
+    expect(corrected).toMatchObject({version: 4, status: 'in_transit', tracking: {trackingNumber: 'CORRECTED', trackingUrl: null, sentAt: fixture.now}});
+    expect(corrected.amounts).toEqual(sent.amounts);
+  });
   it('refuses a stale action before considering its meaning and never rebases the captured version', () => {
     const approved = approve();
     expect(() => applyReturnAction(approved, 'customer', command({action: 'withdraw', expectedVersion: 1}), fixture.now)).toThrow(expect.objectContaining({response: expect.objectContaining({code: 'order_return_version_changed'})}));

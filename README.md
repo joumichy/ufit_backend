@@ -152,6 +152,61 @@ le produit et la marque sont actifs, ou si une commande ayant atteint `paid`
 conserve cette image dans son snapshot. Le bucket demeure privé.
 
 
+## Retours après livraison
+
+Les retours utilisent les prix, quantités, devise et délai conservés dans la
+commande. Le devis porte `refundPolicyCode`, également figé dans son snapshot.
+La règle `proportional_tax_full_shipping_v1` rembourse les pièces retournées,
+alloue les taxes ajoutées en unités mineures de façon cumulative et rembourse
+la livraison initiale lorsque toutes les unités ont été retournées. Les frais
+externes de renvoi ou de douane ne sont pas ajoutés au montant encaissé par Ufit.
+
+- `GET /orders/:orderId/returns/options` : conditions, délai, quantités restantes
+  et éventuel dossier actif. Un seul dossier non résolu par commande.
+- `POST /orders/:orderId/returns/preview` : `{items: [{orderItemId, quantity}]}` ;
+  retourne les montants serveur et leur `fingerprint`.
+- `POST /orders/:orderId/returns` : ces mêmes lignes, `requestId`, `reason` et
+  `quoteFingerprint`. Une même clé et un même contenu retrouvent le dossier ;
+  un contenu différent ou un montant périmé reçoit409.
+- `GET /orders/:orderId/returns`, `/brands/:brandId/returns`, `/admin/returns` :
+  listes privées paginées, `limit`1–50, `cursor` UUID et `status` facultatif.
+  Ajouter `/:id` pour le détail. Les portées et rôles actuels sont vérifiés.
+- `POST <route-du-dossier>/actions` : `action` et `expectedVersion` requis.
+  Les actions autorisées viennent du détail serveur ; aucun statut libre ni
+  montant de remboursement fourni par le client n’est accepté.
+
+La marque accepte avec `instructions` ou refuse avec `reason`. Le client peut
+retirer sa demande avant envoi, contester un refus et renseigner le transporteur,
+le numéro et un lien HTTPS facultatif. Il peut ensuite corriger le suivi sans
+réécrire la date d’envoi. L’admin arbitre une contestation avec une raison visible,
+et des instructions en cas d’acceptation ; les décisions précédentes restent
+consultables. Les noms d’actions sont `approve`, `reject`, `withdraw`, `dispute`,
+`send`, `update_tracking`, `arbitrate_approve`, `arbitrate_reject`, `receive` et
+`retry_refund`.
+
+`receive` exige toutes les lignes demandées avec un `restockQuantity` explicite
+entre zéro et la quantité retournée. Réception, stock choisi et tentative de
+remboursement sont enregistrés dans une transaction. Le worker reprend les
+tentatives durables hors requête HTTP, avec lease et clé Stripe stable par
+tentative. La recherche paginée des métadonnées retrouve une réponse perdue ;
+plusieurs refunds pour une même tentative sont refusés. Un état fournisseur
+`pending` ou `requires_action` ne devient pas un succès local. Un échec terminal
+permet une nouvelle tentative explicite par la marque ou l’admin.
+
+Après confirmation Stripe, les ajustements de commission conservent les montants
+d’origine. Un retour partiel garde la commande livrée ; le dernier remboursement
+complet clôt la commande en `refunded`. Les créances sur commissions déjà payées
+restent distinctes d’un renversement de transfert Connect, encore à raccorder.
+Les anciennes métriques Workspace doivent également intégrer les ajustements et
+séparer les devises avant la livraison complète des dashboards.
+
+Migration0019 : dossiers, lignes, tentatives et ajustements avec contraintes et
+index. Le rollout pré-lancement ajoute uniquement le code explicite de règle aux
+snapshots existants ; les montants et autres conditions sont conservés.
+`npx tsx scripts/verify-order-returns.ts` qualifie le parcours en PostgreSQL avec
+rollback intégral et sans appel Stripe, depuis le profil development4014 TEST et
+le registre privé de qualification. La file de remboursements doit être vide.
+
 ## Gestion des tenues
 
 Les écritures exigent un créateur propriétaire ou une adhésion active à la marque
