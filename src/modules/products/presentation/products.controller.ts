@@ -7,7 +7,7 @@ import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { ProductsService } from '../application/products.service';
 import { CreateProductDto, ProductVersionDto, ReviewProductDto, UpdateProductDto, UpdateProductStockDto } from '../application/dto/product.dto';
-import { PRODUCT_CURRENCY_METADATA, PRODUCT_WRITE_ROLES, PRODUCT_ADMIN_ROLES } from '../domain/product-contract';
+import { PRODUCT_CURRENCY_METADATA, PRODUCT_WRITE_ROLES, PRODUCT_ADMIN_ROLES, PRODUCT_SELECTION } from '../domain/product-contract';
 
 const productRoutes = {root: 'products', creation: 'creation-requests/:requestId', requestId: 'requestId', brandId: 'brandId', metadata: 'metadata', private: ':id/private', id: 'id',
   product: ':id', stock: ':id/stock', archive: ':id/archive', restore: ':id/restore', submit: ':id/submit', review: ':id/review', public: ':id/public'} as const;
@@ -33,6 +33,11 @@ export class ProductsController {
     return this.productsService.submitProduct(user, id, body);
   }
 
+
+  @Get(PRODUCT_SELECTION.route)
+  @UseGuards(AuthGuard, RoleGuard)
+  @Roles(...PRODUCT_SELECTION.roles)
+  selectProducts(@Query() query: Record<string, unknown>) { return this.productsService.selectProducts(query); }
 
   @Get(productRoutes.metadata)
   @UseGuards(AuthGuard, RoleGuard)

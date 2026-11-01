@@ -22,7 +22,6 @@ export class MemoryProductRepository implements ProductRepository {
   images: ProductImage[] = [];
   brands = new Map<string, ProductDetail['brand']>([[productFixture.brandID, {id: productFixture.brandID, brandName: productFixture.brandName, status: PROFILE_STATUS.active}]]);
   members = new Set([productFixture.brandID + productFixture.actor.id]);
-  activeBrands = new Set<string>([productFixture.brandID]);
   readyMedia = new Map<string, string>();
   private requests = new Map<string, {id: string; fingerprint: string}>();
   async transaction<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T> {
@@ -45,6 +44,13 @@ export class MemoryProductRepository implements ProductRepository {
     const page = rows.slice(PRODUCT_EDITING.limits.firstIndex, query.limit);
     const items = await Promise.all(page.map(row => this.findById(row.id)));
     return {items: items as ProductDetail[], nextCursor: rows.length > query.limit ? page.at(PRODUCT_EDITING.limits.lastIndex)!.id : null};
+  }
+  async findSelectablePage(query: Parameters<ProductRepository['findSelectablePage']>[0]) {
+    const rows = [...this.products.values()].filter(product => (!query.brandId || product.brandId === query.brandId) && product.status === PRODUCT_STATUS.active && this.brands.get(product.brandId)?.status === PROFILE_STATUS.active &&
+      (!query.search || product.name.toLowerCase().includes(query.search.toLowerCase())) && (!query.cursor || product.id > query.cursor)).sort((a, b) => a.id.localeCompare(b.id));
+    const page = rows.slice(PRODUCT_EDITING.limits.firstIndex, query.limit), items: ProductDetail[] = [];
+    for (const product of page) items.push((await this.findById(product.id))!);
+    return {items, nextCursor: rows.length > query.limit ? page.at(PRODUCT_EDITING.limits.lastIndex)!.id : null};
   }
   async createProduct(input: Parameters<ProductRepository['createProduct']>[0]): Promise<Product> {
     if (!isUUID(input.brandId) || !isUUID(input.creationRequestId)) throw new Error(productFixture.invalid);
@@ -73,7 +79,7 @@ export class MemoryProductRepository implements ProductRepository {
   }
   async findActiveByIds(productIds: string[]): Promise<ProductDetail[]> {
     const details = await Promise.all(productIds.map(id => this.findById(id)));
-    return details.filter((detail): detail is ProductDetail => detail !== null && detail.product.status === PRODUCT_STATUS.active && this.activeBrands.has(detail.product.brandId));
+    return details.filter((detail): detail is ProductDetail => detail !== null && detail.product.status === PRODUCT_STATUS.active && detail.brand.status === PROFILE_STATUS.active);
   }
   async replaceProduct(productId: string, input: Parameters<ProductRepository['replaceProduct']>[1]): Promise<void> {
     const product = this.products.get(productId); if (!product) throw new Error(productFixture.invalid);

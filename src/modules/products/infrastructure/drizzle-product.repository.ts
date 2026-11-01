@@ -6,7 +6,7 @@ import { brandMembers, brandProfiles, productImages, products, productVariants, 
 import { PRODUCT_MEDIA } from '../../media/domain/product-media.contract';
 import { PROFILE_EDITING, PROFILE_STATUS } from '../../../shared/domain/profile-editing.contract';
 import { PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_VARIANT_STATUS } from '../domain/product-contract';
-import type { Product, ProductContentUpdate, ProductDetail, ProductImage, ProductListPage, ProductListQuery, ProductRepository, ProductStatus, ProductVariant } from '../domain/product.types';
+import type { Product, ProductContentUpdate, ProductDetail, ProductImage, ProductListPage, ProductListQuery, ProductRepository, ProductStatus, ProductVariant, ProductSelectionQuery } from '../domain/product.types';
 
 const productProjection = {id: products.id, brandId: products.brandId, version: products.version, name: products.name, slug: products.slug,
   description: products.description, category: products.category, genderTarget: products.genderTarget, status: products.status,
@@ -72,6 +72,19 @@ export class DrizzleProductRepository implements ProductRepository {
       this.database.db.select(imageProjection).from(productImages).where(inArray(productImages.productId, ids)).orderBy(productImages.position, productImages.id)
     ]);
     return {items: page.map(({product, brand}) => ({product, brand, variants: variants.filter(row => row.productId === product.id), images: images.filter(row => row.productId === product.id)})),
+      nextCursor: rows.length > query.limit ? page.at(PRODUCT_EDITING.limits.lastIndex)!.product.id : null};
+  }
+  async findSelectablePage(query: ProductSelectionQuery): Promise<ProductListPage> {
+    const rows = await this.database.db.select({product: productProjection, brand: brandProjection}).from(products)
+      .innerJoin(brandProfiles, and(eq(brandProfiles.id, products.brandId), eq(brandProfiles.status, PROFILE_STATUS.active)))
+      .where(and(eq(products.status, PRODUCT_STATUS.active), query.brandId ? eq(products.brandId, query.brandId) : undefined, query.cursor ? gt(products.id, query.cursor) : undefined,
+        query.search ? sql`position(lower(${query.search}) in lower(${products.name})) > ${PRODUCT_EDITING.limits.integerMin}` : undefined))
+      .orderBy(products.id).limit(query.limit + PRODUCT_EDITING.limits.pageOverflow);
+    const page = rows.slice(PRODUCT_EDITING.limits.firstIndex, query.limit), ids = page.map(row => row.product.id);
+    if (!ids.length) return {items: [], nextCursor: null};
+    const variants = await this.database.db.select(variantProjection).from(productVariants).where(inArray(productVariants.productId, ids)).orderBy(productVariants.id);
+    const images = await this.database.db.select(imageProjection).from(productImages).where(inArray(productImages.productId, ids)).orderBy(productImages.position, productImages.id);
+    return {items: page.map(({product, brand}) => ({product, brand, variants: variants.filter(variant => variant.productId === product.id), images: images.filter(image => image.productId === product.id)})),
       nextCursor: rows.length > query.limit ? page.at(PRODUCT_EDITING.limits.lastIndex)!.product.id : null};
   }
   async createProduct(input: Parameters<ProductRepository['createProduct']>[0]): Promise<Product> {

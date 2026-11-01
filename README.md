@@ -121,3 +121,10 @@ et un premier registre de tags ; elle ne change aucune tenue existante.
 
 Les endpoints publics `GET /outfits` et `GET /outfits/:id` restent distincts des
 lectures privées et conservent leur projection publique.
+
+
+`GET /products/selection` fournit à l’outil de composition des pages de produits
+actifs de marques actives. Accès créateur, membre de marque ou administrateur ;
+paramètres `brandId`, `search` (nom littéral), `limit`, `cursor`. La projection
+publique inclut le nom de marque, les prix par devise, photos et variantes,
+sans SKU ni données de revue privées. Une marque en pause n’y apparaît pas.

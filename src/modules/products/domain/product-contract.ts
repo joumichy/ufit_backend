@@ -33,3 +33,10 @@ export const PRODUCT_CURRENCY_METADATA = PRODUCT_CURRENCIES.map(code => {
   if (minorUnitDigits === undefined) throw new Error(currencyFormatting.missingDigits);
   return {code, minorUnitDigits};
 });
+
+export const PRODUCT_SELECTION = {
+  roles: ['creator', ...PRODUCT_WRITE_ROLES],
+  route: 'selection',
+  searchMin: 1, searchMax: 120,
+  failure: 'Invalid selectable product page',
+} as const;

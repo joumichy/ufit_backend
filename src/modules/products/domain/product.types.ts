@@ -53,6 +53,7 @@ export interface ProductDetail {
 }
 
 export interface ProductListQuery {brandId?: string; status?: ProductStatus; cursor?: string; limit: number;}
+export interface ProductSelectionQuery {brandId?: string; cursor?: string; search?: string; limit: number;}
 export interface ProductListPage {items: ProductDetail[]; nextCursor: string | null;}
 export interface ProductDetailResponse extends Omit<ProductDetail, 'images'> { images: Array<ProductImage & {displayUrl: string}>; }
 export interface ProductListResponse {items: ProductDetailResponse[]; nextCursor: string | null;}
@@ -72,6 +73,7 @@ export interface ProductRepository {
   addVariants(productId: string, variants: Array<Omit<ProductVariant, 'id' | 'productId' | 'status'> & { status?: ProductVariantStatus }>): Promise<ProductVariant[]>;
   addImages(productId: string, images: Array<Omit<ProductImage, 'id' | 'productId'>>): Promise<ProductImage[]>;
   findById(productId: string): Promise<ProductDetail | null>;
+  findSelectablePage(query: ProductSelectionQuery): Promise<ProductListPage>;
   findActiveByIds(productIds: string[]): Promise<ProductDetail[]>;
   updateStatus(productId: string, status: ProductStatus, reviewerId?: string, rejectionReason?: string): Promise<Product>;
 }

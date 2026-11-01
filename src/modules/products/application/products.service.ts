@@ -1,3 +1,4 @@
+import {PROFILE_STATUS} from '../../../shared/domain/profile-editing.contract';
 import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
@@ -5,13 +6,15 @@ import { DrizzleQueryError } from 'drizzle-orm';
 import { PRODUCT_REPOSITORY, type Product, type ProductContentUpdate, type ProductDetail, type ProductDetailResponse, type ProductRepository } from '../domain/product.types';
 import { PRODUCT_MEDIA } from '../../media/domain/product-media.contract';
 import type { ProductMediaReader } from '../../media/domain/product-media.types';
-import { PRODUCT_ADMIN_ROLES, PRODUCT_CURRENCIES, PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_STATUSES, PRODUCT_VARIANT_STATUS } from '../domain/product-contract';
+import { PRODUCT_ADMIN_ROLES, PRODUCT_CURRENCIES, PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_STATUSES, PRODUCT_VARIANT_STATUS, PRODUCT_SELECTION } from '../domain/product-contract';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { CreateProductDto, ProductFieldsDto, ProductVersionDto, ReviewProductDto, UpdateProductDto, UpdateProductStockDto } from './dto/product.dto';
 
 enum ProductMutationAccess { MemberOnly, Moderation }
 type ProductActor = Pick<AuthenticatedUser, 'id' | 'roles'>;
 const pageContract = z.object({brandId: z.uuid().optional(), status: z.enum(PRODUCT_STATUSES).optional(), cursor: z.uuid().optional(),
+  limit: z.coerce.number().int().min(PRODUCT_EDITING.limits.pageMin).max(PRODUCT_EDITING.limits.pageMax).default(PRODUCT_EDITING.limits.pageDefault)}).strict();
+const selectionPage = z.object({brandId: z.uuid().optional(), cursor: z.uuid().optional(), search: z.string().trim().min(PRODUCT_SELECTION.searchMin).max(PRODUCT_SELECTION.searchMax).optional(),
   limit: z.coerce.number().int().min(PRODUCT_EDITING.limits.pageMin).max(PRODUCT_EDITING.limits.pageMax).default(PRODUCT_EDITING.limits.pageDefault)}).strict();
 const slugRules = {normalization: 'NFKD', emptyText: '', separator: '-', fallback: 'product', marks: /[\u0300-\u036f]/g, parts: /[^a-z0-9]+/g, edges: /^-|-$/g} as const;
 export interface PublicProductDto {
@@ -26,6 +29,17 @@ export class ProductsService {
     @Inject(PRODUCT_MEDIA.reader) private readonly media: ProductMediaReader) {}
 
   private isAdmin(user: ProductActor): boolean { return PRODUCT_ADMIN_ROLES.some(role => user.roles.includes(role)); }
+  async selectProducts(raw: unknown) {
+    const parsed = selectionPage.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException(PRODUCT_SELECTION.failure);
+    const page = await this.products.readSnapshot(repository => repository.findSelectablePage(parsed.data));
+    const items = page.items.map(detail => {
+      const product = this.toPublicProduct(detail);
+      if (!product || detail.brand.status !== PROFILE_STATUS.active) throw new ServiceUnavailableException(PRODUCT_SELECTION.failure);
+      return {...product, brandName: detail.brand.brandName};
+    });
+    return {items, nextCursor: page.nextCursor};
+  }
   async listProducts(user: ProductActor, raw: unknown) {
     const parsed = pageContract.safeParse(raw);
     if (!parsed.success || (!this.isAdmin(user) && !parsed.data.brandId)) throw new BadRequestException(PRODUCT_EDITING.failure.invalidPage);
