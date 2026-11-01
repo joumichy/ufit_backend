@@ -4,15 +4,11 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  Optional,
 } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { CartQuote } from "../../cart/application/cart-quote.service";
 import type { Cart } from "../../cart/application/cart.service";
-import {
-  calculateCommissionRate,
-  type CommissionRuleInput,
-} from "../../commissions/application/commissions.service";
+import {COMMISSION_RULE, type CommissionRuleResolver} from '../../commissions/domain/commission-rule.contract';
 
 import {
   ORDER_STATUS,
@@ -31,6 +27,8 @@ export interface OrderItemSnapshot {
   unitPrice: number;
   totalPrice: number;
   commissionRate: number;
+  commissionRuleId?: string;
+  commissionCreatorGradeCode?: string;
   sourceCreatorId?: string;
   sourceOutfitId?: string;
 }
@@ -95,15 +93,6 @@ export interface OrderRepository {
   findById(orderId: string): Promise<Order | undefined>;
 }
 
-export interface CommissionRuleResolver {
-  resolve(input: {
-    brandId: string;
-    productId: string;
-    creatorId: string;
-    snapshotRate: number;
-  }): Promise<CommissionRuleInput>;
-}
-
 @Injectable()
 export class OrdersService {
   constructor(
@@ -111,9 +100,8 @@ export class OrdersService {
     private readonly orders: OrderRepository,
     @Inject("ProductSnapshotReader")
     private readonly snapshots: ProductSnapshotReader,
-    @Optional()
-    @Inject("CommissionRuleResolver")
-    private readonly commissionRules?: CommissionRuleResolver,
+    @Inject(COMMISSION_RULE.token.resolver)
+    private readonly commissionRules: CommissionRuleResolver,
   ) {}
 
   async listForCustomer(userId: string, limit: number, cursor?: string) {
@@ -143,6 +131,7 @@ export class OrdersService {
       const productSnapshot = await this.snapshots.buildSnapshot(
         item.productVariantId,
       );
+      const commission = item.sourceCreatorId ? await this.commissionRules.resolve({brandId: cart.brandId, productId: item.productId, creatorId: item.sourceCreatorId}) : undefined;
       items.push({
         id: randomUUID(),
         productId: item.productId,
@@ -151,17 +140,9 @@ export class OrdersService {
         quantity: item.quantity,
         unitPrice: item.unitPrice,
         totalPrice: item.unitPrice * item.quantity,
-        commissionRate:
-          item.sourceCreatorId && this.commissionRules
-            ? calculateCommissionRate(
-                await this.commissionRules.resolve({
-                  brandId: cart.brandId,
-                  productId: item.productId,
-                  creatorId: item.sourceCreatorId,
-                  snapshotRate: Number(productSnapshot.commissionRate ?? 0),
-                }),
-              )
-            : Number(productSnapshot.commissionRate ?? 0),
+        commissionRate: commission ? commission.rateBps / COMMISSION_RULE.limits.basisPoints : COMMISSION_RULE.limits.zero,
+        commissionRuleId: commission?.id,
+        commissionCreatorGradeCode: commission?.creatorGradeCode,
         sourceCreatorId: item.sourceCreatorId,
         sourceOutfitId: item.sourceOutfitId,
       });

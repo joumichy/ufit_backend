@@ -692,17 +692,7 @@ export const stripeWebhookEvents = ufitSchema.table(
   })
 );
 
-export const commissionRules = ufitSchema.table('commission_rules', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  brandId: uuid('brand_id'),
-  productId: uuid('product_id').references(() => products.id, { onDelete: 'cascade' }),
-  creatorGradeCode: text('creator_grade_code').references(() => creatorGrades.code, { onDelete: 'cascade' }),
-  baseRate: numeric('base_rate', { precision: 5, scale: 4 }).notNull(),
-  bonusRate: numeric('bonus_rate', { precision: 5, scale: 4 }).notNull().default('0'),
-  maxRate: numeric('max_rate', { precision: 5, scale: 4 }),
-  active: boolean('active').notNull().default(true),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
+export {commissionRules} from './schema.commissions';
 
 export const commissions = ufitSchema.table(
   'commissions',

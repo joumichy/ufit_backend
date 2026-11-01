@@ -20,6 +20,8 @@ import {
   outfits,
   products,
   productVariants,
+  commissionRules,
+  creatorGrades,
 } from "./schema";
 export const orders = ufitSchema.table(
   "orders",
@@ -89,6 +91,8 @@ export const orderItems = ufitSchema.table(
     commissionRate: numeric("commission_rate", { precision: 5, scale: 4 })
       .notNull()
       .default("0"),
+    commissionRuleId: uuid('commission_rule_id').references(() => commissionRules.id),
+    commissionCreatorGradeCode: text('commission_creator_grade_code').references(() => creatorGrades.code),
     sourceCreatorId: uuid("source_creator_id").references(
       () => creatorProfiles.id,
       { onDelete: "set null" },
@@ -103,6 +107,8 @@ export const orderItems = ufitSchema.table(
   (table) => ({
     orderIdIndex: index("order_items_order_id_idx").on(table.orderId),
     orderIdentityUnique: uniqueIndex("order_items_id_order_unique").on(table.id, table.orderId),
+    commissionPair: check('order_items_commission_provenance_pair', sql`(${table.commissionRuleId} is null) = (${table.commissionCreatorGradeCode} is null)`),
+    commissionRequired: check('order_items_attributed_commission_required', sql`${table.sourceCreatorId} is null or ${table.commissionRuleId} is not null`),
   }),
 );
 

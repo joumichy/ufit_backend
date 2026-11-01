@@ -1,3 +1,4 @@
+import {calculateCommissionAmount, parseStoredRate} from '../../commissions/domain/commission-rule.contract';
 import {
   BadRequestException,
   ConflictException,
@@ -47,8 +48,6 @@ const FULFILLMENT = {
   linked: "Payment is linked to another operation",
   unavailable: "Order no longer accepts payment",
   empty: "Cannot fulfill an empty order",
-  basisPoints: 10000,
-  roundHalf: 5000n,
 } as const;
 class PaidOrderStockUnavailable extends Error {}
 
@@ -230,14 +229,7 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
       });
       for (const item of items) {
         if (!item.sourceCreatorId || !item.sourceOutfitId) continue;
-        const rateBasisPoints = Math.round(
-          Number(item.commissionRate) * FULFILLMENT.basisPoints,
-        );
-        const commissionAmount = Number(
-          (BigInt(item.totalPrice) * BigInt(rateBasisPoints) +
-            FULFILLMENT.roundHalf) /
-            BigInt(FULFILLMENT.basisPoints),
-        );
+        const commissionAmount = calculateCommissionAmount(item.totalPrice, parseStoredRate(item.commissionRate));
         await tx.insert(commissions).values({
           orderItemId: item.id,
           creatorId: item.sourceCreatorId,

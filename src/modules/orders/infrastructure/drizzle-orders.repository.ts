@@ -1,3 +1,4 @@
+import {COMMISSION_RULE} from '../../commissions/domain/commission-rule.contract';
 import type {ShippingAddressSnapshot} from '../domain/shipping-address';
 import {
   BadRequestException,
@@ -6,6 +7,7 @@ import {
   Injectable,
 } from "@nestjs/common";
 import { and, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
+import type {DatabaseSession} from "../../../shared/infrastructure/database/database-session";
 import { DatabaseService } from "../../../shared/infrastructure/database/database.service";
 import {
   orderItems,
@@ -42,7 +44,7 @@ const ORDER_READ = {
 @Injectable()
 export class DrizzleOrderRepository implements OrderRepository {
   constructor(
-    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(DatabaseService) private readonly database: DatabaseSession,
   ) {}
 
   async save(order: Order): Promise<Order> {
@@ -107,7 +109,9 @@ export class DrizzleOrderRepository implements OrderRepository {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             totalPrice: item.totalPrice,
-            commissionRate: item.commissionRate.toFixed(4),
+            commissionRate: item.commissionRate.toFixed(COMMISSION_RULE.limits.decimalPlaces),
+            commissionRuleId: item.commissionRuleId,
+            commissionCreatorGradeCode: item.commissionCreatorGradeCode,
             sourceCreatorId: item.sourceCreatorId,
             sourceOutfitId: item.sourceOutfitId,
           })),
@@ -308,6 +312,8 @@ function projectOrder(
         unitPrice: item.unitPrice,
         totalPrice: item.totalPrice,
         commissionRate: Number(item.commissionRate),
+        commissionRuleId: item.commissionRuleId ?? undefined,
+        commissionCreatorGradeCode: item.commissionCreatorGradeCode ?? undefined,
         sourceCreatorId: item.sourceCreatorId ?? undefined,
         sourceOutfitId: item.sourceOutfitId ?? undefined,
       }),
@@ -318,7 +324,7 @@ function projectOrder(
 @Injectable()
 export class DrizzleProductSnapshotReader implements ProductSnapshotReader {
   constructor(
-    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(DatabaseService) private readonly database: DatabaseSession,
   ) {}
 
   async buildSnapshot(
@@ -358,7 +364,6 @@ export class DrizzleProductSnapshotReader implements ProductSnapshotReader {
       unitPrice: variant.priceOverride ?? product.basePrice,
       currency: product.currency,
       imageUrl: image?.url,
-      commissionRate: Number(product.commissionRateOverride ?? 0),
     };
   }
 }

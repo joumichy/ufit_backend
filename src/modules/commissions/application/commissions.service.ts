@@ -1,11 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-
-export interface CommissionRuleInput {
-  baseRate: number;
-  bonusRate?: number;
-  maxRate?: number;
-}
+import {COMMISSION_RULE, commissionRateSchema, calculateRateBps, calculateCommissionAmount, type CommissionRateInput} from '../domain/commission-rule.contract';
+const COMMISSION_STATUS = {estimated: 'estimated', pending: 'pending'} as const;
 
 export interface CommissionInput {
   orderItemId: string;
@@ -13,7 +9,7 @@ export interface CommissionInput {
   brandId: string;
   sourceOutfitId: string;
   baseAmount: number;
-  rule: CommissionRuleInput;
+  rule: CommissionRateInput;
   status?: Commission['status'];
 }
 
@@ -24,7 +20,7 @@ export interface Commission {
   brandId: string;
   sourceOutfitId: string;
   baseAmount: number;
-  commissionRate: number;
+  commissionRateBps: number;
   commissionAmount: number;
   status: 'estimated' | 'pending' | 'validated' | 'paid' | 'cancelled';
 }
@@ -35,24 +31,28 @@ export interface CommissionRepository {
 
 @Injectable()
 export class CommissionsService {
-  constructor(@Inject('CommissionRepository') private readonly commissions: CommissionRepository) {}
+  constructor(@Inject(COMMISSION_RULE.token.commissions) private readonly commissions: CommissionRepository) {}
 
-  calculateRate(rule: CommissionRuleInput): number { return calculateCommissionRate(rule); }
+  calculateRateBps(input: unknown): number {
+    const result = commissionRateSchema.safeParse(input);
+    if (!result.success) throw new BadRequestException(COMMISSION_RULE.failure.input);
+    return calculateRateBps(result.data);
+  }
 
   async createEstimated(input: CommissionInput): Promise<Commission> {
-    return this.create(input, 'estimated');
+    return this.create(input, COMMISSION_STATUS.estimated);
   }
 
   async createPending(input: CommissionInput): Promise<Commission> {
-    return this.create(input, 'pending');
+    return this.create(input, COMMISSION_STATUS.pending);
   }
 
   private async create(input: CommissionInput, defaultStatus: Commission['status']): Promise<Commission> {
-    if (input.baseAmount < 0) {
-      throw new BadRequestException('Commission base amount cannot be negative');
+    if (!Number.isSafeInteger(input.baseAmount) || input.baseAmount < COMMISSION_RULE.limits.zero) {
+      throw new BadRequestException(COMMISSION_RULE.failure.amount);
     }
 
-    const commissionRate = this.calculateRate(input.rule);
+    const commissionRateBps = this.calculateRateBps(input.rule);
     const commission: Commission = {
       id: randomUUID(),
       orderItemId: input.orderItemId,
@@ -60,20 +60,12 @@ export class CommissionsService {
       brandId: input.brandId,
       sourceOutfitId: input.sourceOutfitId,
       baseAmount: input.baseAmount,
-      commissionRate,
-      commissionAmount: Math.round(input.baseAmount * commissionRate),
+      commissionRateBps,
+      commissionAmount: calculateCommissionAmount(input.baseAmount, commissionRateBps),
       status: input.status ?? defaultStatus
     };
 
     return this.commissions.save(commission);
   }
 
- }
-
-export function calculateCommissionRate(rule: CommissionRuleInput): number {
-  for (const [field,rate] of Object.entries(rule)) {
-    if (rate !== undefined && (!Number.isFinite(rate) || rate < 0 || rate > 1)) throw new BadRequestException(`${field} must be a decimal rate between 0 and 1`);
-  }
-  const sum = rule.baseRate + (rule.bonusRate ?? 0);
-  return Math.round(Math.min(sum, rule.maxRate ?? Math.min(sum, 1)) * 10000) / 10000;
 }

@@ -9,7 +9,8 @@ import { DrizzleApplicationsRepository } from '../src/modules/applications/drizz
 import { DrizzleBrandsRepository } from '../src/modules/brands/drizzle-brands.repository';
 import { DrizzleCartRepository } from '../src/modules/cart/infrastructure/drizzle-cart.repository';
 import { DrizzleProductCatalogReader } from '../src/modules/cart/infrastructure/drizzle-product-catalog.reader';
-import { DrizzleCommissionRepository, DrizzleCommissionRuleResolver } from '../src/modules/commissions/infrastructure/drizzle-commissions.repository';
+import { DrizzleCommissionRepository } from '../src/modules/commissions/infrastructure/drizzle-commissions.repository';
+import { DrizzleCommissionRulesRepository, DrizzleCommissionRuleResolver } from '../src/modules/commissions/infrastructure/drizzle-commission-rules.repository';
 import { DrizzleCreatorsRepository } from '../src/modules/creators/drizzle-creators.repository';
 import { DrizzleEditorialRepository } from '../src/modules/editorial/infrastructure/drizzle-editorial.repository';
 import { DrizzleIdentityRepository } from '../src/modules/identity/infrastructure/persistence/drizzle-identity.repository';
@@ -38,6 +39,7 @@ const databaseBackedProviders = [
   DrizzleProductCatalogReader,
   DrizzleCommissionRepository,
   DrizzleCommissionRuleResolver,
+  DrizzleCommissionRulesRepository,
   DrizzleCreatorsRepository,
   DrizzleEditorialRepository,
   DrizzleIdentityRepository,

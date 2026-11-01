@@ -22,13 +22,13 @@ describe('CommissionsService', () => {
       sourceOutfitId: 'outfit-1',
       baseAmount: 20000,
       rule: {
-        baseRate: 0.1,
-        bonusRate: 0.05,
-        maxRate: 0.12
+        baseRateBps: 1000,
+        bonusRateBps: 500,
+        maxRateBps: 1200
       }
     });
 
-    expect(commission.commissionRate).toBe(0.12);
+    expect(commission.commissionRateBps).toBe(1200);
     expect(commission.commissionAmount).toBe(2400);
     expect(commission.status).toBe('estimated');
   });
@@ -43,13 +43,13 @@ describe('CommissionsService', () => {
       sourceOutfitId: 'outfit-1',
       baseAmount: 10000,
       rule: {
-        baseRate: 0.08,
-        bonusRate: 0.02
+        baseRateBps: 800,
+        bonusRateBps: 200, maxRateBps: null
       }
     });
 
     expect(commission.status).toBe('pending');
-    expect(commission.commissionRate).toBe(0.1);
+    expect(commission.commissionRateBps).toBe(1000);
     expect(commission.commissionAmount).toBe(1000);
   });
 });

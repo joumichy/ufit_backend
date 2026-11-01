@@ -2,21 +2,28 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { IdentityModule } from '../identity/identity.module';
 import { CommissionsService } from './application/commissions.service';
-import { DrizzleCommissionRepository, DrizzleCommissionRuleResolver } from './infrastructure/drizzle-commissions.repository';
+import { DrizzleCommissionRepository } from './infrastructure/drizzle-commissions.repository';
+import { DrizzleCommissionRulesRepository, DrizzleCommissionRuleResolver } from './infrastructure/drizzle-commission-rules.repository';
+import {CommissionRulesController} from './presentation/commission-rules.controller';
+import {CommissionRulesService} from './application/commission-rules.service';
+import {COMMISSION_RULE} from './domain/commission-rule.contract';
 import { InMemoryCommissionRepository } from './infrastructure/in-memory-commissions.repository';
 import { CommissionsController } from './presentation/commissions.controller';
 
 @Module({
   imports: [DatabaseModule, IdentityModule],
-  controllers: [CommissionsController],
+  controllers: [CommissionsController, CommissionRulesController],
   providers: [
     CommissionsService,
-    { provide: 'CommissionRepository', useExisting: DrizzleCommissionRepository },
-    { provide: 'CommissionRuleResolver', useExisting: DrizzleCommissionRuleResolver },
+    CommissionRulesService,
+    DrizzleCommissionRulesRepository,
+    {provide: COMMISSION_RULE.token.repository, useExisting: DrizzleCommissionRulesRepository},
+    { provide: COMMISSION_RULE.token.commissions, useExisting: DrizzleCommissionRepository },
+    { provide: COMMISSION_RULE.token.resolver, useExisting: DrizzleCommissionRuleResolver },
     DrizzleCommissionRepository,
     DrizzleCommissionRuleResolver,
     InMemoryCommissionRepository
   ],
-  exports: [CommissionsService, 'CommissionRuleResolver']
+  exports: [CommissionsService, COMMISSION_RULE.token.resolver]
 })
 export class CommissionsModule {}

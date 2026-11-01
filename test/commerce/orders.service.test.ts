@@ -11,6 +11,7 @@ import { InMemoryOrderRepository } from "../../src/modules/orders/infrastructure
 class FakeOrderRepository extends InMemoryOrderRepository {}
 
 describe("OrdersService", () => {
+  const rule = {resolve: async () => ({id: "rule-revision-1", creatorGradeCode: "seed", rateBps: 1200})};
   const cart: Cart = {
     id: "cart-1",
     userId: "customer-1",
@@ -70,7 +71,7 @@ describe("OrdersService", () => {
         };
       },
     };
-    const service = new OrdersService(new FakeOrderRepository(), snapshots);
+    const service = new OrdersService(new FakeOrderRepository(), snapshots, rule);
 
     const order = await service.createPendingFromCart(
       cart,
@@ -96,7 +97,7 @@ describe("OrdersService", () => {
   it("does not expose customer shipping address in creator order views", async () => {
     const service = new OrdersService(new FakeOrderRepository(), {
       buildSnapshot: async () => ({}),
-    });
+    }, rule);
     const order = await service.createPendingFromCart(
       cart,
       {
@@ -120,9 +121,7 @@ describe("OrdersService", () => {
       { buildSnapshot: async () => ({ commissionRate: 0.1 }) },
       {
         resolve: async () => ({
-          baseRate: 0.1,
-          bonusRate: 0.05,
-          maxRate: 0.12,
+          id: "rule-revision-1", creatorGradeCode: "seed", rateBps: 1200,
         }),
       },
     );
@@ -138,5 +137,7 @@ describe("OrdersService", () => {
       terms,
     );
     expect(order.items[0]?.commissionRate).toBe(0.12);
+    expect(order.items[0]?.commissionRuleId).toBe("rule-revision-1");
+    expect(order.items[0]?.commissionCreatorGradeCode).toBe("seed");
   });
 });

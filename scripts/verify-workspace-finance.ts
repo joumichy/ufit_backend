@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
-import {eq, ne, sql} from 'drizzle-orm';
+import {eq, ne, sql, and, isNull} from 'drizzle-orm';
 import {getEnv} from '../src/config/env';
 import {DatabaseService} from '../src/shared/infrastructure/database/database.service';
 import {READ_SNAPSHOT} from '../src/shared/infrastructure/database/database-session';
-import {orders, orderItems, payments, commissions, creatorProfiles, orderCancellations, orderReturns, orderReturnItems, orderReturnRefunds, returnCommissionAdjustments, users, userRoles, brandMembers} from '../src/shared/infrastructure/database/schema';
+import {orders, orderItems, payments, commissions, creatorProfiles, orderCancellations, orderReturns, orderReturnItems, orderReturnRefunds, returnCommissionAdjustments, users, userRoles, brandMembers, commissionRules} from '../src/shared/infrastructure/database/schema';
 import {DrizzleWorkspaceFinanceReader} from '../src/modules/workspaces/infrastructure/drizzle-workspace-finance.reader';
 import {DrizzleWorkspacesRepository} from '../src/modules/workspaces/infrastructure/drizzle-workspaces.repository';
 import {WorkspacesService} from '../src/modules/workspaces/application/workspaces.service';
@@ -20,8 +20,8 @@ const fixture = {
   orderPrefix: 'QUAL-FINANCE-', paymentPrefix: 'pi_qualification_finance_', refundPrefix: 're_qualification_finance_',
   currencies: ['CHF', 'JPY', 'BHD'], quantity: 3, unit: 100, merchandise: 300, other: 100, subtotal: 400, shipping: 80, tax: 25, total: 505,
   returnMerchandise: 100, returnTax: 8, returnTotal: 108, commission: 25, adjustment: 8, rate: '0.0833',
-  tables: ['orders', 'order_items', 'payments', 'commissions', 'order_cancellations', 'order_returns', 'order_return_items', 'order_return_refunds', 'return_commission_adjustments', 'users', 'user_roles', 'brand_members'],
-  reason: 'Qualification financière en transaction annulée.', zero: 0, one: 1, two: 2, denied: 403, conflict: 409,
+  tables: ['orders', 'order_items', 'payments', 'commissions', 'order_cancellations', 'order_returns', 'order_return_items', 'order_return_refunds', 'return_commission_adjustments', 'users', 'user_roles', 'brand_members', 'commission_rules'],
+  zeroRate: '0.0000', reason: 'Qualification financière en transaction annulée.', zero: 0, one: 1, two: 2, denied: 403, conflict: 409,
 } as const;
 class VerificationRollback extends Error {}
 
@@ -57,6 +57,11 @@ async function verify(): Promise<void> {
       const creatorId = sourceCommission.creatorId;
       const [otherCreator] = await tx.select().from(creatorProfiles).where(ne(creatorProfiles.id, creatorId)); assert(otherCreator, 'Two owned creator profiles are required');
       const [creator] = await tx.select().from(creatorProfiles).where(eq(creatorProfiles.id, creatorId)); assert(creator);
+      const [admin] = await tx.select().from(users).where(eq(users.email, registry.admin.email)); assert(admin);
+      await tx.update(commissionRules).set({supersededAt: new Date()}).where(and(eq(commissionRules.brandId, source.brandId), isNull(commissionRules.supersededAt)));
+      const ruleId = randomUUID();
+      await tx.insert(commissionRules).values({id: ruleId, scopeId: randomUUID(), revision: fixture.one, brandId: source.brandId,
+        baseRate: fixture.rate, bonusRate: fixture.zeroRate, active: true, reason: fixture.reason, createdByUserId: admin.id});
       const scopes = {brand: {kind: WORKSPACE_FINANCE.scope.brand, profileId: source.brandId}, creator: {kind: WORKSPACE_FINANCE.scope.creator, profileId: creatorId}};
       const baseline = {brand: await reader.sales(scopes.brand), creator: await reader.sales(scopes.creator)};
       const commissionBaseline = await reader.creatorCommissions(creatorId);
@@ -79,9 +84,9 @@ async function verify(): Promise<void> {
           commerceSnapshot: {refundPolicyCode: ORDER_RETURN.policy.code}, paymentProvider: 'stripe', stripePaymentIntentId: intent});
         await tx.insert(orderItems).values([
           {id: itemId, orderId: id, productId: item.productId, productVariantId: item.productVariantId, productSnapshot: item.productSnapshot,
-            quantity: fixture.quantity, unitPrice: fixture.unit, totalPrice: fixture.merchandise, commissionRate: fixture.rate, sourceCreatorId: creatorId, sourceOutfitId: sourceCommission.sourceOutfitId},
+            quantity: fixture.quantity, unitPrice: fixture.unit, totalPrice: fixture.merchandise, commissionRate: fixture.rate, commissionRuleId: ruleId, commissionCreatorGradeCode: creator.gradeCode, sourceCreatorId: creatorId, sourceOutfitId: sourceCommission.sourceOutfitId},
           {orderId: id, productId: item.productId, productVariantId: item.productVariantId, productSnapshot: item.productSnapshot,
-            quantity: fixture.one, unitPrice: fixture.other, totalPrice: fixture.other, sourceCreatorId: otherCreator.id},
+            quantity: fixture.one, unitPrice: fixture.other, totalPrice: fixture.other, commissionRate: fixture.rate, commissionRuleId: ruleId, commissionCreatorGradeCode: otherCreator.gradeCode, sourceCreatorId: otherCreator.id},
         ]);
         if (captured) await tx.insert(payments).values({orderId: id, provider: 'stripe', providerPaymentIntentId: intent, amount: fixture.total, currency, status: 'succeeded'});
         if (captured) await tx.insert(commissions).values({id: commissionId, orderItemId: itemId, creatorId, brandId: source.brandId, sourceOutfitId: sourceCommission.sourceOutfitId,
