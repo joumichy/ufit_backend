@@ -6,6 +6,7 @@ describe('AdminService', () => {
   it('normalizes pagination and lists validation queues', async () => {
     const repository: AdminRepository = {
       countQueues: vi.fn(),
+      countReviewQueues: vi.fn(),
       listQueue: vi.fn().mockResolvedValue({
         items: [],
         page: { limit: 50, offset: 0, total: 0, nextOffset: null }
@@ -21,6 +22,7 @@ describe('AdminService', () => {
   it('rejects unknown queues', async () => {
     const service = new AdminService({
       countQueues: vi.fn(),
+      countReviewQueues: vi.fn(),
       listQueue: vi.fn()
     });
 

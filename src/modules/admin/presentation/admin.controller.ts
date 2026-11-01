@@ -3,12 +3,16 @@ import { Roles } from '../../../shared/presentation/decorators/roles.decorator';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
 import { AdminService } from '../application/admin.service';
+import {ADMIN_ACTIVITY} from '../domain/admin-activity.contract';
 
 @Controller('admin')
 @UseGuards(AuthGuard, RoleGuard)
 @Roles('admin', 'super_admin')
 export class AdminController {
   constructor(@Inject(AdminService) private readonly adminService: AdminService) {}
+
+  @Get(ADMIN_ACTIVITY.route)
+  getActivity() { return this.adminService.getActivity(); }
 
   @Get('summaries')
   getSummary() {

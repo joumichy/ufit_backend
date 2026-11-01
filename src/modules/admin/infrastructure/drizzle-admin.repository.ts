@@ -1,5 +1,7 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { count, desc, inArray } from 'drizzle-orm';
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { count, desc, eq, inArray } from 'drizzle-orm';
+import {ADMIN_ACTIVITY, type AdminActivity} from '../domain/admin-activity.contract';
+import {READ_SNAPSHOT} from '../../../shared/infrastructure/database/database-session';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
   brandApplications,
@@ -20,6 +22,23 @@ const commissionStatuses = ['pending', 'estimated'] as const;
 @Injectable()
 export class DrizzleAdminRepository implements AdminRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+
+  async countReviewQueues(): Promise<AdminActivity> {
+    return this.database.db.transaction(async tx => {
+      const [creators] = await tx.select({value: count()}).from(creatorApplications)
+        .where(inArray(creatorApplications.status, ADMIN_ACTIVITY.applicationStatuses));
+      const [brands] = await tx.select({value: count()}).from(brandApplications)
+        .where(inArray(brandApplications.status, ADMIN_ACTIVITY.applicationStatuses));
+      const [product] = await tx.select({value: count()}).from(products).where(eq(products.status, ADMIN_ACTIVITY.productStatus));
+      const [outfit] = await tx.select({value: count()}).from(outfits).where(eq(outfits.status, ADMIN_ACTIVITY.outfitStatus));
+      if (!creators || !brands || !product || !outfit) throw new InternalServerErrorException(ADMIN_ACTIVITY.invalid);
+      const result = {applications: creators.value + brands.value, products: product.value, outfits: outfit.value};
+      if (Object.values(result).some(value => !Number.isSafeInteger(value) || value < ADMIN_ACTIVITY.minimumCount)) {
+        throw new InternalServerErrorException(ADMIN_ACTIVITY.invalid);
+      }
+      return result;
+    }, READ_SNAPSHOT);
+  }
 
   async countQueues(): Promise<Record<AdminQueueName, number>> {
     const [creatorApplicationCount, brandApplicationCount, productCount, outfitCount, orderCount, commissionCount] = await Promise.all([

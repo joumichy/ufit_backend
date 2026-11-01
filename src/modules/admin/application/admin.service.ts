@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import type {AdminActivity} from '../domain/admin-activity.contract';
 
 export const ADMIN_REPOSITORY = Symbol('ADMIN_REPOSITORY');
 
@@ -35,6 +36,7 @@ export interface AdminSummary {
 }
 
 export interface AdminRepository {
+  countReviewQueues(): Promise<AdminActivity>;
   countQueues(): Promise<Record<AdminQueueName, number>>;
   listQueue(queue: AdminQueueName, page: Required<AdminPageInput>): Promise<AdminPage<AdminQueueItem>>;
 }
@@ -44,6 +46,8 @@ const queueNames: AdminQueueName[] = ['applications', 'products', 'outfits', 'or
 @Injectable()
 export class AdminService {
   constructor(@Inject(ADMIN_REPOSITORY) private readonly adminRepository: AdminRepository) {}
+
+  getActivity(): Promise<AdminActivity> { return this.adminRepository.countReviewQueues(); }
 
   async getSummary(): Promise<AdminSummary> {
     return { queues: await this.adminRepository.countQueues() };
