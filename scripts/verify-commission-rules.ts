@@ -63,6 +63,22 @@ async function verify() {
       const repository = new DrizzleCommissionRulesRepository({db: tx}), service = new CommissionRulesService(repository), resolver = new DrizzleCommissionRuleResolver({db: tx});
       const resolveInput = {brandId: source.brandId, productId: item.productId, creatorId: creator.id};
       await statusRejected(() => resolver.resolve(resolveInput), proof.status.conflict); completedScenarios++;
+      await statusRejected(() => service.options(source.customerId, 'brands', {}), proof.status.denied); completedScenarios++;
+      await statusRejected(() => service.options(admin.id, 'products', {}), proof.status.bad);
+      await statusRejected(() => service.options(admin.id, 'grades', {brandId: source.brandId}), proof.status.bad); completedScenarios++;
+      const brandIds = new Set<string>(); let optionCursor: string | null = null;
+      do {
+        const page = await service.options(admin.id, 'brands', {limit: proof.page, ...(optionCursor ? {cursor: optionCursor} : {})});
+        assert.equal(page.kind, 'brands'); if (page.kind !== 'brands') throw new Error(proof.reason);
+        assert.equal(page.items.length, proof.one); const option = page.items[proof.zero];
+        assert(!brandIds.has(option.id)); assert(option.brandName.length > proof.zero); brandIds.add(option.id); optionCursor = page.nextCursor;
+      } while (optionCursor);
+      assert(brandIds.has(source.brandId) && brandIds.has(otherProduct.brandId)); completedScenarios++;
+      const productOptions = await service.options(admin.id, 'products', {brandId: source.brandId});
+      assert.equal(productOptions.kind, 'products'); if (productOptions.kind !== 'products') throw new Error(proof.reason);
+      assert(productOptions.items.some(option => option.id === item.productId)); assert(productOptions.items.every(option => option.brandId === source.brandId)); completedScenarios++;
+      await statusRejected(() => service.options(admin.id, 'products', {brandId: source.brandId, cursor: otherProduct.id}), proof.status.bad); completedScenarios++;
+      const literalSearch = await service.options(admin.id, 'brands', {search: '%'}); assert.equal(literalSearch.items.length, proof.zero); completedScenarios++;
       const configuration = {baseRateBps: proof.rates.brand, bonusRateBps: proof.rates.zero, maxRateBps: null, active: true, reason: proof.reason};
       const scope = {brandId: source.brandId, productId: null, creatorGradeCode: null};
       await statusRejected(() => service.create(source.customerId, {...scope, ...configuration}), proof.status.denied); completedScenarios++;
@@ -117,6 +133,18 @@ async function verify() {
       await tx.update(creatorProfiles).set({gradeCode}).where(eq(creatorProfiles.id, creator.id));
       assert.equal((await resolver.resolve(resolveInput)).id, product.id);
       assert.equal((await orderRepository.findById(purchase.id))!.items[proof.zero].commissionCreatorGradeCode, creator.gradeCode); completedScenarios++;
+      const gradeOptions = await service.options(admin.id, 'grades', {limit: proof.page});
+      assert.equal(gradeOptions.kind, 'grades'); assert(gradeOptions.nextCursor);
+      const nextGrades = await service.options(admin.id, 'grades', {limit: proof.page, cursor: gradeOptions.nextCursor});
+      assert.equal(nextGrades.kind, 'grades');
+      if (gradeOptions.kind !== 'grades' || nextGrades.kind !== 'grades') throw new Error(proof.reason);
+      assert.notEqual(gradeOptions.items[proof.zero].code, nextGrades.items[proof.zero].code);
+      assert(gradeOptions.items.concat(nextGrades.items).every(option => !('commissionBps' in option))); completedScenarios++;
+      const labelled = await service.current(admin.id, specific.scopeId);
+      const selectedBrand = await service.options(admin.id, 'brands', {search: labelled.brandName});
+      assert.equal(selectedBrand.kind, 'brands'); if (selectedBrand.kind !== 'brands') throw new Error(proof.reason);
+      assert(selectedBrand.items.some(option => option.id === labelled.brandId && option.brandName === labelled.brandName));
+      assert.equal(typeof labelled.productName, 'string'); assert.equal(typeof labelled.creatorGradeLabel, 'string'); completedScenarios++;
       const disabledSpecific = await service.revise(admin.id, specific.scopeId, {...configuration, expectedRevision: proof.two, active: false});
       assert.equal((await resolver.resolve(resolveInput)).id, product.id); completedScenarios++;
       await service.revise(admin.id, product.scopeId, {...configuration, expectedRevision: proof.one, active: false});
@@ -127,11 +155,11 @@ async function verify() {
       assert.equal((await resolver.resolve(resolveInput)).rateBps, proof.rates.zero);
       assert.equal((await orderRepository.findById(purchase.id))!.items[proof.zero].commissionRate, proof.rates.cap / 10_000); completedScenarios++;
       assert.equal(disabledSpecific.active, false); assert.equal(zero.active, true);
-      const historyIds = new Set<string>();
+      const historyIds = new Set<string>(); let expectedHistoryRevision = disabledSpecific.revision;
       cursor = null;
       do {
         const page = await service.history(admin.id, specific.scopeId, {limit: proof.page, ...(cursor ? {cursor} : {})});
-        assert.equal(page.items.length, proof.one); assert(!historyIds.has(page.items[proof.zero].id)); historyIds.add(page.items[proof.zero].id); cursor = page.nextCursor;
+        assert.equal(page.items.length, proof.one); assert.equal(page.items[proof.zero].revision, expectedHistoryRevision--); assert(!historyIds.has(page.items[proof.zero].id)); historyIds.add(page.items[proof.zero].id); cursor = page.nextCursor;
       } while (cursor);
       assert.equal(historyIds.size, proof.two + proof.one); completedScenarios++;
       await tx.update(users).set({status: proof.suspended}).where(eq(users.id, admin.id));

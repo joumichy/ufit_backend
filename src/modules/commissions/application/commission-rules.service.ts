@@ -2,10 +2,16 @@ import {BadRequestException, ConflictException, ForbiddenException, Inject, Inje
 import type {z} from 'zod';
 import type {CommissionRuleRepository} from '../domain/commission-rule.repository';
 import {COMMISSION_RULE, commissionRulePageSchema, createCommissionRuleSchema, reviseCommissionRuleSchema} from '../domain/commission-rule.contract';
+import {COMMISSION_OPTIONS, parseCommissionOptions} from '../domain/commission-rule-options.contract';
 
 @Injectable()
 export class CommissionRulesService {
   constructor(@Inject(COMMISSION_RULE.token.repository) private readonly rules: CommissionRuleRepository) {}
+  options(actorId: string, kind: unknown, input: unknown) {
+    let selection: ReturnType<typeof parseCommissionOptions>;
+    try {selection = parseCommissionOptions(kind, input);} catch {throw new BadRequestException(COMMISSION_OPTIONS.failure);}
+    return this.authorized(actorId, false, repository => repository.options(selection.kind, selection.query));
+  }
   list(actorId: string, query: unknown) {
     const page = parse(commissionRulePageSchema, query);
     return this.authorized(actorId, false, repository => repository.list(page));

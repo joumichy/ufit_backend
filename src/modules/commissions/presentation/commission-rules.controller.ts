@@ -14,6 +14,8 @@ export class CommissionRulesController {
   list(@CurrentUser() actor: AuthenticatedUser, @Query() query: unknown) {return this.rules.list(actor.id, query);}
   @Post()
   create(@CurrentUser() actor: AuthenticatedUser, @Body() body: unknown) {return this.rules.create(actor.id, body);}
+  @Get(COMMISSION_RULE.route.options)
+  options(@CurrentUser() actor: AuthenticatedUser, @Param(COMMISSION_RULE.route.optionKind) kind: string, @Query() query: unknown) {return this.rules.options(actor.id, kind, query);}
   @Get(COMMISSION_RULE.route.history)
   history(@CurrentUser() actor: AuthenticatedUser, @Param(COMMISSION_RULE.route.scopeId, ParseUUIDPipe) id: string, @Query() query: unknown) {return this.rules.history(actor.id, id, query);}
   @Get(COMMISSION_RULE.route.scope)

@@ -2,7 +2,7 @@ import {z} from 'zod';
 
 export const COMMISSION_RULE = {
   token: {repository: 'CommissionRuleRepository', resolver: 'CommissionRuleResolver', commissions: 'CommissionRepository'},
-  route: {admin: 'admin/commission-rules', scope: ':scopeId', history: ':scopeId/history', revisions: ':scopeId/revisions', scopeId: 'scopeId', quote: 'quote-rate', root: 'commissions'},
+  route: {admin: 'admin/commission-rules', scope: ':scopeId', history: ':scopeId/history', revisions: ':scopeId/revisions', scopeId: 'scopeId', options: 'options/:kind', optionKind: 'kind', quote: 'quote-rate', root: 'commissions'},
   roles: ['admin', 'super_admin'],
   quoteRoles: ['brand_owner', 'brand_manager', 'admin', 'super_admin'],
   status: {activeUser: 'active', activeCreator: 'active'},
@@ -34,6 +34,7 @@ export type CommissionRuleQuery = z.infer<typeof commissionRulePageSchema>;
 export interface CommissionRuleRevision extends CommissionRateInput {
   id: string; scopeId: string; revision: number; previousRuleId: string | null;
   brandId: string; productId: string | null; creatorGradeCode: string | null;
+  brandName: string; productName: string | null; creatorGradeLabel: string | null;
   active: boolean; rateBps: number; reason: string | null; createdByUserId: string | null;
   createdAt: string; supersededAt: string | null;
 }
