@@ -24,6 +24,12 @@ export class ProductMediaController {
   upload(@CurrentUser() user: AuthenticatedUser, @Body() body: ProductUploadDto, @UploadedFile() file?: ProductImageFile) {
     return this.media.upload(user.id, body, file);
   }
+  @Get(PRODUCT_MEDIA.routes.private)
+  @UseGuards(AuthGuard, RoleGuard)
+  @Roles(...PRODUCT_WRITE_ROLES)
+  privateImage(@CurrentUser() user: AuthenticatedUser, @Param(PRODUCT_MEDIA.routes.id, ParseUUIDPipe) id: string) {
+    return this.media.privateImage(user.id, id);
+  }
   @Get(PRODUCT_MEDIA.routes.image)
   async image(@Param(PRODUCT_MEDIA.routes.id, ParseUUIDPipe) id: string, @Res() response: Response): Promise<void> {
     response.redirect(await this.media.publicImage(id));

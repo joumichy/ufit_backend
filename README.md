@@ -71,6 +71,12 @@ et le fichier `file`. iOS normalise les photos en JPEG. Une même clé/contenu
 retrouve le même asset ; un contenu différent est refusé. La réponse porte
 `id`, `brandId`, `url` stable et `displayUrl` temporaire.
 
+`GET /media/assets/:id/private` renouvelle cette même projection pour un asset prêt
+et un membre actif de sa marque non suspendue, même avant création d’un produit.
+Une reprise native dont la création est définitivement refusée peut ainsi retrouver
+ses photos et corriger le formulaire. Cette route ne donne pas d’accès public à
+l’asset ; les administrateurs sans membership de cette marque n’y ont pas accès.
+
 Les réponses privées du catalogue distinguent également `url` et `displayUrl`.
 Seule `url` est envoyée dans les écritures produit et conservée dans les snapshots.
 Les liens de lecture expirent après60 secondes et se renouvellent à la relecture

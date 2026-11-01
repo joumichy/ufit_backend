@@ -9,6 +9,7 @@ export interface ProductMediaRepository {
   reserve(input: Omit<ProductMediaAsset, 'status' | 'createdAt' | 'updatedAt'>): Promise<ProductMediaAsset>;
   markReady(asset: ProductMediaAsset, userId: string): Promise<ProductMediaAsset>;
   findByIds(ids: string[]): Promise<ProductMediaAsset[]>;
+  findOwnedReady(id: string, userId: string): Promise<ProductMediaAsset | null>;
   findPublic(id: string, canonicalUrl: string): Promise<ProductMediaAsset | null>;
 }
 export interface ProductMediaStorage {

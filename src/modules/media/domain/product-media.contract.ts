@@ -3,7 +3,7 @@ export const PRODUCT_MEDIA = {
   repository: Symbol('ProductMediaRepository'), storage: Symbol('ProductMediaStorage'), reader: Symbol('ProductMediaReader'), locator: Symbol('ProductMediaLocator'),
   bucket: 'ufit-product-media', mime: 'image/jpeg', extension: '.jpg', maxBytes: 8 * 1024 * 1024,
   status: MEDIA_STATUS, statuses: [MEDIA_STATUS.pending, MEDIA_STATUS.ready],
-  routes: {root: 'media', upload: 'product-uploads', image: 'assets/:id/image', id: 'id', assetPrefix: '/media/assets/', imageSuffix: '/image'},
+  routes: {root: 'media', upload: 'product-uploads', image: 'assets/:id/image', private: 'assets/:id/private', id: 'id', assetPrefix: '/media/assets/', imageSuffix: '/image'},
   multipart: {file: 'file', files: 1, fields: 2},
   hash: {algorithm: 'sha256', encoding: 'hex', pattern: '^[a-f0-9]{64}$'},
   image: {prefix: [0xff, 0xd8, 0xff], suffix: [0xff, 0xd9], minimumBytes: 5, firstIndex: 0},

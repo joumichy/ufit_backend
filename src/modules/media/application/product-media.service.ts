@@ -53,6 +53,11 @@ export class ProductMediaService implements ProductMediaReader {
     if (!asset) throw new NotFoundException(PRODUCT_MEDIA.failure.missing);
     return (await this.presentAsset(asset)).displayUrl;
   }
+  async privateImage(userId: string, id: string): Promise<UploadedProductImage> {
+    const asset = await this.repository.findOwnedReady(id, userId);
+    if (!asset) throw new NotFoundException(PRODUCT_MEDIA.failure.missing);
+    return this.presentAsset(asset);
+  }
   private async presentAsset(asset: ProductMediaAsset): Promise<UploadedProductImage> {
     const signed = await this.storage.sign([asset.objectPath]);
     const displayUrl = signed.get(asset.objectPath);

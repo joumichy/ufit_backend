@@ -45,6 +45,13 @@ export class DrizzleProductMediaRepository implements ProductMediaRepository {
     if (!ids.length) return [];
     return this.database.db.select().from(productMediaAssets).where(inArray(productMediaAssets.id, ids));
   }
+  async findOwnedReady(id: string, userId: string): Promise<ProductMediaAsset | null> {
+    const rows = await this.database.db.select({asset: productMediaAssets}).from(productMediaAssets)
+      .innerJoin(brandProfiles, eq(brandProfiles.id, productMediaAssets.brandId))
+      .innerJoin(brandMembers, and(eq(brandMembers.brandProfileId, brandProfiles.id), eq(brandMembers.userId, userId), eq(brandMembers.status, PROFILE_EDITING.persistence.memberActive)))
+      .where(and(eq(productMediaAssets.id, id), eq(productMediaAssets.status, PRODUCT_MEDIA.status.ready), ne(brandProfiles.status, PROFILE_STATUS.suspended)));
+    return rows[persistence.firstIndex]?.asset ?? null;
+  }
   async findPublic(id: string, canonicalUrl: string): Promise<ProductMediaAsset | null> {
     const activeReference = this.database.db.select({id: productImages.id}).from(productImages)
       .innerJoin(products, eq(products.id, productImages.productId)).innerJoin(brandProfiles, eq(brandProfiles.id, products.brandId))

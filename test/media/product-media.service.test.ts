@@ -32,6 +32,10 @@ class MemoryMediaRepository implements ProductMediaRepository {
     const ready = {...existing, status: PRODUCT_MEDIA.status.ready}; this.assets.set(asset.id, ready); return ready;
   }
   async findByIds(ids: string[]) { return [...this.assets.values()].filter(asset => ids.includes(asset.id)); }
+  async findOwnedReady(id: string, userId: string) {
+    const asset = this.assets.get(id);
+    return asset && asset.status === PRODUCT_MEDIA.status.ready && this.members.has(asset.brandId + userId) ? asset : null;
+  }
   async findPublic(id: string, url: string) { return this.publicURLs.get(id) === url ? this.assets.get(id) ?? null : null; }
 }
 class MemoryMediaStorage implements ProductMediaStorage {
@@ -61,6 +65,21 @@ function setup() {
   return {brandId, userId, input: {brandId, requestId}, repository, storage, locator, file: {buffer, size: buffer.length, mimetype: PRODUCT_MEDIA.mime}, service: new ProductMediaService(repository, storage, locator)};
 }
 describe('Product media ownership and recovery', () => {
+  it('renews a ready private image only for a current member without making it public', async () => {
+    const s = setup(), asset = await s.service.upload(s.userId, s.input, s.file);
+    expect(await s.service.privateImage(s.userId, asset.id)).toEqual(asset);
+    await expect(s.service.privateImage(randomUUID(), asset.id)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(s.service.publicImage(asset.id)).rejects.toBeInstanceOf(NotFoundException);
+    s.repository.members.clear();
+    await expect(s.service.privateImage(s.userId, asset.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
+  it('does not sign an incomplete or unknown asset for a member', async () => {
+    const s = setup(); s.storage.failUpload = true;
+    await expect(s.service.upload(s.userId, s.input, s.file)).rejects.toBeInstanceOf(ServiceUnavailableException);
+    const pending = [...s.repository.assets.values()][fixture.first];
+    await expect(s.service.privateImage(s.userId, pending.id)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(s.service.privateImage(s.userId, randomUUID())).rejects.toBeInstanceOf(NotFoundException);
+  });
   it('replays the same upload without a second asset or overwrite and separates stable/read URLs', async () => {
     const s = setup();
     const first = await s.service.upload(s.userId, s.input, s.file);
