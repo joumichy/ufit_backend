@@ -6,9 +6,10 @@ import { ProductsService } from './application/products.service';
 import { PRODUCT_REPOSITORY } from './domain/product.types';
 import { DrizzleProductRepository } from './infrastructure/drizzle-product.repository';
 import { ProductsController } from './presentation/products.controller';
+import { MediaModule } from '../media/media.module';
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, AdminAuditModule],
+  imports: [DatabaseModule, IdentityModule, AdminAuditModule, MediaModule],
   controllers: [ProductsController],
   providers: [
     ProductsService,

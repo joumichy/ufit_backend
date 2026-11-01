@@ -1,8 +1,35 @@
 # UFit Backend - Etat des phases
 
-Derniere mise a jour : 2026-05-20
+Dernière mise à jour : 2026-11-01
 
-## Etat courant
+## Point de passage iOS complète
+
+L’application complète reste en cours de réalisation sur `codex/ios-complete`.
+Les phases ci-dessous décrivent le socle MVP historique ; elles ne prouvent pas
+la qualification de tous les parcours iPhone ni la mise en production Stripe.
+
+Le cycle natif de publication/modération des tenues est qualifié à la portée du
+journal Ufit (mobile4588853/Lab9a137dc), galerie publique et notes comprises
+(mobilebf00fc3/Labeda3126). Les validations restent des preuves de développement,
+sans livraison de toute l’application ni intégration à charlie.
+
+Les conditions commerciales possèdent une lecture privée et une écriture versionnée
+pour marque active/en pause ou administrateur autorisé. La lecture publique et le
+contrat de devis restent inchangés. Migration0017 additive appliquée :18migrations
+et checksums vérifiés ;189tests/39fichiers, build/types et qualificationAPI/SQL passent.
+Concurrence, propriété, rôles/statuts actuels et rollback sont qualifiés ; données
+financières existantes conservées. Formulaire propriétaire iOS250a52c/Lab401cac5
+qualifié à la portée du journal (persistance, conflits/réseau et régressions).
+
+Commandes marque : lectures privées paginées et projections sans identifiants de
+paiement/commission, actions d’expédition versionnées et incidents résolubles.
+Migration0018 appliquée,19migrations/checksums vérifiés ;203tests/40fichiers et
+build/types passent. API/scopes/pagination,12scénariosSQL avecrollback et
+5contrôlesd’annulation qualifiés. Deux commandes concurrentes201/409 : une seule
+transition ; incident résolu, commande existante toujours en préparation.
+Le parcours iPhone de traitement des commandes reste à construire.
+
+## Socle MVP historique
 
 | Phase | Statut | Etat |
 |---:|---|---|

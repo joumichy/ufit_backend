@@ -1,7 +1,21 @@
+import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
+import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
+import {BRAND_COMMERCE, COMMERCE_POLICY_KEY} from '../../../modules/brands/commerce-policy';
+import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
+import { GENDER_TARGETS } from '../../domain/gender-target';
+import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
+import { PRODUCT_EDITING, PRODUCT_STATUSES, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from '../../../modules/products/domain/product-contract';
+import { PROFILE_STATUS, PROFILE_STATUSES } from '../../domain/profile-editing.contract';
+import { CREATOR_SOCIAL_PLATFORMS } from '../../../modules/creators/creator-social.contract';
+import type { CreatorApplicationDossier, BrandApplicationDossier } from "../../../modules/applications/types/application-contract";
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-export const ufitSchema = pgSchema('ufit');
+import {ufitSchema,timestamps} from './schema-base';
+export {ufitSchema} from './schema-base';
+import {orders,orderItems} from './schema.orders';
+export {orders,orderItems,orderStatusHistory,orderCancellations} from './schema.orders';
+export {orderReturns,orderReturnItems,orderReturnRefunds,returnCommissionAdjustments} from './schema.returns';
 
 export const userStatusEnum = ufitSchema.enum('user_status', ['active', 'onboarding', 'suspended', 'deleted']);
 
@@ -56,10 +70,6 @@ export const userRoles = ufitSchema.table(
   })
 );
 
-export type UserRow = typeof users.$inferSelect;
-export type NewUserRow = typeof users.$inferInsert;
-export type UserRoleRow = typeof userRoles.$inferSelect;
-export type NewUserRoleRow = typeof userRoles.$inferInsert;
 
 export const applicationStatusEnum = ufitSchema.enum('application_status', [
   'submitted',
@@ -77,16 +87,9 @@ export const applicationDecisionEnum = ufitSchema.enum('application_decision', [
   'needs_more_info'
 ]);
 
-export const profileStatusEnum = ufitSchema.enum('profile_status', ['draft', 'active', 'paused', 'suspended']);
+export const profileStatusEnum = ufitSchema.enum('profile_status', PROFILE_STATUSES);
 
-export const socialPlatformEnum = ufitSchema.enum('social_platform', [
-  'instagram',
-  'tiktok',
-  'youtube',
-  'pinterest',
-  'website',
-  'other'
-]);
+export const socialPlatformEnum = ufitSchema.enum('social_platform', CREATOR_SOCIAL_PLATFORMS);
 
 export const brandMemberRoleEnum = ufitSchema.enum('brand_member_role', ['owner', 'manager']);
 
@@ -101,7 +104,9 @@ export const creatorApplications = ufitSchema.table(
       .references(() => users.id),
     displayName: text('display_name').notNull(),
     email: text('email').notNull(),
-    portfolioUrl: text('portfolio_url').notNull(),
+    portfolioUrl: text('portfolio_url'),
+    dossier: jsonb('dossier').$type<CreatorApplicationDossier>(),
+    version: integer('version').notNull().default(1),
     motivation: text('motivation').notNull(),
     audienceSummary: text('audience_summary'),
     status: applicationStatusEnum('status').notNull().default('submitted'),
@@ -109,6 +114,7 @@ export const creatorApplications = ufitSchema.table(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
+    queueIdx: index('creator_applications_queue_idx').on(table.status, table.submittedAt.desc(), table.id.desc()),
     userStatusIdx: index('idx_creator_applications_user_status').on(table.userId, table.status),
     activeUserUnique: uniqueIndex('uidx_creator_applications_active_user')
       .on(table.userId)
@@ -128,11 +134,14 @@ export const brandApplications = ufitSchema.table(
     websiteUrl: text('website_url').notNull(),
     productCategory: text('product_category').notNull(),
     positioning: text('positioning').notNull(),
+    dossier: jsonb('dossier').$type<BrandApplicationDossier>(),
+    version: integer('version').notNull().default(1),
     status: applicationStatusEnum('status').notNull().default('submitted'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
+    queueIdx: index('brand_applications_queue_idx').on(table.status, table.submittedAt.desc(), table.id.desc()),
     userStatusIdx: index('idx_brand_applications_user_status').on(table.userId, table.status),
     activeUserUnique: uniqueIndex('uidx_brand_applications_active_user')
       .on(table.userId)
@@ -181,7 +190,7 @@ export const creatorProfiles = ufitSchema.table(
     slug: text('slug').notNull(),
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
-    status: profileStatusEnum('status').notNull().default('active'),
+    status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
     gradeCode: text('grade_code')
       .notNull()
       .default('seed')
@@ -266,7 +275,7 @@ export const brandProfiles = ufitSchema.table(
     slug: text('slug').notNull(),
     websiteUrl: text('website_url'),
     bio: text('bio'),
-    status: profileStatusEnum('status').notNull().default('active'),
+    status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
@@ -304,45 +313,21 @@ export const brandSettings = ufitSchema.table('brand_settings', {
   fulfillmentEmail: text('fulfillment_email'),
   returnPolicyUrl: text('return_policy_url'),
   autoApproveProducts: boolean('auto_approve_products').notNull().default(false),
+  commercePolicyVersion: integer(BRAND_COMMERCE.persistence.versionColumn).notNull().default(BRAND_COMMERCE.revision.unconfigured),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-});
+}, table => ({commercePolicyVersionValid: check(BRAND_COMMERCE.persistence.versionConstraint, sql`${table.commercePolicyVersion} >= ${BRAND_COMMERCE.revision.unconfigured}
+  and ((${table.metadata} ? ${COMMERCE_POLICY_KEY}) = (${table.commercePolicyVersion} > ${BRAND_COMMERCE.revision.unconfigured}))`)}));
 
-export type CreatorApplicationRow = typeof creatorApplications.$inferSelect;
-export type NewCreatorApplicationRow = typeof creatorApplications.$inferInsert;
-export type BrandApplicationRow = typeof brandApplications.$inferSelect;
-export type NewBrandApplicationRow = typeof brandApplications.$inferInsert;
-export type ApplicationReviewRow = typeof applicationReviews.$inferSelect;
-export type NewApplicationReviewRow = typeof applicationReviews.$inferInsert;
-export type CreatorProfileRow = typeof creatorProfiles.$inferSelect;
-export type NewCreatorProfileRow = typeof creatorProfiles.$inferInsert;
-export type BrandProfileRow = typeof brandProfiles.$inferSelect;
-export type NewBrandProfileRow = typeof brandProfiles.$inferInsert;
-export type BrandMemberRow = typeof brandMembers.$inferSelect;
-export type NewBrandMemberRow = typeof brandMembers.$inferInsert;
 
-export const genderTargetEnum = ufitSchema.enum('gender_target', ['male', 'female', 'unisex']);
-export const productStatusEnum = ufitSchema.enum('product_status', ['draft', 'under_review', 'active', 'rejected', 'archived']);
-export const productVariantStatusEnum = ufitSchema.enum('product_variant_status', ['active', 'out_of_stock', 'archived']);
-export const productImageKindEnum = ufitSchema.enum('product_image_kind', ['product', 'worn', 'detail', 'lookbook']);
-export const outfitStatusEnum = ufitSchema.enum('outfit_status', [
-  'draft',
-  'submitted',
-  'under_review',
-  'published',
-  'rejected',
-  'archived'
-]);
-export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', ['public', 'private', 'featured']);
-export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', [
-  'top',
-  'bottom',
-  'shoes',
-  'bag',
-  'accessory',
-  'outerwear'
-]);
-export const tagTypeEnum = ufitSchema.enum('tag_type', ['style', 'occasion', 'season']);
+export const genderTargetEnum = ufitSchema.enum('gender_target', GENDER_TARGETS);
+export const productStatusEnum = ufitSchema.enum('product_status', PRODUCT_STATUSES);
+export const productVariantStatusEnum = ufitSchema.enum('product_variant_status', PRODUCT_VARIANT_STATUSES);
+export const productImageKindEnum = ufitSchema.enum('product_image_kind', PRODUCT_IMAGE_KINDS);
+export const outfitStatusEnum = ufitSchema.enum('outfit_status', OUTFIT_STATUSES);
+export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', OUTFIT_VISIBILITIES);
+export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', OUTFIT_ITEM_TYPES);
+export const tagTypeEnum = ufitSchema.enum('tag_type', OUTFIT_TAG_TYPES);
 export const editorialCollectionStatusEnum = ufitSchema.enum('editorial_collection_status', [
   'draft',
   'published',
@@ -352,10 +337,7 @@ export const editorialItemTypeEnum = ufitSchema.enum('editorial_item_type', ['ou
 export const featuredSlotSurfaceEnum = ufitSchema.enum('featured_slot_surface', ['home', 'feed', 'collection']);
 export const featuredSlotContentTypeEnum = ufitSchema.enum('featured_slot_content_type', ['outfit', 'product', 'collection']);
 
-const timestamps = {
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-};
+
 
 export const productCategories = ufitSchema.table(
   'product_categories',
@@ -383,7 +365,10 @@ export const products = ufitSchema.table(
     description: text('description').notNull(),
     category: text('category').notNull(),
     genderTarget: genderTargetEnum('gender_target'),
-    status: productStatusEnum('status').notNull().default('draft'),
+    status: productStatusEnum('status').notNull().default(PRODUCT_STATUS.draft),
+    version: integer('version').notNull().default(PRODUCT_EDITING.versionInitial),
+    creationRequestId: uuid('creation_request_id'),
+    creationFingerprint: text('creation_fingerprint'),
     basePrice: integer('base_price').notNull(),
     currency: text('currency').notNull().default('CHF'),
     material: text('material'),
@@ -396,6 +381,9 @@ export const products = ufitSchema.table(
   },
   (table) => ({
     brandSlugUnique: uniqueIndex('products_brand_slug_unique').on(table.brandId, table.slug),
+    creationRequestUnique: uniqueIndex('products_brand_creation_request_unique').on(table.brandId, table.creationRequestId),
+    versionPositive: check('products_version_positive', sql`${table.version} >= ${PRODUCT_EDITING.versionInitial}`),
+    creationRequestPair: check('products_creation_request_pair', sql`(${table.creationRequestId} is null) = (${table.creationFingerprint} is null)`),
     brandStatusIndex: index('products_brand_status_idx').on(table.brandId, table.status),
     statusIdIndex: index('products_status_id_idx').on(table.status, table.id)
   })
@@ -439,6 +427,9 @@ export const outfits = ufitSchema.table(
     id: uuid('id').primaryKey().defaultRandom(),
     creatorId: uuid('creator_id'),
     brandId: uuid('brand_id'),
+    version: integer('version').notNull().default(OUTFIT_EDITING.versionInitial),
+    creationRequestId: uuid('creation_request_id'),
+    creationFingerprint: text('creation_fingerprint'),
     title: text('title').notNull(),
     description: text('description').notNull(),
     coverImageUrl: text('cover_image_url').notNull(),
@@ -454,6 +445,11 @@ export const outfits = ufitSchema.table(
     ...timestamps
   },
   (table) => ({
+    versionPositive: check('outfits_version_positive', sql`${table.version} >= ${OUTFIT_EDITING.versionInitial}`),
+    creationPair: check('outfits_creation_request_pair', sql`(${table.creationRequestId} is null) = (${table.creationFingerprint} is null)`),
+    exclusiveOwner: check('outfits_owner_exclusive', sql`${table.creatorId} is null or ${table.brandId} is null`),
+    creatorCreation: uniqueIndex('outfits_creator_creation_request_unique').on(table.creatorId, table.creationRequestId),
+    brandCreation: uniqueIndex('outfits_brand_creation_request_unique').on(table.brandId, table.creationRequestId),
     statusIdIndex: index('outfits_status_id_idx').on(table.status, table.id),
     creatorIndex: index('outfits_creator_idx').on(table.creatorId),
     brandIndex: index('outfits_brand_idx').on(table.brandId)
@@ -490,7 +486,7 @@ export const outfitImages = ufitSchema.table('outfit_images', {
   url: text('url').notNull(),
   position: integer('position').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
+}, table => ({urlIndex: index('outfit_images_url_idx').on(table.url)}));
 
 export const tags = ufitSchema.table(
   'tags',
@@ -570,22 +566,6 @@ export const featuredSlots = ufitSchema.table(
   })
 );
 
-export type ProductRow = typeof products.$inferSelect;
-export type NewProductRow = typeof products.$inferInsert;
-export type ProductVariantRow = typeof productVariants.$inferSelect;
-export type NewProductVariantRow = typeof productVariants.$inferInsert;
-export type ProductImageRow = typeof productImages.$inferSelect;
-export type NewProductImageRow = typeof productImages.$inferInsert;
-export type OutfitRow = typeof outfits.$inferSelect;
-export type NewOutfitRow = typeof outfits.$inferInsert;
-export type OutfitItemRow = typeof outfitItems.$inferSelect;
-export type NewOutfitItemRow = typeof outfitItems.$inferInsert;
-export type OutfitImageRow = typeof outfitImages.$inferSelect;
-export type NewOutfitImageRow = typeof outfitImages.$inferInsert;
-export type EditorialCollectionRow = typeof editorialCollections.$inferSelect;
-export type NewEditorialCollectionRow = typeof editorialCollections.$inferInsert;
-export type EditorialCollectionItemRow = typeof editorialCollectionItems.$inferSelect;
-export type NewEditorialCollectionItemRow = typeof editorialCollectionItems.$inferInsert;
 
 export const savedOutfits = ufitSchema.table(
   'saved_outfits',
@@ -673,74 +653,6 @@ export const cartItems = ufitSchema.table(
     cartIdIndex: index('cart_items_cart_id_idx').on(table.cartId)
   })
 );
-
-export const orders = ufitSchema.table(
-  'orders',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    orderNumber: text('order_number').notNull().unique(),
-    customerId: uuid('customer_id')
-      .notNull()
-      .references(() => users.id),
-    brandId: uuid('brand_id').notNull(),
-    sourceCreatorId: uuid('source_creator_id').references(() => creatorProfiles.id, { onDelete: 'set null' }),
-    sourceOutfitId: uuid('source_outfit_id').references(() => outfits.id, { onDelete: 'set null' }),
-    status: text('status').notNull().default('pending_payment'),
-    subtotalAmount: integer('subtotal_amount').notNull(),
-    shippingAmount: integer('shipping_amount').notNull().default(0),
-    totalAmount: integer('total_amount').notNull(),
-    currency: text('currency').notNull().default('CHF'),
-    shippingAddress: jsonb('shipping_address').notNull(),
-    paymentProvider: text('payment_provider').notNull().default('placeholder'),
-    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
-    stripePaymentIntentId: text('stripe_payment_intent_id'),
-    ...timestamps
-  },
-  (table) => ({
-    customerIdIndex: index('orders_customer_id_idx').on(table.customerId),
-    brandStatusIndex: index('orders_brand_id_status_idx').on(table.brandId, table.status),
-    createdAtIndex: index('orders_created_at_idx').on(table.createdAt)
-  })
-);
-
-export const orderItems = ufitSchema.table(
-  'order_items',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    orderId: uuid('order_id')
-      .notNull()
-      .references(() => orders.id, { onDelete: 'cascade' }),
-    productId: uuid('product_id')
-      .notNull()
-      .references(() => products.id),
-    productVariantId: uuid('product_variant_id')
-      .notNull()
-      .references(() => productVariants.id),
-    productSnapshot: jsonb('product_snapshot').notNull(),
-    quantity: integer('quantity').notNull(),
-    unitPrice: integer('unit_price').notNull(),
-    totalPrice: integer('total_price').notNull(),
-    commissionRate: numeric('commission_rate', { precision: 5, scale: 4 }).notNull().default('0'),
-    sourceCreatorId: uuid('source_creator_id').references(() => creatorProfiles.id, { onDelete: 'set null' }),
-    sourceOutfitId: uuid('source_outfit_id').references(() => outfits.id, { onDelete: 'set null' }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-  },
-  (table) => ({
-    orderIdIndex: index('order_items_order_id_idx').on(table.orderId)
-  })
-);
-
-export const orderStatusHistory = ufitSchema.table('order_status_history', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  orderId: uuid('order_id')
-    .notNull()
-    .references(() => orders.id, { onDelete: 'cascade' }),
-  fromStatus: text('from_status'),
-  toStatus: text('to_status').notNull(),
-  changedBy: uuid('changed_by').references(() => users.id, { onDelete: 'set null' }),
-  reason: text('reason'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
 
 export const payments = ufitSchema.table(
   'payments',
@@ -855,7 +767,10 @@ export const shipments = ufitSchema.table(
       .references(() => orders.id, { onDelete: 'cascade' })
       .unique(),
     brandId: uuid('brand_id').notNull(),
-    status: text('status').notNull().default('pending'),
+    status: text('status').notNull().default(SHIPMENT_STATUS.pending),
+    version: integer('version').notNull().default(SHIPPING.revision.initial),
+    incidentReason: text('incident_reason'),
+    incidentAt: timestamp('incident_at', { withTimezone: true }),
     carrier: text('carrier'),
     trackingNumber: text('tracking_number'),
     trackingUrl: text('tracking_url'),
@@ -865,7 +780,12 @@ export const shipments = ufitSchema.table(
     ...timestamps
   },
   (table) => ({
-    brandStatusIndex: index('shipments_brand_status_idx').on(table.brandId, table.status)
+    brandStatusIndex: index('shipments_brand_status_idx').on(table.brandId, table.status),
+    knownStatus: check(SHIPPING.constraint.status, sql`${table.status} in (${SHIPMENT_STATUS.pending}, ${SHIPMENT_STATUS.preparing}, ${SHIPMENT_STATUS.shipped}, ${SHIPMENT_STATUS.delivered}, ${SHIPMENT_STATUS.failed}, ${SHIPMENT_STATUS.cancelled})`),
+    versionPositive: check(SHIPPING.constraint.version, sql`${table.version} >= ${SHIPPING.revision.initial}`),
+    incidentConsistent: check(SHIPPING.constraint.incident, sql`(${table.incidentReason} is null) = (${table.incidentAt} is null)
+      and (${table.incidentReason} is null or char_length(btrim(${table.incidentReason})) between ${SHIPPING.limit.minimumText} and ${SHIPPING.limit.incident})
+      and (${table.status} <> ${SHIPMENT_STATUS.failed} or ${table.incidentReason} is not null)`)
   })
 );
 
@@ -899,21 +819,44 @@ export const adminActionLogs = ufitSchema.table(
   })
 );
 
-export type SavedOutfitRow = typeof savedOutfits.$inferSelect;
-export type CreatorFollowRow = typeof creatorFollows.$inferSelect;
-export type CartRow = typeof carts.$inferSelect;
-export type NewCartRow = typeof carts.$inferInsert;
-export type CartItemRow = typeof cartItems.$inferSelect;
-export type NewCartItemRow = typeof cartItems.$inferInsert;
-export type OrderRow = typeof orders.$inferSelect;
-export type NewOrderRow = typeof orders.$inferInsert;
-export type OrderItemRow = typeof orderItems.$inferSelect;
-export type NewOrderItemRow = typeof orderItems.$inferInsert;
-export type PaymentRow = typeof payments.$inferSelect;
-export type StripeWebhookEventRow = typeof stripeWebhookEvents.$inferSelect;
-export type NewStripeWebhookEventRow = typeof stripeWebhookEvents.$inferInsert;
-export type CommissionRow = typeof commissions.$inferSelect;
-export type NewCommissionRow = typeof commissions.$inferInsert;
-export type ShipmentRow = typeof shipments.$inferSelect;
-export type NewShipmentRow = typeof shipments.$inferInsert;
-export type AdminActionLogRow = typeof adminActionLogs.$inferSelect;
+export type { UserRow, NewUserRow, UserRoleRow, NewUserRoleRow, CreatorApplicationRow, NewCreatorApplicationRow, BrandApplicationRow, NewBrandApplicationRow, ApplicationReviewRow, NewApplicationReviewRow, CreatorProfileRow, NewCreatorProfileRow, BrandProfileRow, NewBrandProfileRow, BrandMemberRow, NewBrandMemberRow, ProductRow, NewProductRow, ProductVariantRow, NewProductVariantRow, ProductImageRow, NewProductImageRow, OutfitRow, NewOutfitRow, OutfitItemRow, NewOutfitItemRow, OutfitImageRow, NewOutfitImageRow, EditorialCollectionRow, NewEditorialCollectionRow, EditorialCollectionItemRow, NewEditorialCollectionItemRow, SavedOutfitRow, CreatorFollowRow, CartRow, NewCartRow, CartItemRow, NewCartItemRow, OrderRow, NewOrderRow, OrderItemRow, NewOrderItemRow, PaymentRow, StripeWebhookEventRow, NewStripeWebhookEventRow, CommissionRow, NewCommissionRow, ShipmentRow, NewShipmentRow, AdminActionLogRow } from './schema.rows';
+
+export { connectAccounts } from "./schema.connect";
+
+export const productMediaAssets = ufitSchema.table('product_media_assets', {
+  id: uuid('id').primaryKey(),
+  brandId: uuid('brand_id').notNull().references(() => brandProfiles.id),
+  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id),
+  requestId: uuid('request_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  byteSize: integer('byte_size').notNull(),
+  contentType: text('content_type').notNull(),
+  objectPath: text('object_path').notNull(),
+  status: text('status', {enum: PRODUCT_MEDIA.statuses}).notNull().default(PRODUCT_MEDIA.status.pending),
+  ...timestamps,
+}, table => ({
+  requestUnique: uniqueIndex('product_media_brand_request_unique').on(table.brandId, table.requestId),
+  pathUnique: uniqueIndex('product_media_object_path_unique').on(table.objectPath),
+  sizeCheck: check('product_media_size_valid', sql`${table.byteSize} > 0 and ${table.byteSize} <= ${sql.raw(String(PRODUCT_MEDIA.maxBytes))}`),
+  typeCheck: check('product_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + PRODUCT_MEDIA.mime + "'")}`),
+  hashCheck: check('product_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + PRODUCT_MEDIA.hash.pattern + "'")}`),
+  statusCheck: check('product_media_status_valid', sql`${table.status} in (${sql.raw("'" + PRODUCT_MEDIA.status.pending + "', '" + PRODUCT_MEDIA.status.ready + "'")})`),
+}));
+
+export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
+  id: uuid('id').primaryKey(),
+  creatorId: uuid('creator_id').references(() => creatorProfiles.id), brandId: uuid('brand_id').references(() => brandProfiles.id),
+  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id), requestId: uuid('request_id').notNull(),
+  fingerprint: text('fingerprint').notNull(), byteSize: integer('byte_size').notNull(), contentType: text('content_type').notNull(),
+  objectPath: text('object_path').notNull(), status: text('status', {enum: OUTFIT_MEDIA.statuses}).notNull().default(OUTFIT_MEDIA.status.pending),
+  ...timestamps,
+}, table => ({
+  ownerCheck: check('outfit_media_owner_required', sql`(${table.creatorId} is not null) <> (${table.brandId} is not null)`),
+  creatorRequest: uniqueIndex('outfit_media_creator_request_unique').on(table.creatorId, table.requestId),
+  brandRequest: uniqueIndex('outfit_media_brand_request_unique').on(table.brandId, table.requestId),
+  pathUnique: uniqueIndex('outfit_media_object_path_unique').on(table.objectPath),
+  sizeCheck: check('outfit_media_size_valid', sql`${table.byteSize} > 0 and ${table.byteSize} <= ${sql.raw(String(OUTFIT_MEDIA.maxBytes))}`),
+  typeCheck: check('outfit_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + OUTFIT_MEDIA.mime + "'")}`),
+  hashCheck: check('outfit_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + OUTFIT_MEDIA.hash.pattern + "'")}`),
+  statusCheck: check('outfit_media_status_valid', sql`${table.status} in (${sql.raw("'" + OUTFIT_MEDIA.status.pending + "', '" + OUTFIT_MEDIA.status.ready + "'")})`),
+}));

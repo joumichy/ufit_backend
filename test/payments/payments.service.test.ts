@@ -1,180 +1,264 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resetEnvCacheForTests } from '../../src/config/env';
-import {
-  PaymentsService,
-  type StripeWebhookEventRecord,
-  type StripeWebhookEventRepository
-} from '../../src/modules/payments/application/payments.service';
-import type { Order } from '../../src/modules/orders/application/orders.service';
-
-class FakeWebhookEvents implements StripeWebhookEventRepository {
-  readonly events = new Map<string, StripeWebhookEventRecord>();
-
-  async insertIfNew(event: StripeWebhookEventRecord): Promise<boolean> {
-    if (this.events.has(event.stripeEventId)) {
-      return false;
-    }
-
-    this.events.set(event.stripeEventId, event);
-    return true;
-  }
-}
-
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetEnvCacheForTests } from "../../src/config/env";
+import { PaymentsService } from "../../src/modules/payments/application/payments.service";
+import type { Order } from "../../src/modules/orders/application/orders.service";
 function makeOrder(): Order {
   return {
-    id: 'order-1',
-    orderNumber: 'UF-1',
-    customerId: 'customer-1',
-    brandId: 'brand-1',
-    status: 'pending_payment',
+    id: "order-1",
+    orderNumber: "UF-1",
+    customerId: "customer-1",
+    brandId: "brand-1",
+    status: "pending_payment",
+    createdAt: "2026-10-31T12:00:00.000Z",
+    actions: { cancel: true, resumePayment: true },
+    taxAmount: 0,
     subtotalAmount: 5000,
     shippingAmount: 900,
     totalAmount: 5900,
-    currency: 'CHF',
+    currency: "CHF",
     shippingAddress: {
-      fullName: 'A Customer',
-      line1: '1 Test Street',
-      postalCode: '8000',
-      city: 'Zurich',
-      country: 'CH'
+      fullName: "A Customer",
+      line1: "1 Test Street",
+      postalCode: "8000",
+      city: "Zurich",
+      country: "CH",
     },
-    paymentProvider: 'placeholder',
+    paymentProvider: "stripe",
     items: [
       {
-        id: 'item-1',
-        productId: 'product-1',
-        productVariantId: 'variant-1',
-        productSnapshot: { name: 'Wool Coat' },
+        id: "item-1",
+        productId: "product-1",
+        productVariantId: "variant-1",
+        productSnapshot: { name: "Wool Coat" },
         quantity: 1,
         unitPrice: 5000,
         totalPrice: 5000,
-        commissionRate: 0.12
-      }
-    ]
+        commissionRate: 0.12,
+      },
+    ],
   };
 }
 
-describe('PaymentsService', () => {
+describe("PaymentsService", () => {
   const originalEnv = { ...process.env };
-
   beforeEach(() => {
     process.env = {
       ...originalEnv,
-      SUPABASE_URL: 'https://example.supabase.co',
-      SUPABASE_DIRECT_CONNECTION_DB_URL: 'postgres://user:pass@localhost:5432/postgres',
-      STRIPE_SECRET_KEY: 'sk_test_mock',
-      STRIPE_CHECKOUT_SUCCESS_URL: 'https://ufit.test/success',
-      STRIPE_CHECKOUT_CANCEL_URL: 'https://ufit.test/cancel'
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_DIRECT_CONNECTION_DB_URL:
+        "postgres://user:pass@localhost:5432/postgres",
+      STRIPE_SECRET_KEY: "sk_test_mock",
+      STRIPE_WEBHOOK_SECRET: "whsec_mock",
     };
     resetEnvCacheForTests();
   });
-
   afterEach(() => {
     process.env = originalEnv;
     resetEnvCacheForTests();
-    vi.restoreAllMocks();
   });
-
-  it('creates a Checkout Session with order metadata and a server idempotency key', async () => {
+  function setup() {
     const stripe = {
-      checkout: {
-        sessions: {
-          create: vi.fn().mockResolvedValue({
-            id: 'cs_test_123',
-            url: 'https://checkout.stripe.test/session'
-          })
-        }
+      paymentIntents: {
+        create: vi.fn().mockResolvedValue({
+          id: "pi_test",
+          client_secret: "test_client_secret",
+        }),
+        retrieve: vi.fn().mockResolvedValue({
+          id: "pi_test",
+          client_secret: "test_client_secret",
+        }),
       },
-      webhooks: {
-        constructEvent: vi.fn()
-      }
+      webhooks: { constructEvent: vi.fn() },
     };
-    const orders = {
-      attachStripeCheckoutSession: vi.fn().mockResolvedValue(undefined),
-      markStripePaymentSucceeded: vi.fn()
+    const finalizer = {
+      confirm: vi
+        .fn()
+        .mockResolvedValue({ duplicate: false, reversalRequired: false }),
     };
-    const service = new PaymentsService(stripe, new FakeWebhookEvents(), orders as never);
-
-    const result = await service.createCheckoutSession(makeOrder());
-
-    expect(result).toEqual({
-      orderId: 'order-1',
-      checkoutSessionId: 'cs_test_123',
-      url: 'https://checkout.stripe.test/session'
+    const orders = { attachPaymentIntent: vi.fn() };
+    const cancellations = { recoverOrder: vi.fn() };
+    const connect = { assertSaleRecipients: vi.fn(), accountUpdated: vi.fn() };
+    return {
+      stripe,
+      finalizer,
+      orders,
+      cancellations,
+      connect,
+      service: new PaymentsService(
+        stripe as never,
+        finalizer,
+        orders as never,
+        cancellations as never,
+        connect as never,
+      ),
+    };
+  }
+  it("creates a card-only PaymentIntent from the persisted total, with a stable idempotency key", async () => {
+    const { service, stripe, orders } = setup();
+    const result = await service.createPaymentIntent(makeOrder());
+    expect(result).toMatchObject({
+      orderId: "order-1",
+      paymentIntentId: "pi_test",
     });
-    expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        mode: 'payment',
-        success_url: 'https://ufit.test/success',
-        cancel_url: 'https://ufit.test/cancel',
-        client_reference_id: 'order-1',
-        metadata: { order_id: 'order-1' },
-        payment_intent_data: { metadata: { order_id: 'order-1' } }
-      }),
-      { idempotencyKey: 'checkout:order-1' }
+    expect(stripe.paymentIntents.create).toHaveBeenCalledWith(
+      {
+        amount: 5900,
+        currency: "chf",
+        payment_method_types: ["card"],
+        metadata: { order_id: "order-1" },
+        transfer_group: "order:order-1",
+      },
+      { idempotencyKey: "payment-intent:order-1" },
     );
-    expect(orders.attachStripeCheckoutSession).toHaveBeenCalledWith('order-1', 'cs_test_123');
+    expect(orders.attachPaymentIntent).toHaveBeenCalledWith(
+      "order-1",
+      "pi_test",
+    );
   });
-
-  it('records Stripe webhook events once and ignores duplicate replays', async () => {
-    const events = new FakeWebhookEvents();
-    const orders = {
-      attachStripeCheckoutSession: vi.fn(),
-      markStripePaymentSucceeded: vi.fn().mockResolvedValue(undefined)
-    };
-    const stripe = {
-      checkout: { sessions: { create: vi.fn() } },
-      webhooks: { constructEvent: vi.fn() }
-    };
-    const service = new PaymentsService(stripe, events, orders as never);
-    const event = {
-      id: 'evt_1',
-      type: 'payment_intent.succeeded',
-      data: {
-        object: {
-          id: 'pi_1',
-          metadata: { order_id: 'order-1' }
-        }
-      }
-    };
-
-    await expect(service.handleStripeWebhook(event)).resolves.toEqual({ received: true, duplicate: false });
-    await expect(service.handleStripeWebhook(event)).resolves.toEqual({ received: true, duplicate: true });
-
-    expect(events.events.size).toBe(1);
-    expect(orders.markStripePaymentSucceeded).toHaveBeenCalledTimes(1);
-    expect(orders.markStripePaymentSucceeded).toHaveBeenCalledWith('order-1', 'pi_1');
+  it("retrieves an attached intent on retry", async () => {
+    const { service, stripe } = setup();
+    await service.createPaymentIntent({
+      ...makeOrder(),
+      stripePaymentIntentId: "pi_test",
+    });
+    expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
+    expect(stripe.paymentIntents.retrieve).toHaveBeenCalledWith("pi_test");
   });
-
-  it('uses Stripe signature verification when a webhook secret is configured', async () => {
-    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_mock';
+  it("requires a configured secret, raw body and valid signature before fulfillment", async () => {
+    const { service, stripe, finalizer } = setup();
+    await expect(
+      service.handleStripeWebhook(Buffer.from("{}")),
+    ).rejects.toMatchObject({ status: 401 });
+    await expect(
+      service.handleStripeWebhook({}, "signature"),
+    ).rejects.toMatchObject({ status: 400 });
+    stripe.webhooks.constructEvent.mockImplementation(() => {
+      throw new Error("signature");
+    });
+    await expect(
+      service.handleStripeWebhook(Buffer.from("{}"), "invalid"),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(finalizer.confirm).not.toHaveBeenCalled();
+    process.env.STRIPE_WEBHOOK_SECRET = "";
     resetEnvCacheForTests();
-    const verifiedEvent = {
-      id: 'evt_signed',
-      type: 'checkout.session.completed',
+    await expect(
+      service.handleStripeWebhook(Buffer.from("{}"), "signature"),
+    ).rejects.toMatchObject({ status: 503 });
+  });
+  it("passes only a verified succeeded PaymentIntent to transactional fulfillment", async () => {
+    const { service, stripe, finalizer } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      id: "evt_test",
+      type: "payment_intent.succeeded",
       data: {
         object: {
-          metadata: { order_id: 'order-1' },
-          payment_intent: 'pi_1'
-        }
-      }
-    };
-    const stripe = {
-      checkout: { sessions: { create: vi.fn() } },
-      webhooks: {
-        constructEvent: vi.fn().mockReturnValue(verifiedEvent)
-      }
-    };
-    const orders = {
-      attachStripeCheckoutSession: vi.fn(),
-      markStripePaymentSucceeded: vi.fn().mockResolvedValue(undefined)
-    };
-    const service = new PaymentsService(stripe, new FakeWebhookEvents(), orders as never);
-    const payload = Buffer.from(JSON.stringify(verifiedEvent));
-
-    await service.handleStripeWebhook(payload, 't=1,v1=test');
-
-    expect(stripe.webhooks.constructEvent).toHaveBeenCalledWith(payload, 't=1,v1=test', 'whsec_mock');
-    expect(orders.markStripePaymentSucceeded).toHaveBeenCalledWith('order-1', 'pi_1');
+          id: "pi_test",
+          metadata: { order_id: "order-1" },
+          amount_received: 5900,
+          currency: "chf",
+        },
+      },
+    });
+    await expect(
+      service.handleStripeWebhook(Buffer.from("{}"), "signature"),
+    ).resolves.toEqual({ received: true, duplicate: false });
+    expect(finalizer.confirm).toHaveBeenCalledWith({
+      eventId: "evt_test",
+      orderId: "order-1",
+      paymentIntentId: "pi_test",
+      amount: 5900,
+      currency: "CHF",
+    });
+  });
+  it("allows Stripe to retry a failed fulfillment", async () => {
+    const { service, stripe, finalizer } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      id: "evt_test",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_test",
+          metadata: { order_id: "order-1" },
+          amount_received: 5900,
+          currency: "chf",
+        },
+      },
+    });
+    finalizer.confirm.mockRejectedValueOnce(
+      new Error("transient database failure"),
+    );
+    await expect(
+      service.handleStripeWebhook(Buffer.from("{}"), "signature"),
+    ).rejects.toThrow("transient");
+    await expect(
+      service.handleStripeWebhook(Buffer.from("{}"), "signature"),
+    ).resolves.toMatchObject({ received: true });
+    expect(finalizer.confirm).toHaveBeenCalledTimes(2);
+  });
+  it("does not use a Checkout Session event or a mobile return to confirm an order", async () => {
+    const { service, stripe, finalizer } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      id: "evt_session",
+      type: "checkout.session.completed",
+      data: { object: {} },
+    });
+    await service.handleStripeWebhook(Buffer.from("{}"), "signature");
+    expect(finalizer.confirm).not.toHaveBeenCalled();
+  });
+  it("resumes durable compensation even when a signed successful event is replayed", async () => {
+    const { service, stripe, finalizer, cancellations } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      id: "evt_paid",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_test",
+          metadata: { order_id: "order-1" },
+          amount_received: 5900,
+          currency: "chf",
+        },
+      },
+    });
+    finalizer.confirm.mockResolvedValue({
+      duplicate: true,
+      reversalRequired: true,
+    });
+    await expect(
+      service.handleStripeWebhook(Buffer.from("signed payload"), "signature"),
+    ).resolves.toEqual({ received: true, duplicate: true });
+    expect(cancellations.recoverOrder).toHaveBeenCalledWith("order-1");
+    cancellations.recoverOrder.mockRejectedValueOnce(
+      new Error("Provider temporarily unavailable"),
+    );
+    await expect(
+      service.handleStripeWebhook(Buffer.from("signed payload"), "signature"),
+    ).rejects.toThrow("Provider temporarily unavailable");
+  });
+  it("does not prepare a payment for an unconfigured Connect recipient", async () => {
+    const { service, stripe, connect } = setup();
+    connect.assertSaleRecipients.mockRejectedValueOnce(
+      new Error("Connect recipient incomplete"),
+    );
+    await expect(service.createPaymentIntent(makeOrder())).rejects.toThrow(
+      "Connect recipient incomplete",
+    );
+    expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
+  });
+  it("synchronizes the owned connected account for a signed account.updated event", async () => {
+    const { service, stripe, connect, finalizer } = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({
+      type: "account.updated",
+      livemode: false,
+      data: { object: { id: "acct_recipient" } },
+    });
+    await service.handleStripeWebhook(
+      Buffer.from("signed payload"),
+      "signature",
+    );
+    expect(connect.accountUpdated).toHaveBeenCalledWith(
+      "acct_recipient",
+      false,
+    );
+    expect(finalizer.confirm).not.toHaveBeenCalled();
   });
 });

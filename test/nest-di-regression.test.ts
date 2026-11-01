@@ -1,3 +1,6 @@
+import {DrizzleBrandOrdersRepository} from '../src/modules/orders/infrastructure/drizzle-brand-orders.repository';
+import {DrizzleOrderReturnRepository} from '../src/modules/orders/infrastructure/drizzle-order-return.repository';
+import {DrizzleReturnRefundRepository} from '../src/modules/orders/infrastructure/drizzle-return-refund.repository';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { DrizzleAdminAuditRepository } from '../src/modules/admin-audit/infrastructure/drizzle-admin-audit.repository';
@@ -12,19 +15,21 @@ import { DrizzleEditorialRepository } from '../src/modules/editorial/infrastruct
 import { DrizzleIdentityRepository } from '../src/modules/identity/infrastructure/persistence/drizzle-identity.repository';
 import {
   DrizzleOrderRepository,
-  DrizzlePaymentRepository,
   DrizzleProductSnapshotReader,
-  DrizzleStockRepository
 } from '../src/modules/orders/infrastructure/drizzle-orders.repository';
+import {DrizzleOrderCancellationRepository} from '../src/modules/orders/infrastructure/drizzle-order-cancellation.repository';
 import { DrizzleOutfitRepository } from '../src/modules/outfits/infrastructure/drizzle-outfit.repository';
-import { DrizzleStripeWebhookEventRepository } from '../src/modules/payments/infrastructure/drizzle-stripe-webhook-events.repository';
+import {DrizzleStripePaymentFinalizer} from '../src/modules/payments/infrastructure/drizzle-stripe-payment-finalizer';
 import { DrizzleProductRepository } from '../src/modules/products/infrastructure/drizzle-product.repository';
 import { DrizzleSavedRepository } from '../src/modules/saved/infrastructure/drizzle-saved.repository';
 import { DrizzleShipmentRepository } from '../src/modules/shipping/infrastructure/drizzle-shipping.repository';
 import { DrizzleWorkspacesRepository } from '../src/modules/workspaces/infrastructure/drizzle-workspaces.repository';
 import { DatabaseService } from '../src/shared/infrastructure/database/database.service';
 
+import { DrizzleConnectAccountsRepository } from '../src/modules/payments/infrastructure/drizzle-connect-accounts.repository';
+
 const databaseBackedProviders = [
+  DrizzleConnectAccountsRepository,
   DrizzleAdminAuditRepository,
   DrizzleAdminRepository,
   DrizzleApplicationsRepository,
@@ -37,11 +42,13 @@ const databaseBackedProviders = [
   DrizzleEditorialRepository,
   DrizzleIdentityRepository,
   DrizzleOrderRepository,
-  DrizzlePaymentRepository,
+  DrizzleBrandOrdersRepository,
+  DrizzleOrderReturnRepository,
+  DrizzleReturnRefundRepository,
   DrizzleProductSnapshotReader,
-  DrizzleStockRepository,
+  DrizzleOrderCancellationRepository,
   DrizzleOutfitRepository,
-  DrizzleStripeWebhookEventRepository,
+  DrizzleStripePaymentFinalizer,
   DrizzleProductRepository,
   DrizzleSavedRepository,
   DrizzleShipmentRepository,
@@ -60,7 +67,7 @@ describe('Nest dependency injection metadata regressions', () => {
 
     for (const provider of databaseBackedProviders) {
       const instance = moduleRef.get(provider);
-      expect((instance as { database?: unknown }).database).toBe(database);
+      expect(Reflect.get(instance, 'database')).toBe(database);
     }
   });
 });

@@ -1,36 +1,68 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { CartModule } from '../cart/cart.module';
-import { CommissionsService } from '../commissions/application/commissions.service';
-import { CommissionsModule } from '../commissions/commissions.module';
-import { IdentityModule } from '../identity/identity.module';
-import { PaymentsModule } from '../payments/payments.module';
-import { ShippingService } from '../shipping/application/shipping.service';
-import { ShippingModule } from '../shipping/shipping.module';
-import { OrdersService } from './application/orders.service';
+import {BrandOrdersController} from './presentation/brand-orders.controller';
+import {BrandOrdersService} from './application/brand-orders.service';
+import {DrizzleBrandOrdersRepository} from './infrastructure/drizzle-brand-orders.repository';
+import {BRAND_ORDERS} from './domain/brand-order.contract';
+import { Module, forwardRef } from "@nestjs/common";
+import { CartModule } from "../cart/cart.module";
+import { CommissionsModule } from "../commissions/commissions.module";
+import { IdentityModule } from "../identity/identity.module";
+import { PaymentsModule } from "../payments/payments.module";
+import { OrderCheckoutService } from "./application/order-checkout.service";
+import { OrdersService } from "./application/orders.service";
 import {
   DrizzleOrderRepository,
-  DrizzlePaymentRepository,
   DrizzleProductSnapshotReader,
-  DrizzleStockRepository
-} from './infrastructure/drizzle-orders.repository';
-import { OrdersController } from './presentation/orders.controller';
+} from "./infrastructure/drizzle-orders.repository";
+import { CANCELLATION } from "./domain/order-lifecycle";
+import { OrderCancellationService } from "./application/order-cancellation.service";
+import { DrizzleOrderCancellationRepository } from "./infrastructure/drizzle-order-cancellation.repository";
+import { OrderCancellationWorker } from "./infrastructure/order-cancellation.worker";
+import { OrdersController } from "./presentation/orders.controller";
+import {CustomerReturnsController, BrandReturnsController, AdminReturnsController} from './presentation/order-returns.controller';
+import {OrderReturnsService} from './application/order-returns.service';
+import {ReturnRefundsService} from './application/return-refunds.service';
+import {DrizzleOrderReturnRepository} from './infrastructure/drizzle-order-return.repository';
+import {DrizzleReturnRefundRepository} from './infrastructure/drizzle-return-refund.repository';
+import {ReturnRefundWorker} from './infrastructure/return-refund.worker';
+import {ORDER_RETURN} from './domain/order-return.contract';
+import {RETURN_REFUND} from './domain/return-refund';
 
 @Module({
-  imports: [IdentityModule, CartModule, ShippingModule, CommissionsModule, forwardRef(() => PaymentsModule)],
-  controllers: [OrdersController],
+  imports: [
+    IdentityModule,
+    CartModule,
+    CommissionsModule,
+    forwardRef(() => PaymentsModule),
+  ],
+  controllers: [OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
   providers: [
     OrdersService,
-    { provide: 'OrderRepository', useExisting: DrizzleOrderRepository },
-    { provide: 'ProductSnapshotReader', useExisting: DrizzleProductSnapshotReader },
-    { provide: 'PaymentRepository', useExisting: DrizzlePaymentRepository },
-    { provide: 'StockRepository', useExisting: DrizzleStockRepository },
-    { provide: 'PaidOrderShipmentCreator', useExisting: ShippingService },
-    { provide: 'PaidOrderCommissionCreator', useExisting: CommissionsService },
+    OrderReturnsService,
+    ReturnRefundsService,
+    ReturnRefundWorker,
+    DrizzleOrderReturnRepository,
+    DrizzleReturnRefundRepository,
+    {provide: ORDER_RETURN.repository, useExisting: DrizzleOrderReturnRepository},
+    {provide: RETURN_REFUND.repository, useExisting: DrizzleReturnRefundRepository},
+    BrandOrdersService,
+    DrizzleBrandOrdersRepository,
+    {provide: BRAND_ORDERS.repository, useExisting: DrizzleBrandOrdersRepository},
+    OrderCheckoutService,
+    OrderCancellationService,
+    OrderCancellationWorker,
+    DrizzleOrderCancellationRepository,
+    {
+      provide: CANCELLATION.repository,
+      useExisting: DrizzleOrderCancellationRepository,
+    },
+    { provide: "OrderRepository", useExisting: DrizzleOrderRepository },
+    {
+      provide: "ProductSnapshotReader",
+      useExisting: DrizzleProductSnapshotReader,
+    },
     DrizzleOrderRepository,
-    DrizzlePaymentRepository,
-    DrizzleStockRepository,
-    DrizzleProductSnapshotReader
+    DrizzleProductSnapshotReader,
   ],
-  exports: [OrdersService, 'OrderRepository']
+  exports: [OrdersService, OrderCancellationService, "OrderRepository"],
 })
 export class OrdersModule {}

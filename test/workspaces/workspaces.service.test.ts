@@ -3,6 +3,11 @@ import { describe, expect, it } from 'vitest';
 import {
   WorkspacesService,
   type BrandWorkspaceMetrics,
+  type BrandWorkspaceProduct,
+  type BrandWorkspaceOrder,
+  type BrandWorkspaceOutfitIntegration,
+  type CreatorWorkspaceOutfit,
+  type CreatorWorkspaceCommission,
   type BrandWorkspaceProfile,
   type CreatorWorkspaceMetrics,
   type CreatorWorkspaceProfile,
@@ -85,6 +90,9 @@ const brandMetrics: BrandWorkspaceMetrics = {
 };
 
 class FakeWorkspacesRepository implements WorkspacesRepository {
+  async listBrandsForUser(): Promise<{items: BrandWorkspaceProfile[]; nextCursor: string | null}> {
+    return {items: [brandProfile], nextCursor: null};
+  }
   creator: CreatorWorkspaceProfile | null = creatorProfile;
   brand: BrandWorkspaceProfile | null = brandProfile;
   lastPage: Required<WorkspacePageInput> | undefined;
@@ -99,12 +107,12 @@ class FakeWorkspacesRepository implements WorkspacesRepository {
 
   async listCreatorOutfits(_creatorId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
-    return emptyPage(page);
+    return emptyPage<CreatorWorkspaceOutfit>(page);
   }
 
   async listCreatorCommissions(_creatorId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
-    return emptyPage(page);
+    return emptyPage<CreatorWorkspaceCommission>(page);
   }
 
   async findBrandProfileForMember(): Promise<BrandWorkspaceProfile | null> {
@@ -117,17 +125,17 @@ class FakeWorkspacesRepository implements WorkspacesRepository {
 
   async listBrandProducts(_brandProfileId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
-    return emptyPage(page);
+    return emptyPage<BrandWorkspaceProduct>(page);
   }
 
   async listBrandOrders(_brandProfileId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
-    return emptyPage(page);
+    return emptyPage<BrandWorkspaceOrder>(page);
   }
 
   async listBrandOutfitIntegrations(_brandProfileId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
-    return emptyPage(page);
+    return emptyPage<BrandWorkspaceOutfitIntegration>(page);
   }
 }
 

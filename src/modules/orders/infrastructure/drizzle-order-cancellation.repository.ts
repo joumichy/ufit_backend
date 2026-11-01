@@ -1,0 +1,292 @@
+import { SHIPPING, SHIPMENT_STATUS } from '../../shipping/domain/shipping.contract';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { alias } from "drizzle-orm/pg-core";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { DatabaseService } from "../../../shared/infrastructure/database/database.service";
+import {
+  commissions,
+  orderCancellations,
+  orderItems,
+  orders,
+  orderStatusHistory,
+  payments,
+  productVariants,
+  shipments,
+} from "../../../shared/infrastructure/database/schema";
+import {
+  CANCELLATION,
+  ORDER_COMMISSION,
+  ORDER_LIMIT,
+  ORDER_PAYMENT,
+  ORDER_STATUS,
+  type CancellationClaim,
+  type CancellationSettlement,
+  type OrderCancellationRepository,
+  type OrderStatus,
+} from "../domain/order-lifecycle";
+
+const ROW_LOCK = "update";
+const RECOVERY_ROW = "cancellation_recovery";
+const ORDER_NOT_FOUND = "Order not found";
+@Injectable()
+export class DrizzleOrderCancellationRepository
+  implements OrderCancellationRepository
+{
+  constructor(
+    @Inject(DatabaseService) private readonly database: DatabaseService,
+  ) {}
+  async claim(customerId: string, orderId: string): Promise<CancellationClaim> {
+    return this.database.db.transaction(async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.customerId, customerId)))
+        .limit(ORDER_LIMIT.singleRow)
+        .for(ROW_LOCK);
+      if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
+      const [existing] = await tx
+        .select()
+        .from(orderCancellations)
+        .where(eq(orderCancellations.orderId, order.id))
+        .limit(ORDER_LIMIT.singleRow);
+      let cancellation = existing;
+      if (!cancellation) {
+        if (
+          order.status !== ORDER_STATUS.pendingPayment &&
+          order.status !== ORDER_STATUS.paid
+        )
+          throw new ConflictException(CANCELLATION.failures.unavailable);
+        [cancellation] = await tx
+          .insert(orderCancellations)
+          .values({
+            orderId: order.id,
+            requestedBy: customerId,
+            originalStatus: order.status,
+            reason: CANCELLATION.reason.customer,
+            status: CANCELLATION.status.requested,
+          })
+          .returning();
+        await tx
+          .update(orders)
+          .set({ status: ORDER_STATUS.cancelling, updatedAt: new Date() })
+          .where(eq(orders.id, order.id));
+        await tx.insert(orderStatusHistory).values({
+          orderId: order.id,
+          fromStatus: order.status,
+          toStatus: ORDER_STATUS.cancelling,
+          changedBy: customerId,
+          reason: CANCELLATION.reasons.requested,
+        });
+      }
+      return {
+        id: cancellation.id,
+        orderId: order.id,
+        originalStatus: cancellation.originalStatus as OrderStatus,
+        reason: cancellation.reason as CancellationClaim["reason"],
+        status: cancellation.status as CancellationClaim["status"],
+        amount: order.totalAmount,
+        currency: order.currency,
+        paymentIntentId: order.stripePaymentIntentId ?? undefined,
+        refundId: cancellation.stripeRefundId ?? undefined,
+      };
+    });
+  }
+  async findPending(orderId: string): Promise<CancellationClaim | null> {
+    const [row] = await this.database.db
+      .select({ cancellation: orderCancellations, order: orders })
+      .from(orderCancellations)
+      .innerJoin(orders, eq(orders.id, orderCancellations.orderId))
+      .where(
+        and(
+          eq(orderCancellations.orderId, orderId),
+          eq(orderCancellations.status, CANCELLATION.status.requested),
+        ),
+      )
+      .limit(ORDER_LIMIT.singleRow);
+    return row ? this.toClaim(row) : null;
+  }
+  async claimRecoverable(): Promise<CancellationClaim[]> {
+    const queue = alias(orderCancellations, RECOVERY_ROW);
+    return this.database.db.transaction(async (tx) => {
+      const rows = await tx
+        .select({ cancellation: queue, order: orders })
+        .from(queue)
+        .innerJoin(orders, eq(orders.id, queue.orderId))
+        .where(
+          and(
+            eq(queue.status, CANCELLATION.status.requested),
+            lte(queue.nextRecoveryAt, new Date()),
+          ),
+        )
+        .orderBy(asc(queue.nextRecoveryAt), asc(queue.id))
+        .limit(CANCELLATION.recovery.batchSize)
+        .for(ROW_LOCK, { of: queue, skipLocked: true });
+      if (rows.length)
+        await tx
+          .update(orderCancellations)
+          .set({
+            nextRecoveryAt: new Date(
+              Date.now() + CANCELLATION.recovery.leaseMilliseconds,
+            ),
+          })
+          .where(
+            inArray(
+              orderCancellations.id,
+              rows.map((row) => row.cancellation.id),
+            ),
+          );
+      return rows.map((row) => this.toClaim(row));
+    });
+  }
+  private toClaim({
+    order,
+    cancellation,
+  }: {
+    order: typeof orders.$inferSelect;
+    cancellation: typeof orderCancellations.$inferSelect;
+  }): CancellationClaim {
+    return {
+      id: cancellation.id,
+      orderId: order.id,
+      originalStatus: cancellation.originalStatus as OrderStatus,
+      reason: cancellation.reason as CancellationClaim["reason"],
+      status: cancellation.status as CancellationClaim["status"],
+      amount: order.totalAmount,
+      currency: order.currency,
+      paymentIntentId: order.stripePaymentIntentId ?? undefined,
+      refundId: cancellation.stripeRefundId ?? undefined,
+    };
+  }
+  async rememberRefund(
+    claim: CancellationClaim,
+    refundId: string,
+  ): Promise<void> {
+    await this.database.db
+      .update(orderCancellations)
+      .set({ stripeRefundId: refundId, updatedAt: new Date() })
+      .where(
+        and(
+          eq(orderCancellations.id, claim.id),
+          eq(orderCancellations.status, CANCELLATION.status.requested),
+        ),
+      );
+  }
+  async complete(
+    claim: CancellationClaim,
+    settlement: CancellationSettlement,
+  ): Promise<void> {
+    await this.database.db.transaction(async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(orders)
+        .where(eq(orders.id, claim.orderId))
+        .limit(ORDER_LIMIT.singleRow)
+        .for(ROW_LOCK);
+      const [cancellation] = await tx
+        .select()
+        .from(orderCancellations)
+        .where(eq(orderCancellations.id, claim.id))
+        .limit(ORDER_LIMIT.singleRow);
+      if (cancellation?.status === CANCELLATION.status.succeeded) return;
+      if (!order || !cancellation || order.status !== ORDER_STATUS.cancelling)
+        throw new ConflictException(CANCELLATION.failures.changed);
+      const items = await tx
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+      const itemIds = items.map((item) => item.id);
+      if (itemIds.length) {
+        const paid = await tx
+          .select({ id: commissions.id })
+          .from(commissions)
+          .where(
+            and(
+              inArray(commissions.orderItemId, itemIds),
+              eq(commissions.status, ORDER_COMMISSION.status.paid),
+            ),
+          )
+          .limit(ORDER_LIMIT.singleRow);
+        if (paid.length)
+          throw new ConflictException(CANCELLATION.failures.payout);
+        await tx
+          .update(commissions)
+          .set({
+            status: ORDER_COMMISSION.status.cancelled,
+            updatedAt: new Date(),
+          })
+          .where(inArray(commissions.orderItemId, itemIds));
+      }
+      if (cancellation.originalStatus === ORDER_STATUS.paid) {
+        const quantities = new Map<string, number>();
+        for (const item of items)
+          quantities.set(
+            item.productVariantId,
+            (quantities.get(item.productVariantId) ??
+              ORDER_LIMIT.initialQuantity) + item.quantity,
+          );
+        for (const [variantId, quantity] of [...quantities].sort(([a], [b]) =>
+          a.localeCompare(b),
+        )) {
+          await tx
+            .update(productVariants)
+            .set({
+              stockQuantity: sql`${productVariants.stockQuantity} + ${quantity}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(productVariants.id, variantId));
+        }
+      }
+      if (
+        settlement.outcome === CANCELLATION.outcome.refunded &&
+        order.stripePaymentIntentId
+      ) {
+        await tx
+          .insert(payments)
+          .values({
+            orderId: order.id,
+            provider: ORDER_PAYMENT.provider,
+            providerPaymentIntentId: order.stripePaymentIntentId,
+            status: ORDER_PAYMENT.status.refunded,
+            amount: order.totalAmount,
+            currency: order.currency,
+          })
+          .onConflictDoUpdate({
+            target: [payments.provider, payments.providerPaymentIntentId],
+            targetWhere: sql`${payments.providerPaymentIntentId} is not null`,
+            set: {
+              status: ORDER_PAYMENT.status.refunded,
+              updatedAt: new Date(),
+            },
+          });
+      }
+      await tx
+        .update(shipments)
+        .set({ status: SHIPMENT_STATUS.cancelled, version: sql`${shipments.version} + ${SHIPPING.revision.step}`, updatedAt: new Date() })
+        .where(eq(shipments.orderId, order.id));
+      await tx
+        .update(orders)
+        .set({ status: ORDER_STATUS.cancelled, updatedAt: new Date() })
+        .where(eq(orders.id, order.id));
+      await tx.insert(orderStatusHistory).values({
+        orderId: order.id,
+        fromStatus: ORDER_STATUS.cancelling,
+        toStatus: ORDER_STATUS.cancelled,
+        reason: CANCELLATION.reasons.completed,
+      });
+      await tx
+        .update(orderCancellations)
+        .set({
+          status: CANCELLATION.status.succeeded,
+          paymentOutcome: settlement.outcome,
+          stripeRefundId: settlement.refundId,
+          updatedAt: new Date(),
+        })
+        .where(eq(orderCancellations.id, claim.id));
+    });
+  }
+}

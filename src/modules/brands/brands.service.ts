@@ -1,8 +1,10 @@
+import { PROFILE_EDITING, PROFILE_STATUS } from '../../shared/domain/profile-editing.contract';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { BrandApplicationRow, BrandProfileRow } from '../../shared/infrastructure/database/schema';
 import type { BrandsRepository } from './brands.repository';
 import { BRANDS_REPOSITORY } from './brands.tokens';
 import type { UpdateBrandProfileRequest } from './dto/update-brand-profile.request';
+import {PUBLIC_BRAND} from './public-brand.contract';
 
 function slugify(value: string): string {
   const slug = value
@@ -43,6 +45,12 @@ export class BrandsService {
     await this.brandsRepository.createDefaultSettings(profile.id);
   }
 
+  async getPublicProfile(brandProfileId: string) {
+    const profile = await this.brandsRepository.findPublicProfileById(brandProfileId);
+    if (!profile) throw new NotFoundException(PUBLIC_BRAND.missing);
+    return profile;
+  }
+
   async getProfileForMember(brandProfileId: string, userId: string): Promise<BrandProfileRow> {
     const profile = await this.brandsRepository.findProfileById(brandProfileId);
     if (!profile) {
@@ -63,10 +71,12 @@ export class BrandsService {
     input: UpdateBrandProfileRequest
   ): Promise<BrandProfileRow> {
     const profile = await this.getProfileForMember(brandProfileId, userId);
-    if (profile.status === 'suspended') {
+    if (profile.status === PROFILE_STATUS.suspended) {
       throw new ForbiddenException('Suspended brands cannot be updated');
     }
 
-    return this.brandsRepository.updateProfile(brandProfileId, input);
+    const updated = await this.brandsRepository.updateProfile(brandProfileId, input, userId);
+    if (!updated) throw new ForbiddenException(PROFILE_EDITING.failure.changed);
+    return updated;
   }
 }

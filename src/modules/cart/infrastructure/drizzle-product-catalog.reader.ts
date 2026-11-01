@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
-import { products, productVariants } from '../../../shared/infrastructure/database/schema';
+import { brandProfiles, products, productVariants } from '../../../shared/infrastructure/database/schema';
 import type { ProductCatalogReader, ProductVariantQuote } from '../application/cart.service';
 
 @Injectable()
@@ -14,6 +14,7 @@ export class DrizzleProductCatalogReader implements ProductCatalogReader {
         productId: products.id,
         productStatus: products.status,
         brandId: products.brandId,
+        brandStatus: brandProfiles.status,
         basePrice: products.basePrice,
         currency: products.currency,
         productVariantId: productVariants.id,
@@ -23,10 +24,11 @@ export class DrizzleProductCatalogReader implements ProductCatalogReader {
       })
       .from(productVariants)
       .innerJoin(products, eq(productVariants.productId, products.id))
+      .innerJoin(brandProfiles, eq(products.brandId, brandProfiles.id))
       .where(eq(productVariants.id, productVariantId))
       .limit(1);
 
-    if (!row || row.productStatus !== 'active' || row.variantStatus !== 'active' || row.stockQuantity <= 0) {
+    if (!row || row.brandStatus !== 'active' || row.productStatus !== 'active' || row.variantStatus !== 'active' || row.stockQuantity <= 0) {
       throw new NotFoundException('Product variant is not available');
     }
 

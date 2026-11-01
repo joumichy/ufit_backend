@@ -1,84 +1,32 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-
-export type ShipmentStatus = 'pending' | 'preparing' | 'shipped' | 'delivered' | 'failed';
-
-export interface Shipment {
-  id: string;
-  orderId: string;
-  brandId: string;
-  status: ShipmentStatus;
-  carrier?: string;
-  trackingNumber?: string;
-  trackingUrl?: string;
-  shippedAt?: string;
-  deliveredAt?: string;
-}
-
-export interface ShipmentRepository {
-  save(shipment: Shipment): Promise<Shipment>;
-  findByOrderId?(orderId: string): Promise<Shipment | null>;
-}
-
-export interface UpdateShipmentInput {
-  shipment: Shipment;
-  nextStatus: ShipmentStatus;
-  carrier?: string;
-  trackingNumber?: string;
-  trackingUrl?: string;
-}
+import {BadRequestException, Inject, Injectable, NotFoundException} from '@nestjs/common';
+import {randomUUID} from 'node:crypto';
+import {requireBrandManagementAccess} from '../../brands/brand-management-access';
+import type {AuthenticatedUser} from '../../identity/domain/user.types';
+import {SHIPPING, SHIPMENT_STATUS, applyShipmentAction, shipmentActionSchema, shipmentActions, type Shipment, type ShipmentResult} from '../domain/shipping.contract';
+import type {ShipmentRepository} from '../domain/shipping.repository';
 
 @Injectable()
 export class ShippingService {
-  constructor(@Inject('ShipmentRepository') private readonly shipments: ShipmentRepository) {}
-
+  constructor(@Inject(SHIPPING.repository) private readonly shipments: ShipmentRepository) {}
   createManualShipment(orderId: string, brandId: string): Shipment {
-    return { id: randomUUID(), orderId, brandId, status: 'pending' };
+    return {id: randomUUID(), orderId, brandId, version: SHIPPING.revision.initial, status: SHIPMENT_STATUS.pending,
+      carrier: null, trackingNumber: null, trackingUrl: null, shippedAt: null, deliveredAt: null, incidentReason: null, incidentAt: null};
   }
-
-  async createPendingForPaidOrder(orderId: string, brandId: string): Promise<Shipment> {
-    const existing = await this.shipments.findByOrderId?.(orderId);
-    if (existing) {
-      return existing;
-    }
-
-    return this.shipments.save(this.createManualShipment(orderId, brandId));
+  createPendingForPaidOrder(orderId: string, brandId: string): Promise<Shipment> {
+    return this.shipments.create(this.createManualShipment(orderId, brandId));
   }
-
-  async updateStatus(input: UpdateShipmentInput): Promise<Shipment> {
-    this.assertTransition(input.shipment.status, input.nextStatus);
-    const next: Shipment = {
-      ...input.shipment,
-      status: input.nextStatus,
-      carrier: input.carrier ?? input.shipment.carrier,
-      trackingNumber: input.trackingNumber ?? input.shipment.trackingNumber,
-      trackingUrl: input.trackingUrl ?? input.shipment.trackingUrl
-    };
-
-    if (input.nextStatus === 'shipped') {
-      if (!next.carrier || !next.trackingNumber) {
-        throw new BadRequestException('Carrier and tracking number are required when marking a shipment as shipped');
-      }
-      next.shippedAt ??= new Date().toISOString();
-    }
-    if (input.nextStatus === 'delivered') {
-      next.deliveredAt ??= new Date().toISOString();
-    }
-
-    return this.shipments.save(next);
-  }
-
-  private assertTransition(from: ShipmentStatus, to: ShipmentStatus): void {
-    const allowed: Record<ShipmentStatus, ShipmentStatus[]> = {
-      pending: ['preparing', 'failed'],
-      preparing: ['shipped', 'failed'],
-      shipped: ['delivered', 'failed'],
-      delivered: [],
-      failed: []
-    };
-
-    if (!allowed[from].includes(to)) {
-      throw new BadRequestException(`Invalid shipment transition from ${from} to ${to}`);
-    }
+  async updateForActor(actor: Pick<AuthenticatedUser, 'id'>, id: string, raw: unknown): Promise<ShipmentResult> {
+    const parsed = shipmentActionSchema.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException(SHIPPING.failure.input);
+    return this.shipments.transaction(async repository => {
+      const reference = await repository.findById(id);
+      if (!reference) throw new NotFoundException(SHIPPING.failure.missing);
+      requireBrandManagementAccess(await repository.lockManagementAccess(reference.brandId, actor.id));
+      const current = await repository.lockContext(id);
+      if (!current || current.shipment.brandId !== reference.brandId) throw new NotFoundException(SHIPPING.failure.missing);
+      const change = applyShipmentAction(current, parsed.data, new Date().toISOString());
+      await repository.apply(change, current.shipment.version);
+      return {shipment: change.shipment, orderStatus: change.orderStatus, actions: shipmentActions(change)};
+    });
   }
 }

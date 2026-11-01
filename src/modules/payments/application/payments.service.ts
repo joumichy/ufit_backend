@@ -1,250 +1,162 @@
-import { BadRequestException, Inject, Injectable, ServiceUnavailableException, UnauthorizedException, forwardRef } from '@nestjs/common';
-import { getEnv } from '../../../config/env';
-import { OrdersService, type Order } from '../../orders/application/orders.service';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  ServiceUnavailableException,
+  UnauthorizedException,
+  forwardRef,
+} from "@nestjs/common";
+import type Stripe from "stripe";
+import { ConnectAccountsService } from "./connect-accounts.service";
+import { CONNECT } from "../domain/connect-account";
+type StripeSDK = InstanceType<typeof Stripe>;
+import { getEnv } from "../../../config/env";
+import {
+  OrdersService,
+  type Order,
+} from "../../orders/application/orders.service";
+import {
+  STRIPE_PAYMENT_FINALIZER,
+  type StripePaymentFinalizer,
+} from "./stripe-payment-finalizer";
 
-export const STRIPE_CLIENT = Symbol('STRIPE_CLIENT');
-export const STRIPE_WEBHOOK_EVENTS = Symbol('STRIPE_WEBHOOK_EVENTS');
+import {
+  CANCELLATION,
+  type CancellationClaim,
+} from "../../orders/domain/order-lifecycle";
+import {
+  reverseStripeCancellation,
+  type StripeCancellationResult,
+} from "../infrastructure/stripe-order-cancellation";
+import { OrderCancellationService } from "../../orders/application/order-cancellation.service";
+import { STRIPE_ORDER_METADATA, STRIPE_COMMERCE } from "./stripe-commerce";
 
-export interface StripeWebhookEventRecord {
-  stripeEventId: string;
-  type: string;
-  payload: Record<string, unknown>;
-  processedAt: Date;
-}
-
-export interface StripeWebhookEventRepository {
-  insertIfNew(event: StripeWebhookEventRecord): Promise<boolean>;
-}
-
-export interface CheckoutSessionResult {
+export { STRIPE_CLIENT } from "./stripe-commerce";
+import { STRIPE_CLIENT } from "./stripe-commerce";
+import {refundStripeReturn} from '../infrastructure/stripe-order-return';
+import type {ReturnRefundClaim} from '../../orders/domain/return-refund';
+export type StripePaymentsClient = Pick<
+  StripeSDK,
+  | "paymentIntents"
+  | "webhooks"
+  | "refunds"
+  | "accounts"
+  | "accountLinks"
+  | "countrySpecs"
+>;
+export interface NativePaymentIntentResult {
   orderId: string;
-  checkoutSessionId: string;
-  url: string;
-}
-
-interface StripeEventLike {
-  id: string;
-  type: string;
-  data: {
-    object: Record<string, unknown>;
-  };
-}
-
-interface StripeCheckoutSessionLike {
-  id: string;
-  url: string | null;
-}
-
-export interface StripeCheckoutClient {
-  checkout: {
-    sessions: {
-      create(
-        params: Record<string, unknown>,
-        options: { idempotencyKey: string }
-      ): Promise<StripeCheckoutSessionLike>;
-    };
-  };
-  webhooks: {
-    constructEvent(payload: Buffer | string, signature: string, secret: string): StripeEventLike;
-  };
+  paymentIntentId: string;
+  clientSecret: string;
 }
 
 @Injectable()
 export class PaymentsService {
   constructor(
-    @Inject(STRIPE_CLIENT)
-    private readonly stripe: StripeCheckoutClient,
-    @Inject(STRIPE_WEBHOOK_EVENTS)
-    private readonly webhookEvents: StripeWebhookEventRepository,
+    @Inject(STRIPE_CLIENT) private readonly stripe: StripePaymentsClient | null,
+    @Inject(STRIPE_PAYMENT_FINALIZER)
+    private readonly finalizer: StripePaymentFinalizer,
     @Inject(forwardRef(() => OrdersService))
-    private readonly orders: OrdersService
+    private readonly orders: OrdersService,
+    @Inject(forwardRef(() => OrderCancellationService))
+    private readonly cancellations: OrderCancellationService,
+    @Inject(ConnectAccountsService)
+    private readonly connect: ConnectAccountsService,
   ) {}
 
-  async createCheckoutSession(order: Order): Promise<CheckoutSessionResult> {
-    const env = getEnv();
-    if (!env.STRIPE_SECRET_KEY) {
-      throw new ServiceUnavailableException('Stripe checkout is not configured');
-    }
-    if (!env.STRIPE_CHECKOUT_SUCCESS_URL || !env.STRIPE_CHECKOUT_CANCEL_URL) {
-      throw new ServiceUnavailableException('Stripe checkout return URLs are not configured');
-    }
+  async reverseCancellation(
+    claim: CancellationClaim,
+  ): Promise<StripeCancellationResult> {
+    if (!claim.paymentIntentId)
+      return { settlement: { outcome: CANCELLATION.outcome.notCharged } };
+    if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
+      throw new ServiceUnavailableException(
+        STRIPE_COMMERCE.configuration.paymentsUnavailable,
+      );
+    return reverseStripeCancellation(this.stripe, claim);
+  }
 
-    const session = await this.stripe.checkout.sessions.create(
-      {
-        mode: 'payment',
-        success_url: env.STRIPE_CHECKOUT_SUCCESS_URL,
-        cancel_url: env.STRIPE_CHECKOUT_CANCEL_URL,
-        client_reference_id: order.id,
-        metadata: {
-          order_id: order.id
-        },
-        payment_intent_data: {
-          metadata: {
-            order_id: order.id
-          }
-        },
-        line_items: this.buildLineItems(order)
-      },
-      {
-        idempotencyKey: `checkout:${order.id}`
-      }
+  async refundReturn(claim: ReturnRefundClaim) {
+    if (!this.stripe || !getEnv().STRIPE_SECRET_KEY) throw new ServiceUnavailableException(STRIPE_COMMERCE.configuration.paymentsUnavailable);
+    return refundStripeReturn(this.stripe, claim);
+  }
+
+  async createPaymentIntent(order: Order): Promise<NativePaymentIntentResult> {
+    if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
+      throw new ServiceUnavailableException(
+        STRIPE_COMMERCE.configuration.paymentsUnavailable,
+      );
+    await this.connect.assertSaleRecipients(
+      order.brandId,
+      order.items.flatMap((item) =>
+        item.sourceCreatorId ? [item.sourceCreatorId] : [],
+      ),
     );
-
-    await this.orders.attachStripeCheckoutSession(order.id, session.id);
-
-    if (!session.url) {
-      throw new ServiceUnavailableException('Stripe did not return a Checkout Session URL');
-    }
-
+    const intent = order.stripePaymentIntentId
+      ? await this.stripe.paymentIntents.retrieve(order.stripePaymentIntentId)
+      : await this.stripe.paymentIntents.create(
+          {
+            amount: order.totalAmount,
+            currency: order.currency.toLowerCase(),
+            payment_method_types: ["card"],
+            metadata: { [STRIPE_ORDER_METADATA.orderId]: order.id },
+            transfer_group: `order:${order.id}`,
+          },
+          { idempotencyKey: `payment-intent:${order.id}` },
+        );
+    if (!intent.client_secret)
+      throw new ServiceUnavailableException(
+        "Stripe did not return a payment client secret",
+      );
+    await this.orders.attachPaymentIntent(order.id, intent.id);
     return {
       orderId: order.id,
-      checkoutSessionId: session.id,
-      url: session.url
+      paymentIntentId: intent.id,
+      clientSecret: intent.client_secret,
     };
   }
 
-  async handleStripeWebhook(payload: Buffer | string | Record<string, unknown>, signature?: string): Promise<{ received: true; duplicate: boolean }> {
-    const event = this.constructWebhookEvent(payload, signature);
-    const inserted = await this.webhookEvents.insertIfNew({
-      stripeEventId: event.id,
-      type: event.type,
-      payload: event as unknown as Record<string, unknown>,
-      processedAt: new Date()
+  async handleStripeWebhook(
+    payload: Buffer | string | Record<string, unknown>,
+    signature?: string,
+  ): Promise<{ received: true; duplicate: boolean }> {
+    const secret = getEnv().STRIPE_WEBHOOK_SECRET;
+    if (!secret || !this.stripe)
+      throw new ServiceUnavailableException(
+        "Stripe webhook verification is not configured",
+      );
+    if (!signature)
+      throw new UnauthorizedException("Missing Stripe webhook signature");
+    if (!Buffer.isBuffer(payload) && typeof payload !== "string")
+      throw new BadRequestException("Stripe requires the raw webhook body");
+    let event: ReturnType<StripeSDK["webhooks"]["constructEvent"]>;
+    try {
+      event = this.stripe.webhooks.constructEvent(payload, signature, secret);
+    } catch {
+      throw new UnauthorizedException("Invalid Stripe webhook signature");
+    }
+    if (event.type === CONNECT.eventUpdated) {
+      await this.connect.accountUpdated(event.data.object.id, event.livemode);
+      return { received: true, duplicate: false };
+    }
+    if (event.type !== STRIPE_COMMERCE.paymentSucceeded)
+      return { received: true, duplicate: false };
+    const intent = event.data.object;
+    const orderId = intent.metadata[STRIPE_ORDER_METADATA.orderId];
+    if (!orderId) return { received: true, duplicate: false };
+    if (
+      !Number.isSafeInteger(intent.amount_received) ||
+      intent.amount_received <= 0
+    )
+      throw new BadRequestException("Invalid paid amount");
+    const result = await this.finalizer.confirm({
+      eventId: event.id,
+      orderId,
+      paymentIntentId: intent.id,
+      amount: intent.amount_received,
+      currency: intent.currency.toUpperCase(),
     });
-
-    if (!inserted) {
-      return { received: true, duplicate: true };
-    }
-
-    await this.applyEvent(event);
-    return { received: true, duplicate: false };
-  }
-
-  private buildLineItems(order: Order): Array<Record<string, unknown>> {
-    const productItems = order.items.map((item) => ({
-      quantity: item.quantity,
-      price_data: {
-        currency: order.currency.toLowerCase(),
-        unit_amount: item.unitPrice,
-        product_data: {
-          name: this.productName(item.productSnapshot),
-          metadata: {
-            product_id: item.productId,
-            product_variant_id: item.productVariantId
-          }
-        }
-      }
-    }));
-
-    if (order.shippingAmount <= 0) {
-      return productItems;
-    }
-
-    return [
-      ...productItems,
-      {
-        quantity: 1,
-        price_data: {
-          currency: order.currency.toLowerCase(),
-          unit_amount: order.shippingAmount,
-          product_data: {
-            name: 'Shipping'
-          }
-        }
-      }
-    ];
-  }
-
-  private productName(snapshot: Record<string, unknown>): string {
-    return typeof snapshot.name === 'string' && snapshot.name.trim().length > 0 ? snapshot.name : 'UFit item';
-  }
-
-  private constructWebhookEvent(payload: Buffer | string | Record<string, unknown>, signature?: string): StripeEventLike {
-    const env = getEnv();
-    if (env.STRIPE_WEBHOOK_SECRET) {
-      if (!signature) {
-        throw new UnauthorizedException('Missing Stripe webhook signature');
-      }
-      if (!Buffer.isBuffer(payload) && typeof payload !== 'string') {
-        throw new BadRequestException('Stripe webhook signature verification requires the raw request body');
-      }
-
-      try {
-        return this.stripe.webhooks.constructEvent(payload, signature, env.STRIPE_WEBHOOK_SECRET);
-      } catch {
-        throw new UnauthorizedException('Invalid Stripe webhook signature');
-      }
-    }
-
-    const rawEvent = Buffer.isBuffer(payload) || typeof payload === 'string' ? JSON.parse(payload.toString()) : payload;
-    return rawEvent as StripeEventLike;
-  }
-
-  private async applyEvent(event: StripeEventLike): Promise<void> {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const metadata = this.readMetadata(session);
-      const orderId = metadata.order_id;
-      if (orderId) {
-        await this.confirmStripePayment(
-          orderId,
-          this.stringifyId(session.payment_intent),
-          this.readAmount(session, 'amount_total'),
-          this.readCurrency(session)
-        );
-      }
-    }
-
-    if (event.type === 'payment_intent.succeeded') {
-      const intent = event.data.object;
-      const metadata = this.readMetadata(intent);
-      const orderId = metadata.order_id;
-      if (orderId && typeof intent.id === 'string') {
-        await this.confirmStripePayment(orderId, intent.id, this.readAmount(intent, 'amount_received') ?? this.readAmount(intent, 'amount'), this.readCurrency(intent));
-      }
-    }
-  }
-
-  private async confirmStripePayment(orderId: string, paymentIntentId: string | undefined, amount: number | undefined, currency: string | undefined): Promise<void> {
-    if (paymentIntentId && amount !== undefined && currency) {
-      await this.orders.confirmStripePaymentSucceededFromWebhook?.({
-        orderId,
-        provider: 'stripe',
-        providerPaymentIntentId: paymentIntentId,
-        amount,
-        currency
-      });
-      return;
-    }
-
-    await this.orders.markStripePaymentSucceeded(orderId, paymentIntentId);
-  }
-
-  private readMetadata(object: Record<string, unknown>): Record<string, string> {
-    return object.metadata && typeof object.metadata === 'object' ? (object.metadata as Record<string, string>) : {};
-  }
-
-  private stringifyId(value: unknown): string | undefined {
-    if (!value) {
-      return undefined;
-    }
-
-    if (typeof value === 'string') {
-      return value;
-    }
-
-    if (typeof value === 'object' && 'id' in value && typeof value.id === 'string') {
-      return value.id;
-    }
-
-    return undefined;
-  }
-
-  private readAmount(object: Record<string, unknown>, key: string): number | undefined {
-    return typeof object[key] === 'number' ? object[key] : undefined;
-  }
-
-  private readCurrency(object: Record<string, unknown>): string | undefined {
-    return typeof object.currency === 'string' ? object.currency.toUpperCase() : undefined;
+    if (result.reversalRequired) await this.cancellations.recoverOrder(orderId);
+    return { received: true, duplicate: result.duplicate };
   }
 }

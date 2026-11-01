@@ -37,12 +37,7 @@ export interface CommissionRepository {
 export class CommissionsService {
   constructor(@Inject('CommissionRepository') private readonly commissions: CommissionRepository) {}
 
-  calculateRate(rule: CommissionRuleInput): number {
-    const baseRate = this.assertRate(rule.baseRate, 'baseRate');
-    const bonusRate = this.assertRate(rule.bonusRate ?? 0, 'bonusRate');
-    const maxRate = rule.maxRate === undefined ? undefined : this.assertRate(rule.maxRate, 'maxRate');
-    return Math.min(baseRate + bonusRate, maxRate ?? baseRate + bonusRate);
-  }
+  calculateRate(rule: CommissionRuleInput): number { return calculateCommissionRate(rule); }
 
   async createEstimated(input: CommissionInput): Promise<Commission> {
     return this.create(input, 'estimated');
@@ -73,10 +68,12 @@ export class CommissionsService {
     return this.commissions.save(commission);
   }
 
-  private assertRate(rate: number, field: string): number {
-    if (!Number.isFinite(rate) || rate < 0 || rate > 1) {
-      throw new BadRequestException(`${field} must be a decimal rate between 0 and 1`);
-    }
-    return rate;
+ }
+
+export function calculateCommissionRate(rule: CommissionRuleInput): number {
+  for (const [field,rate] of Object.entries(rule)) {
+    if (rate !== undefined && (!Number.isFinite(rate) || rate < 0 || rate > 1)) throw new BadRequestException(`${field} must be a decimal rate between 0 and 1`);
   }
+  const sum = rule.baseRate + (rule.bonusRate ?? 0);
+  return Math.round(Math.min(sum, rule.maxRate ?? Math.min(sum, 1)) * 10000) / 10000;
 }

@@ -1,3 +1,4 @@
+import {MediaModule} from '../media/media.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { AdminAuditModule } from '../admin-audit/admin-audit.module';
@@ -9,7 +10,7 @@ import { DrizzleOutfitRepository } from './infrastructure/drizzle-outfit.reposit
 import { OutfitsController } from './presentation/outfits.controller';
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, ProductsModule, AdminAuditModule],
+  imports: [DatabaseModule, IdentityModule, ProductsModule, AdminAuditModule, MediaModule],
   controllers: [OutfitsController],
   providers: [
     OutfitsService,

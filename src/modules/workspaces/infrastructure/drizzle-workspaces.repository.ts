@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, desc, eq, inArray, sql, sum } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, sql, sum } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
   brandMembers,
@@ -13,6 +13,7 @@ import {
   productVariants,
   products
 } from '../../../shared/infrastructure/database/schema';
+import { WORKSPACE_MEMBERSHIP } from '../application/workspaces.service';
 import type {
   BrandWorkspaceMetrics,
   BrandWorkspaceOrder,
@@ -28,12 +29,54 @@ import type {
   WorkspacesRepository
 } from '../application/workspaces.service';
 
+const MEMBERSHIP_ACTIVE = "active";
 const paidOrderStatuses = ['paid', 'preparing', 'shipped', 'delivered'] as const;
 
 @Injectable()
 export class DrizzleWorkspacesRepository implements WorkspacesRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
 
+  async listBrandsForUser(
+    userId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: BrandWorkspaceProfile[]; nextCursor: string | null }> {
+    const rows = await this.database.db
+      .select({
+        id: brandProfiles.id,
+        brandName: brandProfiles.brandName,
+        slug: brandProfiles.slug,
+        status: brandProfiles.status,
+        memberRole: brandMembers.role,
+      })
+      .from(brandMembers)
+      .innerJoin(
+        brandProfiles,
+        eq(brandProfiles.id, brandMembers.brandProfileId),
+      )
+      .where(
+        and(
+          eq(brandMembers.userId, userId),
+          eq(brandMembers.status, MEMBERSHIP_ACTIVE),
+          cursor ? gt(brandProfiles.id, cursor) : undefined,
+        ),
+      )
+      .orderBy(brandProfiles.id)
+      .limit(limit + WORKSPACE_MEMBERSHIP.overflow);
+    const items = rows
+      .slice(undefined, limit)
+      .map((row) => ({
+        ...row,
+        memberRole: row.memberRole as BrandWorkspaceProfile["memberRole"],
+      }));
+    return {
+      items,
+      nextCursor:
+        rows.length > limit
+          ? items.at(WORKSPACE_MEMBERSHIP.lastIndex)!.id
+          : null,
+    };
+  }
   async findCreatorProfileByUserId(userId: string): Promise<CreatorWorkspaceProfile | null> {
     const [row] = await this.database.db
       .select({

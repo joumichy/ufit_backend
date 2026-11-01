@@ -1,36 +1,30 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {PUBLIC_CREATOR} from '../../creators/public-creator.contract';
 
 export interface SavedRepository {
   saveOutfit(userId: string, outfitId: string): Promise<void>;
   unsaveOutfit(userId: string, outfitId: string): Promise<void>;
   followCreator(userId: string, creatorId: string): Promise<void>;
   unfollowCreator(userId: string, creatorId: string): Promise<void>;
+  findCreatorFollow(userId: string, creatorId: string): Promise<boolean | null>;
   findSavedOutfits(userId: string, input: { limit: number }): Promise<SavedOutfit[]>;
 }
 
 export interface SavedOutfit {
   id: string;
-  title: string;
-  coverImageUrl: string;
-  totalPriceMin: number;
-  totalPriceMax: number;
-  publishedAt: Date | null;
   savedAt: Date;
 }
-
-export interface SavedOutfitResponse {
-  id: string;
-  title: string;
-  coverImageUrl: string;
-  totalPriceMin: number;
-  totalPriceMax: number;
-  publishedAt: string | null;
-  savedAt: string;
-}
+export interface SavedOutfitResponse { id: string; savedAt: string }
 
 @Injectable()
 export class SavedService {
   constructor(@Inject('SavedRepository') private readonly saved: SavedRepository) {}
+
+  async getCreatorFollow(userId: string, creatorId: string): Promise<{following: boolean}> {
+    const following = await this.saved.findCreatorFollow(userId, creatorId);
+    if (following === null) throw new NotFoundException(PUBLIC_CREATOR.missing);
+    return {following};
+  }
 
   async saveOutfit(userId: string, outfitId: string): Promise<{ saved: true }> {
     await this.saved.saveOutfit(userId, outfitId);
@@ -57,15 +51,7 @@ export class SavedService {
     const items = await this.saved.findSavedOutfits(userId, { limit });
 
     return {
-      items: items.map((item) => ({
-        id: item.id,
-        title: item.title,
-        coverImageUrl: item.coverImageUrl,
-        totalPriceMin: item.totalPriceMin,
-        totalPriceMax: item.totalPriceMax,
-        publishedAt: item.publishedAt?.toISOString() ?? null,
-        savedAt: item.savedAt.toISOString()
-      }))
+      items: items.map(item => ({ id: item.id, savedAt: item.savedAt.toISOString() }))
     };
   }
 }

@@ -43,6 +43,8 @@ function application(): BrandApplicationRow {
     websiteUrl: 'https://example.com',
     productCategory: 'Outerwear',
     positioning: 'Responsible outerwear for editorial outfits.',
+    dossier: null,
+    version: 1,
     status: 'accepted',
     submittedAt: now,
     updatedAt: now
@@ -51,6 +53,13 @@ function application(): BrandApplicationRow {
 
 function buildService(repositoryOverrides: Partial<BrandsRepository> = {}) {
   const repository: BrandsRepository = {
+    transaction: async () => {throw new Error('Commerce transactions are outside this profile fixture');},
+    snapshot: async () => {throw new Error('Commerce snapshots are outside this profile fixture');},
+    findManagementAccess: async () => {throw new Error('Commerce access is outside this profile fixture');},
+    lockManagementAccess: async () => {throw new Error('Commerce access is outside this profile fixture');},
+    findPublicProfileById: async () => undefined,
+    findSettings: vi.fn().mockResolvedValue(undefined),
+    saveCommercePolicy: async () => {throw new Error('Commerce policy is outside this profile fixture');},
     findProfileByApplicationId: vi.fn().mockResolvedValue(undefined),
     findProfileById: vi.fn().mockResolvedValue(brandProfile()),
     createProfile: vi.fn().mockResolvedValue(brandProfile()),
@@ -103,7 +112,7 @@ describe('BrandsService', () => {
         bio: 'Updated'
       })
     ).resolves.toMatchObject({ bio: 'Updated' });
-    expect(repository.updateProfile).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444', { bio: 'Updated' });
+    expect(repository.updateProfile).toHaveBeenCalledWith('44444444-4444-4444-4444-444444444444', { bio: 'Updated' }, '22222222-2222-2222-2222-222222222222');
   });
 
   it('returns not found before checking membership when the brand profile is missing', async () => {

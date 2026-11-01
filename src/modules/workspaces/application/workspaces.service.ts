@@ -1,4 +1,5 @@
-import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { z } from 'zod';
+import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
 export const WORKSPACES_REPOSITORY = Symbol('WORKSPACES_REPOSITORY');
 
@@ -128,7 +129,40 @@ export interface BrandWorkspaceOutfitIntegration {
   updatedAt: string | null;
 }
 
+export const WORKSPACE_MEMBERSHIP = {
+  defaultLimit: 20,
+  maximumLimit: 50,
+  minimumLimit: 1,
+  overflow: 1,
+  lastIndex: -1,
+  invalid: "Invalid workspace membership page",
+} as const;
+const membershipPage = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(WORKSPACE_MEMBERSHIP.minimumLimit)
+      .max(WORKSPACE_MEMBERSHIP.maximumLimit)
+      .default(WORKSPACE_MEMBERSHIP.defaultLimit),
+    cursor: z.uuid().optional(),
+  })
+  .strict();
+export interface WorkspaceMemberships {
+  nextCursor: string | null;
+  creator: Pick<
+    CreatorWorkspaceProfile,
+    "id" | "displayName" | "status"
+  > | null;
+  brands: BrandWorkspaceProfile[];
+}
 export interface WorkspacesRepository {
+  listBrandsForUser(
+    userId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ items: BrandWorkspaceProfile[]; nextCursor: string | null }>;
+
   findCreatorProfileByUserId(userId: string): Promise<CreatorWorkspaceProfile | null>;
   getCreatorMetrics(creatorId: string): Promise<CreatorWorkspaceMetrics>;
   listCreatorOutfits(creatorId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<CreatorWorkspaceOutfit>>;
@@ -148,6 +182,33 @@ export interface WorkspacesRepository {
 export class WorkspacesService {
   constructor(@Inject(WORKSPACES_REPOSITORY) private readonly workspaces: WorkspacesRepository) {}
 
+  async listForUser(
+    userId: string,
+    raw: unknown = {},
+  ): Promise<WorkspaceMemberships> {
+    const parsed = membershipPage.safeParse(raw);
+    if (!parsed.success)
+      throw new BadRequestException(WORKSPACE_MEMBERSHIP.invalid);
+    const [creator, brands] = await Promise.all([
+      this.workspaces.findCreatorProfileByUserId(userId),
+      this.workspaces.listBrandsForUser(
+        userId,
+        parsed.data.limit,
+        parsed.data.cursor,
+      ),
+    ]);
+    return {
+      creator: creator
+        ? {
+            id: creator.id,
+            displayName: creator.displayName,
+            status: creator.status,
+          }
+        : null,
+      brands: brands.items,
+      nextCursor: brands.nextCursor,
+    };
+  }
   async getCreatorDashboard(userId: string) {
     const profile = await this.requireActiveCreator(userId);
     return {
