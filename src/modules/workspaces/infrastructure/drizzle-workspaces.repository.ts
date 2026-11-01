@@ -96,11 +96,10 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
         status: creatorProfiles.status,
         gradeCode: creatorProfiles.gradeCode,
         gradeLabel: creatorGrades.label,
-        gradeRank: creatorGrades.rank,
-        gradeCommissionBps: creatorGrades.commissionBps
+        gradeRank: creatorGrades.rank
       })
       .from(creatorProfiles)
-      .leftJoin(creatorGrades, eq(creatorGrades.code, creatorProfiles.gradeCode))
+      .innerJoin(creatorGrades, eq(creatorGrades.code, creatorProfiles.gradeCode))
       .where(eq(creatorProfiles.userId, userId))
       .limit(1);
 
@@ -113,9 +112,8 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
           status: row.status,
           grade: {
             code: row.gradeCode,
-            label: row.gradeLabel ?? row.gradeCode,
-            rank: row.gradeRank ?? 0,
-            commissionBps: row.gradeCommissionBps ?? 0
+            label: row.gradeLabel,
+            rank: row.gradeRank
           }
         }
       : null;

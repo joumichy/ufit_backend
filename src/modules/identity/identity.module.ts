@@ -10,11 +10,17 @@ import { AuthGuard } from '../../shared/presentation/guards/auth.guard';
 import { OwnershipGuard } from '../../shared/presentation/guards/ownership.guard';
 import { RoleGuard } from '../../shared/presentation/guards/role.guard';
 
+import {UserAdministrationController} from './presentation/controllers/user-administration.controller';
+import {UserAdministrationService} from './application/user-administration.service';
+import {DrizzleUserAdministrationRepository} from './infrastructure/persistence/drizzle-user-administration.repository';
+import {USER_ADMINISTRATION} from './domain/user-administration.contract';
+
 @Module({
   imports: [DatabaseModule],
-  controllers: [MeController],
+  controllers: [MeController, UserAdministrationController],
   providers: [
-    IdentityService,
+    IdentityService, UserAdministrationService,
+    {provide: USER_ADMINISTRATION.token.repository, useClass: DrizzleUserAdministrationRepository},
     AuthGuard,
     RoleGuard,
     AdminGuard,

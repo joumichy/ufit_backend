@@ -1,3 +1,6 @@
+import {users, userRoles} from './schema.identity';
+export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from './schema.identity';
+import {CREATOR_GRADE} from '../../../modules/creators/grades/creator-grade.contract';
 import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
 import {BRAND_COMMERCE, COMMERCE_POLICY_KEY} from '../../../modules/brands/commerce-policy';
@@ -17,59 +20,11 @@ import {orders,orderItems} from './schema.orders';
 export {orders,orderItems,orderStatusHistory,orderCancellations} from './schema.orders';
 export {orderReturns,orderReturnItems,orderReturnRefunds,returnCommissionAdjustments} from './schema.returns';
 
-export const userStatusEnum = ufitSchema.enum('user_status', ['active', 'onboarding', 'suspended', 'deleted']);
-
-export const userRoleEnum = ufitSchema.enum('user_role', [
-  'customer',
-  'creator',
-  'brand_owner',
-  'brand_manager',
-  'admin',
-  'super_admin'
-]);
-
 export const schemaMigrations = ufitSchema.table('schema_migrations', {
   id: text('id').primaryKey(),
   checksum: text('checksum').notNull(),
   executedAt: timestamp('executed_at', { withTimezone: true }).notNull().defaultNow()
 });
-
-export const users = ufitSchema.table(
-  'users',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    supabaseUserId: uuid('supabase_user_id').notNull(),
-    email: text('email').notNull(),
-    displayName: text('display_name'),
-    avatarUrl: text('avatar_url'),
-    status: userStatusEnum('status').notNull().default('active'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-  },
-  (table) => ({
-    supabaseUserIdUnique: uniqueIndex('users_supabase_user_id_unique').on(table.supabaseUserId),
-    emailIndex: index('users_email_idx').on(table.email),
-    statusIndex: index('users_status_idx').on(table.status)
-  })
-);
-
-export const userRoles = ufitSchema.table(
-  'user_roles',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    role: userRoleEnum('role').notNull(),
-    grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow()
-  },
-  (table) => ({
-    userRoleUnique: uniqueIndex('user_roles_user_id_role_unique').on(table.userId, table.role),
-    userIdIndex: index('user_roles_user_id_idx').on(table.userId),
-    roleIndex: index('user_roles_role_idx').on(table.role)
-  })
-);
-
 
 export const applicationStatusEnum = ufitSchema.enum('application_status', [
   'submitted',
@@ -171,7 +126,10 @@ export const creatorGrades = ufitSchema.table('creator_grades', {
   code: text('code').primaryKey(),
   label: text('label').notNull(),
   rank: integer('rank').notNull(),
-  commissionBps: integer('commission_bps').notNull(),
+  commissionBps: integer('commission_bps'),
+  assignable: boolean('assignable').notNull().default(true),
+  version: integer('version').notNull().default(CREATOR_GRADE.limits.initialVersion),
+  updatedAt: timestamp('updated_at', {withTimezone: true}),
   criteria: jsonb('criteria').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 });
@@ -191,9 +149,10 @@ export const creatorProfiles = ufitSchema.table(
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
     status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
+    gradeVersion: integer('grade_version').notNull().default(CREATOR_GRADE.limits.initialVersion),
     gradeCode: text('grade_code')
       .notNull()
-      .default('seed')
+      .default(CREATOR_GRADE.initialCode)
       .references(() => creatorGrades.code),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -232,7 +191,11 @@ export const creatorGradeHistory = ufitSchema.table(
     creatorProfileId: uuid('creator_profile_id')
       .notNull()
       .references(() => creatorProfiles.id),
-    fromGradeCode: text('from_grade_code'),
+    version: integer('version'),
+    source: text('source', {enum: [CREATOR_GRADE.changeSource.application, CREATOR_GRADE.changeSource.administration]}),
+    fromGradeLabel: text('from_grade_label'),
+    toGradeLabel: text('to_grade_label'),
+    fromGradeCode: text('from_grade_code').references(() => creatorGrades.code),
     toGradeCode: text('to_grade_code')
       .notNull()
       .references(() => creatorGrades.code),
@@ -864,3 +827,5 @@ export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
   hashCheck: check('outfit_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + OUTFIT_MEDIA.hash.pattern + "'")}`),
   statusCheck: check('outfit_media_status_valid', sql`${table.status} in (${sql.raw("'" + OUTFIT_MEDIA.status.pending + "', '" + OUTFIT_MEDIA.status.ready + "'")})`),
 }));
+
+export {creatorGradeRevisions} from './schema.creator-grades';

@@ -33,7 +33,6 @@ export interface CreatorWorkspaceProfile {
     code: string;
     label: string;
     rank: number;
-    commissionBps: number;
   };
 }
 

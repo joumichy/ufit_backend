@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { CreatorsService } from '../../src/modules/creators/creators.service';
+import {CREATOR_GRADE} from '../../src/modules/creators/grades/creator-grade.contract';
 import type { CreatorsRepository } from '../../src/modules/creators/creators.repository';
 import type { CreatorApplicationRow, CreatorProfileRow } from '../../src/shared/infrastructure/database/schema';
 
@@ -16,7 +17,8 @@ function profile(overrides: Partial<CreatorProfileRow> = {}): CreatorProfileRow 
     bio: null,
     avatarUrl: null,
     status: 'active',
-    gradeCode: 'seed',
+    gradeCode: CREATOR_GRADE.initialCode,
+    gradeVersion: CREATOR_GRADE.limits.initialVersion,
     createdAt: now,
     updatedAt: now,
     ...overrides

@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import {CreatorGradesService} from '../src/modules/creators/grades/creator-grades.service';
+import {DrizzleCreatorGradesRepository} from '../src/modules/creators/grades/drizzle-creator-grades.repository';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -23,7 +25,7 @@ const proof = {
   migrationFlag: '--with-migration', migration: '../src/shared/infrastructure/database/migrations/0021_commission_rule_revisions.sql',
   reason: 'Qualification des règles en transaction annulée.', gradePrefix: 'qual-rule-', label: 'Qualification',
   rates: {brand: 1000, grade: 1500, product: 2000, productGrade: 2500, bonus: 500, cap: 2700, revised: 3000, zero: 0},
-  tables: ['commission_rules', 'creator_profiles', 'creator_grades', 'orders', 'order_items', 'commissions', 'payments', 'users', 'user_roles', 'schema_migrations'],
+  tables: ['commission_rules', 'creator_profiles', 'creator_grades', 'creator_grade_revisions', 'creator_grade_history', 'orders', 'order_items', 'commissions', 'payments', 'users', 'user_roles', 'schema_migrations'],
   active: 'active', admin: 'admin', suspended: 'suspended', customer: 'customer',
   status: {bad: 400, denied: 403, conflict: 409}, sql: {check: '23514', unique: '23505'},
   zero: 0, one: 1, two: 2, page: 1, request: 'qualification-rule-snapshot',
@@ -129,8 +131,9 @@ async function verify() {
       await sqlRejected(nested => nested.insert(orderItems).values({orderId: purchase.id, productId: item.productId, productVariantId: item.productVariantId, productSnapshot: item.productSnapshot,
         quantity: proof.one, unitPrice: proof.one, totalPrice: proof.one, sourceCreatorId: creator.id, sourceOutfitId: item.sourceOutfitId}), proof.sql.check); completedScenarios++;
       const gradeCode = proof.gradePrefix + randomUUID();
-      await tx.insert(creatorGrades).values({code: gradeCode, label: proof.label, rank: proof.two, commissionBps: proof.zero});
-      await tx.update(creatorProfiles).set({gradeCode}).where(eq(creatorProfiles.id, creator.id));
+      const grades = new CreatorGradesService(new DrizzleCreatorGradesRepository({db: tx}));
+      await grades.create(admin.id, {code: gradeCode, label: proof.label, rank: proof.two, assignable: true, reason: proof.reason});
+      await grades.change(admin.id, creator.id, {gradeCode, expectedVersion: creator.gradeVersion, reason: proof.reason});
       assert.equal((await resolver.resolve(resolveInput)).id, product.id);
       assert.equal((await orderRepository.findById(purchase.id))!.items[proof.zero].commissionCreatorGradeCode, creator.gradeCode); completedScenarios++;
       const gradeOptions = await service.options(admin.id, 'grades', {limit: proof.page});

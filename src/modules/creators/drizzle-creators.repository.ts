@@ -1,5 +1,6 @@
 import { READ_SNAPSHOT, type DatabaseSession } from "../../shared/infrastructure/database/database-session";
-import { Inject, Injectable } from '@nestjs/common';
+import {CREATOR_GRADE} from './grades/creator-grade.contract';
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { and, eq, ne, notInArray, inArray, isNull, sql } from 'drizzle-orm';
 import {PUBLIC_PROFILE} from '../../shared/domain/public-profile.contract';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES} from '../outfits/domain/public-outfit.contract';
@@ -96,8 +97,14 @@ export class DrizzleCreatorsRepository implements CreatorsRepository {
   }
 
   async addInitialGradeHistory(profileId: string): Promise<void> {
-    await this.database.db
-      .insert(creatorGradeHistory)
-      .values({ creatorProfileId: profileId, toGradeCode: 'seed', reason: 'application_accepted' });
+    const [current] = await this.database.db.select({profile: creatorProfiles, label: creatorGrades.label})
+      .from(creatorProfiles).innerJoin(creatorGrades, eq(creatorGrades.code, creatorProfiles.gradeCode))
+      .where(eq(creatorProfiles.id, profileId));
+    if (!current || current.profile.gradeVersion !== CREATOR_GRADE.limits.initialVersion ||
+        current.profile.gradeCode !== CREATOR_GRADE.initialCode) throw new InternalServerErrorException(CREATOR_GRADE.failure.persisted);
+    await this.database.db.insert(creatorGradeHistory).values({creatorProfileId: profileId,
+      toGradeCode: current.profile.gradeCode, toGradeLabel: current.label,
+      version: current.profile.gradeVersion, source: CREATOR_GRADE.changeSource.application,
+      reason: CREATOR_GRADE.initialReason});
   }
 }

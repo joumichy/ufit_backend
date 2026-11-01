@@ -26,8 +26,7 @@ const creatorProfile: CreatorWorkspaceProfile = {
   grade: {
     code: 'seed',
     label: 'Seed',
-    rank: 1,
-    commissionBps: 800
+    rank: 1
   }
 };
 

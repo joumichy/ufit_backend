@@ -1,3 +1,4 @@
+import {CREATOR_GRADE} from './grades/creator-grade.contract';
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PROFILE_EDITING, PROFILE_STATUS } from '../../shared/domain/profile-editing.contract';
 import type { CreatorProfileDetails } from './creators.repository';
@@ -41,7 +42,7 @@ export class CreatorsService {
       displayName: application.displayName,
       slug: `${slugify(application.displayName)}-${application.id.slice(0, 8)}`,
       status: PROFILE_STATUS.active,
-      gradeCode: 'seed'
+      gradeCode: CREATOR_GRADE.initialCode
     });
     await this.creatorsRepository.addInitialGradeHistory(profile.id);
   }
