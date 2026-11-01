@@ -83,3 +83,41 @@ Les liens de lecture expirent après60 secondes et se renouvellent à la relectu
 du catalogue. `GET /media/assets/:id/image` autorise le téléchargement public si
 le produit et la marque sont actifs, ou si une commande ayant atteint `paid`
 conserve cette image dans son snapshot. Le bucket demeure privé.
+
+
+## Gestion des tenues
+
+Les écritures exigent un créateur propriétaire ou une adhésion active à la marque
+propriétaire. Un rôle administrateur autorise la lecture et la modération, sans
+accorder l’édition du contenu privé d’un autre auteur. Le serveur identifie l’acteur.
+
+- `GET /outfits/metadata` : catégories de pièces, statuts et registre de tags.
+- `GET /outfits/managed?creatorId=<uuid>` ou `?brandId=<uuid>` : pages privées ;
+  les administrateurs peuvent omettre l’auteur. Filtres `status`, `limit`, `cursor`.
+- `GET /outfits/:id/private` : contenu géré avec version, propriétaire, pièces,
+  images identifiées, tags et éventuel motif de refus.
+- `POST /outfits` : `requestId`, exactement un `creatorId` ou `brandId`, `title`,
+  `description`, `genderTarget` facultatif, `tagIds`, `items`, `images`. La photo de
+  couverture vient de la première image selon `position` ; aucun champ parallèle
+  `coverImageUrl` dans la requête. La même clé et le même contenu retrouvent la même
+  tenue ; un contenu différent avec cette clé reçoit un conflit.
+- `GET /outfits/creation-requests/:requestId?creatorId=<uuid>` ou `?brandId=<uuid>` :
+  récupération d’une création dont la réponse a été perdue.
+- `PUT /outfits/:id` : contenu complet et `expectedVersion`, avec les identifiants
+  des pièces/images retenues. L’enregistrement remet en brouillon privé et retire
+  les informations de décision précédentes.
+- `PATCH /outfits/:id/submit`, `/archive`, `/restore` : `expectedVersion` obligatoire.
+- `PATCH /outfits/:id/review` : administrateur, `expectedVersion`, décision
+  `published` ou `rejected` et motif obligatoire en cas de refus.
+
+La création et les mutations de l’agrégat sont transactionnelles. Un profil actif,
+une description, au moins une photo et une pièce cohérente sont requis avant
+soumission/publication. Une pièce est soit un produit actif d’une marque active,
+soit une inspiration portant un libellé sans `productId`. Les prix sont calculés
+par le serveur et présentés par devise. Les mutations rejettent les versions
+périmées et les identifiants de pièces/images appartenant à une autre tenue.
+La migration additive `0014` ajoute les versions, clés de création, contraintes
+et un premier registre de tags ; elle ne change aucune tenue existante.
+
+Les endpoints publics `GET /outfits` et `GET /outfits/:id` restent distincts des
+lectures privées et conservent leur projection publique.

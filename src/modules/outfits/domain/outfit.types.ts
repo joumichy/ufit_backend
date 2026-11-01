@@ -1,9 +1,14 @@
-export type OutfitStatus = 'draft' | 'submitted' | 'under_review' | 'published' | 'rejected' | 'archived';
-export type OutfitVisibility = 'public' | 'private' | 'featured';
-export type OutfitItemType = 'top' | 'bottom' | 'shoes' | 'bag' | 'accessory' | 'outerwear';
+import type {AuthenticatedUser} from '../../identity/domain/user.types';
+import type {PROFILE_STATUSES} from '../../../shared/domain/profile-editing.contract';
+import type {OUTFIT_STATUSES, OUTFIT_TAG_TYPES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES} from './outfit-editing.contract';
+import type {GenderTarget} from '../../../shared/domain/gender-target';
+export type OutfitStatus = (typeof OUTFIT_STATUSES)[number];
+export type OutfitVisibility = (typeof OUTFIT_VISIBILITIES)[number];
+export type OutfitItemType = (typeof OUTFIT_ITEM_TYPES)[number];
 
 export interface Outfit {
   id: string;
+  version: number;
   creatorId: string | null;
   brandId: string | null;
   title: string;
@@ -11,15 +16,15 @@ export interface Outfit {
   coverImageUrl: string;
   status: OutfitStatus;
   visibility: OutfitVisibility;
-  genderTarget: 'male' | 'female' | 'unisex' | null;
+  genderTarget: GenderTarget | null;
   totalPriceMin: number;
   totalPriceMax: number;
   publishedAt: Date | null;
-  reviewedBy?: string | null;
-  reviewedAt?: Date | null;
-  rejectionReason?: string | null;
-  createdAt?: Date;
-  updatedAt?: Date;
+  reviewedBy: string | null;
+  reviewedAt: Date | null;
+  rejectionReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface OutfitItem {
@@ -50,13 +55,39 @@ export interface OutfitAuthor {
 
 export interface OutfitDetail {
   author: OutfitAuthor | null;
+  owner: OutfitOwnerInfo | null;
+  tags: OutfitTag[];
   outfit: Outfit;
   items: OutfitItem[];
   images: OutfitImage[];
 }
 
+export type OutfitActor = Pick<AuthenticatedUser, 'id' | 'roles'>;
+export interface OutfitOwner {creatorId: string | null; brandId: string | null;}
+export interface OutfitOwnerInfo {id: string; kind: OutfitAuthor['kind']; name: string; status: (typeof PROFILE_STATUSES)[number];}
+export interface OutfitTag {id: string; type: (typeof OUTFIT_TAG_TYPES)[number]; slug: string; label: string;}
+export interface OutfitManagedPage {items: OutfitDetail[]; nextCursor: string | null;}
+export interface OutfitManagedQuery {creatorId?: string; brandId?: string; status?: OutfitStatus; cursor?: string; limit: number;}
+export interface OutfitContentUpdate {
+  fields: Pick<Outfit, 'title' | 'description' | 'coverImageUrl' | 'genderTarget'>;
+  items: Array<Omit<OutfitItem, 'id' | 'outfitId'> & {id?: string}>;
+  images: Array<Omit<OutfitImage, 'id' | 'outfitId'> & {id?: string}>;
+  tagIds: string[];
+}
 export interface OutfitRepository {
-  createOutfit(input: Omit<Outfit, 'id' | 'status' | 'visibility' | 'totalPriceMin' | 'totalPriceMax' | 'publishedAt' | 'createdAt' | 'updatedAt'>): Promise<Outfit>;
+  transaction<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T>;
+  readSnapshot<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T>;
+  findEditableOwner(owner: OutfitOwner, userId: string): Promise<OutfitOwnerInfo | undefined>;
+  lockEditableOwner(owner: OutfitOwner, userId: string): Promise<OutfitOwnerInfo | undefined>;
+  lockOwner(owner: OutfitOwner): Promise<void>;
+  lockOutfit(id: string): Promise<Outfit | undefined>;
+  findByCreationRequest(owner: OutfitOwner, requestId: string): Promise<{detail: OutfitDetail; fingerprint: string | null} | null>;
+  listManaged(query: OutfitManagedQuery): Promise<OutfitManagedPage>;
+  listTags(): Promise<OutfitTag[]>;
+  findSelectableProductIds(ids: string[]): Promise<string[]>;
+  replaceContent(id: string, input: OutfitContentUpdate): Promise<void>;
+  replaceTags(id: string, tagIds: string[]): Promise<void>;
+  createOutfit(input: Omit<Outfit, 'id' | 'version' | 'status' | 'visibility' | 'totalPriceMin' | 'totalPriceMax' | 'publishedAt' | 'createdAt' | 'updatedAt'> & {creationRequestId: string; creationFingerprint: string}): Promise<Outfit>;
   addItems(outfitId: string, items: Array<Omit<OutfitItem, 'id' | 'outfitId'>>): Promise<OutfitItem[]>;
   addImages(outfitId: string, images: Array<Omit<OutfitImage, 'id' | 'outfitId'>>): Promise<OutfitImage[]>;
   findById(outfitId: string): Promise<OutfitDetail | null>;

@@ -1,12 +1,20 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {createHash} from 'node:crypto';
+import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_STATUSES, OUTFIT_VISIBILITY, OUTFIT_ADMIN_ROLES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../domain/outfit-editing.contract';
+import {PROFILE_STATUS} from '../../../shared/domain/profile-editing.contract';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PRODUCT_REPOSITORY, type ProductDetail, type ProductRepository } from '../../products/domain/product.types';
-import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository } from '../domain/outfit.types';
-import { CreateOutfitDto, ReviewOutfitDto } from './dto/outfit.dto';
+import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository, type OutfitActor, type OutfitOwner, type OutfitContentUpdate } from '../domain/outfit.types';
+import { CreateOutfitDto, ReviewOutfitDto, UpdateOutfitDto, OutfitVersionDto, EditOutfitItemDto, EditOutfitImageDto } from './dto/outfit.dto';
 import {z} from 'zod';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES} from '../domain/public-outfit.contract';
 
 const publicPage = z.object({limit: z.coerce.number().int().min(PUBLIC_OUTFIT.limits.minimum).max(PUBLIC_OUTFIT.limits.maximum).default(PUBLIC_OUTFIT.limits.default),
   cursor: z.uuid().optional(), creatorId: z.uuid().optional(), brandId: z.uuid().optional()}).strict().refine(value => !(value.creatorId && value.brandId));
+
+const managedOwner = z.object({creatorId: z.uuid().optional(), brandId: z.uuid().optional()}).strict();
+const managedPage = managedOwner.extend({limit: z.coerce.number().int().min(OUTFIT_EDITING.limits.pageMin).max(OUTFIT_EDITING.limits.pageMax).default(OUTFIT_EDITING.limits.pageDefault),
+  cursor: z.uuid().optional(), status: z.enum(OUTFIT_STATUSES).optional()}).strict()
+  .refine(value => !(value.creatorId && value.brandId));
 
 export interface OutfitPriceDto { currency: string; min: number; max: number }
 
@@ -28,7 +36,7 @@ export interface OutfitDetailDto extends OutfitCardDto {
   images: Array<{ url: string; position: number }>;
   items: Array<{
     id: string;
-    itemType: string;
+    itemType: OutfitItem['itemType'];
     label: string;
     position: number;
     isRequired: boolean;
@@ -45,80 +53,172 @@ export class OutfitsService {
     @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository
   ) {}
 
-  async createOutfit(input: CreateOutfitDto): Promise<OutfitDetail> {
-    if (!input.creatorId && !input.brandId) {
-      throw new BadRequestException('An outfit requires a creatorId or brandId');
-    }
-    if (!input.items.length) {
-      throw new BadRequestException('An outfit requires at least one item');
-    }
-    this.assertItemsAreCoherent(input.items);
-
-    const productDetails = await this.products.findActiveByIds(this.uniqueShoppableProductIds(input.items));
-    this.assertAllShoppableProductsAreActive(input.items, productDetails);
-
-    const outfit = await this.outfits.createOutfit({
-      creatorId: input.creatorId ?? null,
-      brandId: input.brandId ?? null,
-      title: input.title,
-      description: input.description,
-      coverImageUrl: input.coverImageUrl,
-      genderTarget: input.genderTarget ?? null,
-      reviewedBy: null,
-      reviewedAt: null,
-      rejectionReason: null
+  async createOutfit(user: OutfitActor, input: CreateOutfitDto) {
+    const owner = this.owner(input), content = this.content(input), fingerprint = createHash(OUTFIT_EDITING.creation.hash)
+      .update(JSON.stringify(content)).digest(OUTFIT_EDITING.creation.encoding);
+    const detail = await this.outfits.transaction(async repository => {
+      await this.requireOwner(repository, owner, user, true);
+      const existing = await repository.findByCreationRequest(owner, input.requestId);
+      if (existing) {
+        if (existing.fingerprint !== fingerprint) throw new ConflictException(OUTFIT_EDITING.failure.request);
+        return existing.detail;
+      }
+      await this.validateContent(repository, content);
+      const outfit = await repository.createOutfit({...owner, ...content.fields, creationRequestId: input.requestId, creationFingerprint: fingerprint,
+        reviewedBy: null, reviewedAt: null, rejectionReason: null});
+      await repository.addItems(outfit.id, content.items.map(({id: _, ...item}) => item));
+      await repository.addImages(outfit.id, content.images.map(({id: _, ...image}) => image));
+      await repository.replaceTags(outfit.id, content.tagIds);
+      return this.requireOutfit(outfit.id, repository);
     });
-
-    await this.outfits.addItems(
-      outfit.id,
-      input.items.map((item) => ({
-        productId: item.productId ?? null,
-        externalLabel: item.externalLabel ?? null,
-        itemType: item.itemType,
-        position: item.position,
-        isRequired: item.isRequired,
-        isShoppable: item.isShoppable,
-        stylingNote: item.stylingNote ?? null
-      }))
-    );
-
-    if (input.images?.length) {
-      await this.outfits.addImages(outfit.id, input.images);
-    }
-
-    return this.requireOutfit(outfit.id);
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
-
-  async submitOutfit(outfitId: string): Promise<OutfitDetail> {
-    const detail = await this.requireOutfit(outfitId);
-    if (detail.outfit.status !== 'draft' && detail.outfit.status !== 'rejected') {
-      throw new BadRequestException('Only draft or rejected outfits can be submitted');
-    }
-    await this.outfits.updateStatus(outfitId, 'under_review', 'private');
-    return this.requireOutfit(outfitId);
+  async updateOutfit(user: OutfitActor, id: string, input: UpdateOutfitDto) {
+    const content = this.content(input);
+    const detail = await this.mutate(user, id, input, false, async (repository, before) => {
+      if (before.outfit.status === OUTFIT_STATUS.underReview || before.outfit.status === OUTFIT_STATUS.submitted || before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      const itemIds = content.items.flatMap(item => item.id ? [item.id] : []), imageIds = content.images.flatMap(image => image.id ? [image.id] : []);
+      if (new Set(itemIds).size !== itemIds.length || itemIds.some(id => !before.items.some(item => item.id === id))) throw new BadRequestException(OUTFIT_EDITING.failure.items);
+      if (new Set(imageIds).size !== imageIds.length || imageIds.some(id => !before.images.some(image => image.id === id))) throw new BadRequestException(OUTFIT_EDITING.failure.images);
+      await this.validateContent(repository, content);
+      await repository.replaceContent(id, content);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
+  async submitOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
+    const detail = await this.mutate(user, id, input, false, async (repository, before) => {
+      if (before.outfit.status !== OUTFIT_STATUS.draft && before.outfit.status !== OUTFIT_STATUS.rejected) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      this.requireComplete(before);
+      await this.validateContent(repository, {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
+      await repository.updateStatus(id, OUTFIT_STATUS.underReview, OUTFIT_VISIBILITY.private);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async reviewOutfit(user: OutfitActor, id: string, input: ReviewOutfitDto) {
+    this.requireAdmin(user);
+    const reason = input.rejectionReason?.trim();
+    if (input.decision === OUTFIT_STATUS.rejected && !reason) throw new BadRequestException(OUTFIT_EDITING.failure.reason);
+    const detail = await this.mutate(user, id, input, true, async (repository, before) => {
+      if (before.outfit.status !== OUTFIT_STATUS.underReview) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      if (input.decision === OUTFIT_STATUS.published) {
+        this.requireComplete(before);
+        await this.validateContent(repository, {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
+      }
+      await repository.updateStatus(id, input.decision, input.decision === OUTFIT_STATUS.published ? OUTFIT_VISIBILITY.public : OUTFIT_VISIBILITY.private, user.id, reason);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async archiveOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
+    const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
+      if (before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      await repository.updateStatus(id, OUTFIT_STATUS.archived, OUTFIT_VISIBILITY.private);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async restoreOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
+    const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
+      if (before.outfit.status !== OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      await repository.updateStatus(id, OUTFIT_STATUS.draft, OUTFIT_VISIBILITY.private);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async getManagedOutfit(user: OutfitActor, id: string) {
+    const detail = await this.outfits.readSnapshot(async repository => {
+      const value = await this.requireOutfit(id, repository);
+      if (!this.isAdmin(user)) await this.requireOwner(repository, this.owner(value.outfit), user, false);
+      return value;
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async recoverCreation(user: OutfitActor, ownerInput: {creatorId?: string; brandId?: string}, requestId: string) {
+    const parsed = managedOwner.safeParse(ownerInput);
+    if (!parsed.success) throw new BadRequestException(OUTFIT_EDITING.failure.page);
+    const owner = this.owner(parsed.data);
+    const detail = await this.outfits.readSnapshot(async repository => {
+      await this.requireOwner(repository, owner, user, false);
+      const existing = await repository.findByCreationRequest(owner, requestId);
+      if (!existing) throw new NotFoundException(OUTFIT_EDITING.failure.missing);
+      return existing.detail;
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async listManagedOutfits(user: OutfitActor, input: unknown) {
+    const parsed = managedPage.safeParse(input);
+    if (!parsed.success) throw new BadRequestException(OUTFIT_EDITING.failure.page);
+    const page = await this.outfits.readSnapshot(async repository => {
+      if (!this.isAdmin(user)) await this.requireOwner(repository, this.owner(parsed.data), user, false);
+      return repository.listManaged(parsed.data);
+    });
+    return {items: await this.projectManaged(page.items), nextCursor: page.nextCursor};
+  }
+  async getMetadata() { return {tags: await this.outfits.listTags(), itemTypes: OUTFIT_ITEM_TYPES, tagTypes: OUTFIT_TAG_TYPES, statuses: OUTFIT_STATUSES}; }
 
-  async reviewOutfit(outfitId: string, input: ReviewOutfitDto): Promise<OutfitDetail> {
-    const detail = await this.requireOutfit(outfitId);
-    if (detail.outfit.status !== 'under_review') {
-      throw new BadRequestException('Only outfits under review can be reviewed');
-    }
-    if (input.decision === 'rejected' && !input.rejectionReason) {
-      throw new BadRequestException('A rejection reason is required');
-    }
-
-    if (input.decision === 'published') {
-      await this.assertPublishedOutfitProductsRemainActive(detail.items);
-    }
-
-    await this.outfits.updateStatus(
-      outfitId,
-      input.decision,
-      input.decision === 'published' ? 'public' : 'private',
-      input.reviewerId,
-      input.rejectionReason
-    );
-    return this.requireOutfit(outfitId);
+  private owner(input: {creatorId?: string | null; brandId?: string | null}): OutfitOwner {
+    const creatorId = input.creatorId?.toLowerCase() ?? null, brandId = input.brandId?.toLowerCase() ?? null;
+    if ((creatorId === null) === (brandId === null)) throw new BadRequestException(OUTFIT_EDITING.failure.owner);
+    return {creatorId, brandId};
+  }
+  private isAdmin(user: OutfitActor) { return user.roles.some(role => OUTFIT_ADMIN_ROLES.some(admin => admin === role)); }
+  private requireAdmin(user: OutfitActor) { if (!this.isAdmin(user)) throw new ForbiddenException(OUTFIT_EDITING.failure.access); }
+  private async requireOwner(repository: OutfitRepository, owner: OutfitOwner, user: OutfitActor, lock: boolean) {
+    const allowedRole = owner.creatorId !== null ? user.roles.includes(OUTFIT_EDITING.roles.creator)
+      : user.roles.includes(OUTFIT_EDITING.roles.brandOwner) || user.roles.includes(OUTFIT_EDITING.roles.brandManager);
+    if (!allowedRole) throw new ForbiddenException(OUTFIT_EDITING.failure.access);
+    const profile = lock ? await repository.lockEditableOwner(owner, user.id) : await repository.findEditableOwner(owner, user.id);
+    if (!profile) throw new ForbiddenException(OUTFIT_EDITING.failure.access);
+    return profile;
+  }
+  private async mutate(user: OutfitActor, id: string, input: OutfitVersionDto, moderation: boolean,
+    operation: (repository: OutfitRepository, detail: OutfitDetail) => Promise<void>): Promise<OutfitDetail> {
+    const before = await this.outfits.readSnapshot(repository => this.requireOutfit(id, repository)), owner = this.owner(before.outfit);
+    return this.outfits.transaction(async repository => {
+      if (moderation) { this.requireAdmin(user); await repository.lockOwner(owner); }
+      else await this.requireOwner(repository, owner, user, true);
+      const locked = await repository.lockOutfit(id);
+      if (!locked) throw new NotFoundException(OUTFIT_EDITING.failure.missing);
+      if (locked.version !== input.expectedVersion) throw new ConflictException(OUTFIT_EDITING.failure.changed);
+      const detail = await this.requireOutfit(id, repository);
+      await operation(repository, detail);
+      return this.requireOutfit(id, repository);
+    });
+  }
+  private content(input: CreateOutfitDto | UpdateOutfitDto): OutfitContentUpdate {
+    const items = input.items.map(item => ({id: (item as EditOutfitItemDto).id?.toLowerCase(), productId: item.productId?.toLowerCase() ?? null,
+      externalLabel: item.externalLabel ?? null, itemType: item.itemType, position: item.position, isRequired: item.isRequired,
+      isShoppable: item.isShoppable, stylingNote: item.stylingNote ?? null}))
+      .sort((left, right) => left.position - right.position);
+    const images = input.images.map(image => ({id: (image as EditOutfitImageDto).id?.toLowerCase(), url: image.url, position: image.position})).sort((left, right) => left.position - right.position);
+    return {fields: {title: input.title, description: input.description, genderTarget: input.genderTarget ?? null,
+      coverImageUrl: images[OUTFIT_EDITING.limits.first]?.url ?? OUTFIT_EDITING.emptyImage}, items, images, tagIds: input.tagIds.map(id => id.toLowerCase()).sort()};
+  }
+  private async validateContent(repository: OutfitRepository, content: OutfitContentUpdate): Promise<void> {
+    const ids = content.items.flatMap(item => item.productId ? [item.productId] : []);
+    if (new Set(ids).size !== ids.length || new Set(content.items.map(item => item.position)).size !== content.items.length ||
+        content.items.some(item => item.isShoppable ? !item.productId || item.externalLabel !== null : item.productId !== null || !item.externalLabel?.trim())) throw new BadRequestException(OUTFIT_EDITING.failure.items);
+    if (new Set(content.images.map(image => image.position)).size !== content.images.length) throw new BadRequestException(OUTFIT_EDITING.failure.images);
+    if ((await repository.findSelectableProductIds(ids)).length !== ids.length) throw new BadRequestException(OUTFIT_EDITING.failure.items);
+    const available = new Set((await repository.listTags()).map(tag => tag.id));
+    if (new Set(content.tagIds).size !== content.tagIds.length || content.tagIds.some(id => !available.has(id))) throw new BadRequestException(OUTFIT_EDITING.failure.tags);
+  }
+  private requireComplete(detail: OutfitDetail) {
+    if (detail.owner?.status !== PROFILE_STATUS.active || detail.author === null || !detail.outfit.description.trim() ||
+        detail.items.length < OUTFIT_EDITING.limits.readyItems || detail.images.length < OUTFIT_EDITING.limits.readyImages) throw new BadRequestException(OUTFIT_EDITING.failure.incomplete);
+  }
+  private async projectManaged(details: OutfitDetail[]) {
+    const products = await this.products.findActiveByIds(this.uniqueShoppableProductIds(details.flatMap(detail => detail.items)));
+    return details.map(detail => this.toManagedDetail(detail, products));
+  }
+  private toManagedDetail(detail: OutfitDetail, products: ProductDetail[]) {
+    const publicFields = this.toOutfitDetail(detail, products);
+    const sourceById = new Map(detail.items.map(item => [item.id, item]));
+    return {...publicFields, version: detail.outfit.version, status: detail.outfit.status, visibility: detail.outfit.visibility,
+      owner: detail.owner, genderTarget: detail.outfit.genderTarget, rejectionReason: detail.outfit.rejectionReason,
+      reviewedAt: detail.outfit.reviewedAt?.toISOString() ?? null, createdAt: detail.outfit.createdAt.toISOString(),
+      updatedAt: detail.outfit.updatedAt.toISOString(), images: detail.images.map(image => ({id: image.id, url: image.url, position: image.position})),
+      items: publicFields.items.map(item => {
+        const source = sourceById.get(item.id)!;
+        return {...item, isShoppable: source.isShoppable, productId: source.productId, externalLabel: source.externalLabel};
+      }), tags: detail.tags};
   }
 
   async getPublicFeed(input: unknown): Promise<{ items: OutfitCardDto[]; nextCursor: string | null }> {
@@ -209,31 +309,6 @@ export class OutfitsService {
     return [...groups.values()].sort((left, right) => left.currency.localeCompare(right.currency));
   }
 
-  private assertItemsAreCoherent(items: Array<{ productId?: string; externalLabel?: string; isShoppable: boolean }>): void {
-    for (const item of items) {
-      if (item.isShoppable && !item.productId) {
-        throw new BadRequestException('Shoppable outfit items require a productId');
-      }
-      if (!item.isShoppable && !item.productId && !item.externalLabel) {
-        throw new BadRequestException('Non-shoppable outfit items require a label or productId');
-      }
-    }
-  }
-
-  private assertAllShoppableProductsAreActive(items: Array<{ productId?: string | null; isShoppable: boolean }>, products: ProductDetail[]): void {
-    const activeIds = new Set(products.map((detail) => detail.product.id));
-    for (const productId of this.uniqueShoppableProductIds(items)) {
-      if (!activeIds.has(productId)) {
-        throw new BadRequestException('Only active products can be used as shoppable outfit items');
-      }
-    }
-  }
-
-  private async assertPublishedOutfitProductsRemainActive(items: OutfitItem[]): Promise<void> {
-    const products = await this.products.findActiveByIds(this.uniqueShoppableProductIds(items));
-    this.assertAllShoppableProductsAreActive(items, products);
-  }
-
   private uniqueShoppableProductIds(items: Array<{ productId?: string | null; isShoppable: boolean }>): string[] {
     return [...new Set(items.filter((item) => item.isShoppable && item.productId).map((item) => item.productId as string))];
   }
@@ -245,10 +320,10 @@ export class OutfitsService {
     return activeVariantPrices.length ? Math.min(...activeVariantPrices) : product.product.basePrice;
   }
 
-  private async requireOutfit(outfitId: string): Promise<OutfitDetail> {
-    const detail = await this.outfits.findById(outfitId);
+  private async requireOutfit(outfitId: string, repository: OutfitRepository = this.outfits): Promise<OutfitDetail> {
+    const detail = await repository.findById(outfitId);
     if (!detail) {
-      throw new NotFoundException('Outfit not found');
+      throw new NotFoundException(OUTFIT_EDITING.failure.missing);
     }
     return detail;
   }

@@ -1,3 +1,4 @@
+import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
 import { GENDER_TARGETS } from '../../domain/gender-target';
 import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
 import { PRODUCT_EDITING, PRODUCT_STATUSES, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from '../../../modules/products/domain/product-contract';
@@ -317,24 +318,10 @@ export const genderTargetEnum = ufitSchema.enum('gender_target', GENDER_TARGETS)
 export const productStatusEnum = ufitSchema.enum('product_status', PRODUCT_STATUSES);
 export const productVariantStatusEnum = ufitSchema.enum('product_variant_status', PRODUCT_VARIANT_STATUSES);
 export const productImageKindEnum = ufitSchema.enum('product_image_kind', PRODUCT_IMAGE_KINDS);
-export const outfitStatusEnum = ufitSchema.enum('outfit_status', [
-  'draft',
-  'submitted',
-  'under_review',
-  'published',
-  'rejected',
-  'archived'
-]);
-export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', ['public', 'private', 'featured']);
-export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', [
-  'top',
-  'bottom',
-  'shoes',
-  'bag',
-  'accessory',
-  'outerwear'
-]);
-export const tagTypeEnum = ufitSchema.enum('tag_type', ['style', 'occasion', 'season']);
+export const outfitStatusEnum = ufitSchema.enum('outfit_status', OUTFIT_STATUSES);
+export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', OUTFIT_VISIBILITIES);
+export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', OUTFIT_ITEM_TYPES);
+export const tagTypeEnum = ufitSchema.enum('tag_type', OUTFIT_TAG_TYPES);
 export const editorialCollectionStatusEnum = ufitSchema.enum('editorial_collection_status', [
   'draft',
   'published',
@@ -434,6 +421,9 @@ export const outfits = ufitSchema.table(
     id: uuid('id').primaryKey().defaultRandom(),
     creatorId: uuid('creator_id'),
     brandId: uuid('brand_id'),
+    version: integer('version').notNull().default(OUTFIT_EDITING.versionInitial),
+    creationRequestId: uuid('creation_request_id'),
+    creationFingerprint: text('creation_fingerprint'),
     title: text('title').notNull(),
     description: text('description').notNull(),
     coverImageUrl: text('cover_image_url').notNull(),
@@ -449,6 +439,11 @@ export const outfits = ufitSchema.table(
     ...timestamps
   },
   (table) => ({
+    versionPositive: check('outfits_version_positive', sql`${table.version} >= ${OUTFIT_EDITING.versionInitial}`),
+    creationPair: check('outfits_creation_request_pair', sql`(${table.creationRequestId} is null) = (${table.creationFingerprint} is null)`),
+    exclusiveOwner: check('outfits_owner_exclusive', sql`${table.creatorId} is null or ${table.brandId} is null`),
+    creatorCreation: uniqueIndex('outfits_creator_creation_request_unique').on(table.creatorId, table.creationRequestId),
+    brandCreation: uniqueIndex('outfits_brand_creation_request_unique').on(table.brandId, table.creationRequestId),
     statusIdIndex: index('outfits_status_id_idx').on(table.status, table.id),
     creatorIndex: index('outfits_creator_idx').on(table.creatorId),
     brandIndex: index('outfits_brand_idx').on(table.brandId)
