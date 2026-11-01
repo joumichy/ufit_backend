@@ -1,4 +1,5 @@
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
+import {BRAND_COMMERCE, COMMERCE_POLICY_KEY} from '../../../modules/brands/commerce-policy';
 import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
 import { GENDER_TARGETS } from '../../domain/gender-target';
 import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
@@ -310,9 +311,11 @@ export const brandSettings = ufitSchema.table('brand_settings', {
   fulfillmentEmail: text('fulfillment_email'),
   returnPolicyUrl: text('return_policy_url'),
   autoApproveProducts: boolean('auto_approve_products').notNull().default(false),
+  commercePolicyVersion: integer(BRAND_COMMERCE.persistence.versionColumn).notNull().default(BRAND_COMMERCE.revision.unconfigured),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
-});
+}, table => ({commercePolicyVersionValid: check(BRAND_COMMERCE.persistence.versionConstraint, sql`${table.commercePolicyVersion} >= ${BRAND_COMMERCE.revision.unconfigured}
+  and ((${table.metadata} ? ${COMMERCE_POLICY_KEY}) = (${table.commercePolicyVersion} > ${BRAND_COMMERCE.revision.unconfigured}))`)}));
 
 
 export const genderTargetEnum = ufitSchema.enum('gender_target', GENDER_TARGETS);

@@ -1,4 +1,4 @@
-import { APPLICATION_COUNTRIES } from "../../src/modules/applications/application-countries";
+import { COUNTRY_CODES } from "../../src/shared/domain/countries";
 import "reflect-metadata";
 import {creatorDossier, brandDossier} from "./application-fixtures";
 import { plainToInstance } from 'class-transformer';
@@ -10,10 +10,10 @@ import { SubmitCreatorApplicationRequest } from '../../src/modules/applications/
 
 describe('application DTO validation', () => {
   it('offers unique ISO countries accepted by the dossier validator', () => {
-    expect(APPLICATION_COUNTRIES).toContain('CH');
-    expect(APPLICATION_COUNTRIES).not.toContain('XK');
-    expect(new Set(APPLICATION_COUNTRIES).size).toBe(APPLICATION_COUNTRIES.length);
-    expect(APPLICATION_COUNTRIES.every(country => /^[A-Z]{2}$/.test(country) && isISO31661Alpha2(country))).toBe(true);
+    expect(COUNTRY_CODES).toContain('CH');
+    expect(COUNTRY_CODES).not.toContain('XK');
+    expect(new Set(COUNTRY_CODES).size).toBe(COUNTRY_CODES.length);
+    expect(COUNTRY_CODES.every(country => /^[A-Z]{2}$/.test(country) && isISO31661Alpha2(country))).toBe(true);
   });
   it('accepts valid creator applications', async () => {
     const dto = plainToInstance(SubmitCreatorApplicationRequest, {

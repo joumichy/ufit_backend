@@ -1,4 +1,4 @@
-import { APPLICATION_COUNTRIES } from "./application-countries";
+import { COUNTRY_CODES } from "../../shared/domain/countries";
 import { BadRequestException, Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Query, UseGuards } from "@nestjs/common";
 import { AuthGuard } from "../../shared/presentation/guards/auth.guard";
 import { AdminGuard } from "../../shared/presentation/guards/admin.guard";
@@ -15,7 +15,7 @@ export class ApplicationQueriesController {
   constructor(@Inject(ApplicationsService) private readonly applications: ApplicationsService,
     @Inject(DrizzleApplicationReader) private readonly reader: DrizzleApplicationReader) {}
   @Get(ROUTE.countries)
-  countries() { return {countries: APPLICATION_COUNTRIES}; }
+  countries() { return {countries: COUNTRY_CODES}; }
   @Get(ROUTE.current)
   current(@CurrentUser() user: AuthenticatedUser) { return this.reader.current(user.id); }
   @Get(ROUTE.owned)

@@ -3,7 +3,6 @@ export const PRODUCT_STATUSES = [PRODUCT_STATUS.draft, PRODUCT_STATUS.underRevie
 export const PRODUCT_VARIANT_STATUS = {active: 'active', outOfStock: 'out_of_stock', archived: 'archived'} as const;
 export const PRODUCT_VARIANT_STATUSES = [PRODUCT_VARIANT_STATUS.active, PRODUCT_VARIANT_STATUS.outOfStock, PRODUCT_VARIANT_STATUS.archived] as const;
 export const PRODUCT_IMAGE_KINDS = ['product', 'worn', 'detail', 'lookbook'] as const;
-export const PRODUCT_CURRENCIES = Intl.supportedValuesOf('currency');
 export const PRODUCT_ADMIN_ROLES = ['admin', 'super_admin'] as const;
 export const PRODUCT_WRITE_ROLES = ['brand_owner', 'brand_manager', ...PRODUCT_ADMIN_ROLES] as const;
 export const PRODUCT_EDITING = {
@@ -26,13 +25,6 @@ export const PRODUCT_EDITING = {
   },
 } as const;
 
-const currencyFormatting = {locale: 'fr', style: 'currency', missingDigits: 'Missing currency minor unit digits'} as const;
-export const PRODUCT_CURRENCY_METADATA = PRODUCT_CURRENCIES.map(code => {
-  const minorUnitDigits = new Intl.NumberFormat(currencyFormatting.locale,
-    {style: currencyFormatting.style, currency: code}).resolvedOptions().maximumFractionDigits;
-  if (minorUnitDigits === undefined) throw new Error(currencyFormatting.missingDigits);
-  return {code, minorUnitDigits};
-});
 
 export const PRODUCT_SELECTION = {
   roles: ['creator', ...PRODUCT_WRITE_ROLES],

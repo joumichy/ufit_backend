@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Inject,
+  Get,
   Param,
   ParseUUIDPipe,
   Put,
@@ -13,16 +14,26 @@ import { Roles } from "../../shared/presentation/decorators/roles.decorator";
 import { CurrentUser } from "../../shared/presentation/decorators/current-user.decorator";
 import type { AuthenticatedUser } from "../identity/domain/user.types";
 import { BrandCommerceService } from "./brand-commerce.service";
-const BRANDS_ROUTE = "brands";
-@Controller(BRANDS_ROUTE)
+import {BRAND_COMMERCE} from './commerce-policy';
+import {COUNTRY_CODES} from '../../shared/domain/countries';
+import {CURRENCY_METADATA} from '../../shared/domain/currencies';
+@Controller(BRAND_COMMERCE.routes.brands)
 @UseGuards(AuthGuard, RoleGuard)
 export class BrandCommerceController {
   constructor(
     @Inject(BrandCommerceService)
     private readonly commerce: BrandCommerceService,
   ) {}
-  @Put(":id/commerce-policy")
-  @Roles("brand_owner", "brand_manager", "admin", "super_admin")
+  @Get(BRAND_COMMERCE.routes.metadata)
+  @Roles(...BRAND_COMMERCE.roles)
+  metadata() { return {countries: COUNTRY_CODES, currencies: CURRENCY_METADATA}; }
+  @Get(BRAND_COMMERCE.routes.policy)
+  @Roles(...BRAND_COMMERCE.roles)
+  read(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.commerce.readManaged(id, actor);
+  }
+  @Put(BRAND_COMMERCE.routes.policy)
+  @Roles(...BRAND_COMMERCE.roles)
   update(
     @Param("id", ParseUUIDPipe) id: string,
     @CurrentUser() actor: AuthenticatedUser,

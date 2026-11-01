@@ -1,7 +1,8 @@
+import {CURRENCY_CODES} from '../../../../shared/domain/currencies';
 import { Transform, Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, IsUrl, IsUUID, Length, Max, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { GENDER_TARGETS } from '../../../../shared/domain/gender-target';
-import { PRODUCT_CURRENCIES, PRODUCT_EDITING, PRODUCT_IMAGE_KINDS, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES } from '../../domain/product-contract';
+import { PRODUCT_EDITING, PRODUCT_IMAGE_KINDS, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES } from '../../domain/product-contract';
 import type { GenderTarget, ProductImage, ProductVariantStatus } from '../../domain/product.types';
 import { fieldProvided, trimNullableText, trimText } from '../../../../shared/presentation/dto/text-input';
 const limits = PRODUCT_EDITING.limits;
@@ -32,7 +33,7 @@ export class ProductFieldsDto {
   @Transform(trimText) @IsString() @Length(limits.categoryMin, limits.categoryMax) category!: string;
   @IsOptional() @IsIn(GENDER_TARGETS) genderTarget?: GenderTarget | null;
   @IsInt() @Min(limits.integerMin) @Max(limits.integerMax) basePrice!: number;
-  @IsIn(PRODUCT_CURRENCIES) currency!: string;
+  @IsIn(CURRENCY_CODES) currency!: string;
   @Transform(trimNullableText) @IsOptional() @IsString() @Length(limits.optionalTextMin, limits.detailMax) material?: string | null;
   @Transform(trimNullableText) @IsOptional() @IsString() @Length(limits.optionalTextMin, limits.detailMax) careInstructions?: string | null;
 }

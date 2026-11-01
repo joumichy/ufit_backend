@@ -8,12 +8,17 @@ L’application complète reste en cours de réalisation sur `codex/ios-complete
 Les phases ci-dessous décrivent le socle MVP historique ; elles ne prouvent pas
 la qualification de tous les parcours iPhone ni la mise en production Stripe.
 
-La migration `0016_outfit_cover_gallery` conserve les couvertures autonomes dans
-la galerie ordonnée avant leur reprise dans l’éditeur natif. Les identifiants de
-photos existants et les statuts de publication sont conservés ; les seules tenues
-modifiées avancent de version. Dix-sept migrations sont tracées et vérifiées ;
-177 tests backend dans 38 fichiers passent. La qualification SQL couvre adoption,
-ordre, conservation, version, idempotence et rollback. Éditeur natif encore en cours.
+Le cycle natif de publication/modération des tenues est qualifié à la portée du
+journal Ufit (mobile4588853/Lab9a137dc), galerie publique et notes comprises
+(mobilebf00fc3/Labeda3126). Les validations restent des preuves de développement,
+sans livraison de toute l’application ni intégration à charlie.
+
+Les conditions commerciales possèdent une lecture privée et une écriture versionnée
+pour marque active/en pause ou administrateur autorisé. La lecture publique et le
+contrat de devis restent inchangés. Migration0017 additive appliquée :18migrations
+et checksums vérifiés ;189tests/39fichiers, build/types et qualificationAPI/SQL passent.
+Concurrence, propriété, rôles/statuts actuels et rollback sont qualifiés ; données
+financières existantes conservées. Formulaire iOS propriétaire à construire.
 
 ## Socle MVP historique
 

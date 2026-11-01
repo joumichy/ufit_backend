@@ -3,8 +3,8 @@ import {PUBLIC_PROFILE} from '../../shared/domain/public-profile.contract';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES} from '../outfits/domain/public-outfit.contract';
 import {PRODUCT_STATUS} from '../products/domain/product-contract';
 import type {PublicBrandProfile} from './public-brand.contract';
-import type { DatabaseSession } from "../../shared/infrastructure/database/database-session";
-import { COMMERCE_POLICY_KEY, type BrandCommercePolicy } from './commerce-policy';
+import {READ_SNAPSHOT, type DatabaseSession} from "../../shared/infrastructure/database/database-session";
+import { BRAND_COMMERCE, COMMERCE_POLICY_KEY, type BrandCommercePolicy } from './commerce-policy';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, ne, sql, inArray, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../../shared/infrastructure/database/database.service';
@@ -14,16 +14,42 @@ import {
   brandSettings,
   outfits,
   products,
+  users,
+  userRoles,
   type BrandMemberRow,
   type BrandProfileRow,
   type NewBrandMemberRow,
   type NewBrandProfileRow
 } from '../../shared/infrastructure/database/schema';
-import type { BrandsRepository } from './brands.repository';
+import type { BrandsRepository, BrandCommerceAccess } from './brands.repository';
 
 @Injectable()
 export class DrizzleBrandsRepository implements BrandsRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
+
+  transaction<T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T> {
+    return this.database.db.transaction(tx => operation(new DrizzleBrandsRepository({db: tx})));
+  }
+  snapshot<T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T> {
+    return this.database.db.transaction(tx => operation(new DrizzleBrandsRepository({db: tx})), READ_SNAPSHOT);
+  }
+  findCommerceAccess(brandId: string, actorId: string) { return this.commerceAccess(brandId, actorId, false); }
+  lockCommerceAccess(brandId: string, actorId: string) { return this.commerceAccess(brandId, actorId, true); }
+  private async commerceAccess(brandId: string, actorId: string, locking: boolean): Promise<BrandCommerceAccess | undefined> {
+    const actorQuery = this.database.db.select({status: users.status}).from(users).where(eq(users.id, actorId));
+    const [actor] = locking ? await actorQuery.for(BRAND_COMMERCE.persistence.lock) : await actorQuery;
+    if (!actor) return undefined;
+    const rolesQuery = this.database.db.select({role: userRoles.role}).from(userRoles).where(eq(userRoles.userId, actorId)).orderBy(userRoles.role);
+    const roles = locking ? await rolesQuery.for(BRAND_COMMERCE.persistence.lock) : await rolesQuery;
+    const brandQuery = this.database.db.select({id: brandProfiles.id, brandName: brandProfiles.brandName, status: brandProfiles.status})
+      .from(brandProfiles).where(eq(brandProfiles.id, brandId));
+    const [brand] = locking ? await brandQuery.for(BRAND_COMMERCE.persistence.lock) : await brandQuery;
+    if (!brand) return undefined;
+    const memberQuery = this.database.db.select({role: brandMembers.role}).from(brandMembers)
+      .where(and(eq(brandMembers.brandProfileId, brandId), eq(brandMembers.userId, actorId), eq(brandMembers.status, PROFILE_EDITING.persistence.memberActive)));
+    const [member] = locking ? await memberQuery.for(BRAND_COMMERCE.persistence.lock) : await memberQuery;
+    return {brand, actor: {status: actor.status, roles: roles.map(row => row.role)}, memberRole: member?.role ?? null};
+  }
 
   async findPublicProfileById(id: string): Promise<PublicBrandProfile | undefined> {
     const [profile] = await this.database.db.select({id: brandProfiles.id, brandName: brandProfiles.brandName, slug: brandProfiles.slug,
@@ -39,11 +65,14 @@ export class DrizzleBrandsRepository implements BrandsRepository {
   async findSettings(brandProfileId: string) {
     return this.database.db.query.brandSettings.findFirst({where: eq(brandSettings.brandProfileId,brandProfileId)});
   }
-  async saveCommercePolicy(brandProfileId: string, policy: BrandCommercePolicy): Promise<void> {
+  async saveCommercePolicy(brandProfileId: string, policy: BrandCommercePolicy, expectedVersion: number) {
     const patch = {[COMMERCE_POLICY_KEY]:policy};
-    await this.database.db.insert(brandSettings).values({brandProfileId,metadata:patch}).onConflictDoUpdate({
-      target:brandSettings.brandProfileId,set:{metadata:sql`${brandSettings.metadata} || ${JSON.stringify(patch)}::jsonb`,updatedAt:new Date()}
-    });
+    await this.database.db.insert(brandSettings).values({brandProfileId}).onConflictDoNothing();
+    const [row] = await this.database.db.update(brandSettings).set({
+      metadata: sql`${brandSettings.metadata} || ${JSON.stringify(patch)}::jsonb`,
+      commercePolicyVersion: sql`${brandSettings.commercePolicyVersion} + ${BRAND_COMMERCE.revision.step}`, updatedAt: new Date(),
+    }).where(and(eq(brandSettings.brandProfileId, brandProfileId), eq(brandSettings.commercePolicyVersion, expectedVersion))).returning();
+    return row;
   }
 
   async findProfileByApplicationId(applicationId: string): Promise<BrandProfileRow | undefined> {

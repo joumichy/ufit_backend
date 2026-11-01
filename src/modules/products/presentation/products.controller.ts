@@ -1,3 +1,4 @@
+import {CURRENCY_METADATA} from '../../../shared/domain/currencies';
 import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { AdminAuditService } from '../../admin-audit/application/admin-audit.service';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
@@ -7,7 +8,7 @@ import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { ProductsService } from '../application/products.service';
 import { CreateProductDto, ProductVersionDto, ReviewProductDto, UpdateProductDto, UpdateProductStockDto } from '../application/dto/product.dto';
-import { PRODUCT_CURRENCY_METADATA, PRODUCT_WRITE_ROLES, PRODUCT_ADMIN_ROLES, PRODUCT_SELECTION } from '../domain/product-contract';
+import { PRODUCT_WRITE_ROLES, PRODUCT_ADMIN_ROLES, PRODUCT_SELECTION } from '../domain/product-contract';
 
 const productRoutes = {root: 'products', creation: 'creation-requests/:requestId', requestId: 'requestId', brandId: 'brandId', metadata: 'metadata', private: ':id/private', id: 'id',
   product: ':id', stock: ':id/stock', archive: ':id/archive', restore: ':id/restore', submit: ':id/submit', review: ':id/review', public: ':id/public'} as const;
@@ -42,7 +43,7 @@ export class ProductsController {
   @Get(productRoutes.metadata)
   @UseGuards(AuthGuard, RoleGuard)
   @Roles(...PRODUCT_WRITE_ROLES)
-  getMetadata() { return {currencies: PRODUCT_CURRENCY_METADATA}; }
+  getMetadata() { return {currencies: CURRENCY_METADATA}; }
 
   @Get()
   @UseGuards(AuthGuard, RoleGuard)

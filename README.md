@@ -54,6 +54,32 @@ GET /health
 
 Le health check confirme la connexion PostgreSQL et l'existence du schema configure, sans exposer de secret.
 
+## Conditions commerciales des marques
+
+`GET /brands/commerce-policy/metadata` fournit les pays ISO et les devises avec
+leur nombre de décimales, depuis les mêmes autorités que candidatures/catalogue.
+Les lectures/écritures privées exigent un membre actif de la marque avec rôle
+marque, ou un administrateur ; utilisateur actif et marque active/en pause.
+
+- `GET /brands/:id/commerce-policy` : `{brandId, version, policy}` ; une politique
+  non configurée porte `version: 0` et `policy: null`.
+- `PUT /brands/:id/commerce-policy` : corps unique `{expectedVersion, policy}`,
+  retour du même document privé avec la nouvelle version. Un ancien corps sans
+  version est refusé. Une modification concurrente reçoit409 avec
+  `brand_policy_version_changed`, sans écrasement de la politique courante.
+- `GET /public/brands/:id/commerce-policy` conserve la politique seule, nullable,
+  pour une marque publique active ; aucune révision ni donnée privée ajoutée.
+
+La politique contient `returnWindowDays`, `returnPolicy`, `pricesIncludeTaxes`,
+`taxNotice`, `customsNotice`, et `shippingRates`. Chaque tarif porte `country`,
+`currency`, `amount` en unités mineures, `taxBasisPoints` et `taxOnShipping`.
+Les couples pays/devise sont uniques ; les valeurs et règles sont saisies par la
+marque, sans délai ni taux imposé. Le devis serveur fige les conditions acceptées
+dans la commande ; une nouvelle politique ne réécrit pas les commandes existantes.
+
+La migration additive0017 initialise la révision des politiques déjà présentes
+sans modifier leur contenu. Les écritures conservent les autres settings/métadonnées.
+
 ## Photos produit
 
 Appliquer la migration `0013_product_media.sql` avec `npm run db:migrate`.

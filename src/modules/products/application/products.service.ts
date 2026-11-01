@@ -1,3 +1,4 @@
+import {CURRENCY_CODES} from '../../../shared/domain/currencies';
 import {PROFILE_STATUS} from '../../../shared/domain/profile-editing.contract';
 import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
@@ -6,7 +7,7 @@ import { DrizzleQueryError } from 'drizzle-orm';
 import { PRODUCT_REPOSITORY, type Product, type ProductContentUpdate, type ProductDetail, type ProductDetailResponse, type ProductRepository } from '../domain/product.types';
 import { PRODUCT_MEDIA } from '../../media/domain/product-media.contract';
 import type { ProductMediaReader } from '../../media/domain/product-media.types';
-import { PRODUCT_ADMIN_ROLES, PRODUCT_CURRENCIES, PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_STATUSES, PRODUCT_VARIANT_STATUS, PRODUCT_SELECTION } from '../domain/product-contract';
+import { PRODUCT_ADMIN_ROLES, PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_STATUSES, PRODUCT_VARIANT_STATUS, PRODUCT_SELECTION } from '../domain/product-contract';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { CreateProductDto, ProductFieldsDto, ProductVersionDto, ReviewProductDto, UpdateProductDto, UpdateProductStockDto } from './dto/product.dto';
 
@@ -195,7 +196,7 @@ export class ProductsService {
   private requireComplete(detail: ProductDetail) {
     if (detail.variants.filter(variant => variant.status === PRODUCT_VARIANT_STATUS.active).length < PRODUCT_EDITING.limits.readyVariants ||
         detail.images.length < PRODUCT_EDITING.limits.readyImages || !detail.product.name.trim() || !detail.product.description.trim() ||
-        !detail.product.category.trim() || !PRODUCT_CURRENCIES.includes(detail.product.currency)) throw new BadRequestException(PRODUCT_EDITING.failure.incomplete);
+        !detail.product.category.trim() || !CURRENCY_CODES.includes(detail.product.currency)) throw new BadRequestException(PRODUCT_EDITING.failure.incomplete);
   }
   private async write<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T> {
     try { return await this.products.transaction(operation); }

@@ -1,9 +1,23 @@
 import { z } from "zod";
+import {COUNTRY_CODES} from '../../shared/domain/countries';
+import {CURRENCY_CODES} from '../../shared/domain/currencies';
 export const COMMERCE_POLICY_KEY = "commercePolicy";
-const POLICY_LIMIT = { basisPoints: 10000, safeAmount: 2147483647 } as const;
-const COUNTRY_FORMAT = /^[A-Z]{2}$/;
-const CURRENCY_FORMAT = /^[A-Z]{3}$/;
-export const shippingCountrySchema = z.string().regex(COUNTRY_FORMAT);
+export const BRAND_COMMERCE = {
+  revision: {unconfigured: 0, initial: 1, step: 1, maximum: 2147483647},
+  limits: {basisPoints: 10000, safeAmount: 2147483647},
+  roles: ['brand_owner', 'brand_manager', 'admin', 'super_admin'],
+  adminRoles: ['admin', 'super_admin'],
+  persistence: {lock: 'update', versionColumn: 'commerce_policy_version', versionConstraint: 'brand_commerce_policy_version_valid'},
+  routes: {brands: 'brands', metadata: 'commerce-policy/metadata', policy: ':id/commerce-policy'},
+  failure: {
+    input: {code: 'brand_policy_invalid', message: 'Invalid brand commerce policy'},
+    persisted: {code: 'brand_policy_invalid', message: 'The brand commerce policy requires correction'},
+    access: {code: 'brand_policy_access_required', message: 'An active member or administrator of a non-suspended brand is required'},
+    changed: {code: 'brand_policy_version_changed', message: 'The commerce policy changed; reload before editing'},
+  },
+} as const;
+const POLICY_LIMIT = BRAND_COMMERCE.limits;
+export const shippingCountrySchema = z.string().refine(code => COUNTRY_CODES.includes(code));
 export const brandCommercePolicySchema = z
   .object({
     returnWindowDays: z.number().int().nonnegative(),
@@ -16,7 +30,7 @@ export const brandCommercePolicySchema = z
         z
           .object({
             country: shippingCountrySchema,
-            currency: z.string().regex(CURRENCY_FORMAT),
+            currency: z.string().refine(code => CURRENCY_CODES.includes(code)),
             amount: z.number().int().nonnegative().max(POLICY_LIMIT.safeAmount),
             taxBasisPoints: z
               .number()
@@ -44,3 +58,8 @@ export const brandCommercePolicySchema = z
     });
   });
 export type BrandCommercePolicy = z.infer<typeof brandCommercePolicySchema>;
+export const updateBrandCommercePolicySchema = z.object({
+  expectedVersion: z.number().int().min(BRAND_COMMERCE.revision.unconfigured).max(BRAND_COMMERCE.revision.maximum - BRAND_COMMERCE.revision.step),
+  policy: brandCommercePolicySchema,
+}).strict();
+export interface BrandCommercePolicyDocument {brandId: string; version: number; policy: BrandCommercePolicy | null;}
