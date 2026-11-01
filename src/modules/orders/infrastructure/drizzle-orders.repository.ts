@@ -275,6 +275,8 @@ function projectOrder(
           trackingUrl: shipment.trackingUrl ?? undefined,
           shippedAt: shipment.shippedAt?.toISOString(),
           deliveredAt: shipment.deliveredAt?.toISOString(),
+          incidentReason: shipment.incidentReason ?? undefined,
+          incidentAt: shipment.incidentAt?.toISOString(),
         }
       : undefined,
     cancellation: cancellation

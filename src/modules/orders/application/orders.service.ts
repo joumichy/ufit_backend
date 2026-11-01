@@ -58,6 +58,8 @@ export interface Order {
     trackingUrl?: string;
     shippedAt?: string;
     deliveredAt?: string;
+    incidentReason?: string;
+    incidentAt?: string;
   };
   subtotalAmount: number;
   shippingAmount: number;
