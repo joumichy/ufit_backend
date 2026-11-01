@@ -9,3 +9,14 @@ export const PROFILE_EDITING = {
 } as const;
 
 export type WritableProfileStatus = (typeof PROFILE_EDITING.writableStatuses)[number];
+
+
+export const PROFILE_KIND = {creator: 'creator', brand: 'brand'} as const;
+export type ProfileKind = (typeof PROFILE_KIND)[keyof typeof PROFILE_KIND];
+export type ProfileOwner = {creatorId: string; brandId: null} | {creatorId: null; brandId: string};
+export interface ProfileOwnerInfo {id: string; kind: ProfileKind; name: string; status: (typeof PROFILE_STATUSES)[number];}
+export const PROFILE_AUTHOR_ROLES = {creator: 'creator', brandOwner: 'brand_owner', brandManager: 'brand_manager'} as const;
+export function canAuthorProfile(roles: readonly string[], owner: ProfileOwner): boolean {
+  return owner.creatorId !== null ? roles.includes(PROFILE_AUTHOR_ROLES.creator)
+    : roles.includes(PROFILE_AUTHOR_ROLES.brandOwner) || roles.includes(PROFILE_AUTHOR_ROLES.brandManager);
+}

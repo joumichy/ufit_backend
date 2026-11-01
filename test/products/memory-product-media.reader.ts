@@ -1,11 +1,11 @@
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
-import { ProductMediaLocator } from '../../src/modules/media/application/product-media-locator';
+import { MediaAssetLocator } from '../../src/modules/media/application/media-asset-locator';
 import { PRODUCT_MEDIA } from '../../src/modules/media/domain/product-media.contract';
 import type { ProductMediaReader } from '../../src/modules/media/domain/product-media.types';
 
 export const mediaReaderFixture = {origin: 'https://media.test', signedOrigin: 'https://signed.media.test/'} as const;
 export class MemoryProductMediaReader implements ProductMediaReader {
-  readonly locator = new ProductMediaLocator(() => mediaReaderFixture.origin);
+  readonly locator = new MediaAssetLocator(() => mediaReaderFixture.origin, PRODUCT_MEDIA);
   readonly assets = new Map<string, {brandId: string; displayUrl: string}>();
   failReads = false;
   assetIDs(urls: string[]): string[] { return [...new Set(urls.flatMap(url => { const id = this.locator.id(url); return id ? [id] : []; }))]; }

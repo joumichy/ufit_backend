@@ -1,3 +1,6 @@
+import {ServiceUnavailableException} from '@nestjs/common';
+import {OUTFIT_MEDIA} from '../../src/modules/media/domain/outfit-media.contract';
+import {MemoryOutfitMediaReader} from './memory-outfit-media.reader';
 import {randomUUID} from 'node:crypto';
 import {BadRequestException, ConflictException, ForbiddenException, NotFoundException} from '@nestjs/common';
 import {describe, expect, it, vi} from 'vitest';
@@ -13,11 +16,11 @@ const data = {
   itemType: 'top', customerRole: 'customer', otherRole: 'creator',
 } as const;
 function setup() {
-  const products = new MemoryProductRepository(), repository = new MemoryOutfitRepository(products);
-  const service = new OutfitsService(repository, products);
+  const products = new MemoryProductRepository(), media = new MemoryOutfitMediaReader(), repository = new MemoryOutfitRepository(products, media.assets);
+  const service = new OutfitsService(repository, products, media);
   const input: CreateOutfitDto = {requestId: randomUUID(), creatorId: publicCreator.id, title: data.title, description: data.description,
     tagIds: [], images: [outfitFixture.image], items: [{itemType: data.itemType, externalLabel: data.inspiration, position: data.zero, isRequired: true, isShoppable: false}]};
-  return {repository, service, input};
+  return {repository, service, input, media};
 }
 type Detail = Awaited<ReturnType<OutfitsService['getManagedOutfit']>>;
 function changes(detail: Detail): UpdateOutfitDto {
@@ -79,6 +82,24 @@ describe('Owned outfit editing', () => {
     detail = await service.archiveOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version});
     detail = await service.restoreOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
     expect(detail.status).toBe(OUTFIT_STATUS.draft); expect(detail.items.map(item => item.id)).toEqual(itemIDs); expect(detail.images.map(image => image.id)).toEqual(imageIDs);
+  });
+  it('rejects foreign or pending owned media and prepares private links before committing a review', async () => {
+    const {service, repository, input, media} = setup(), assetID = randomUUID();
+    const owner = {creatorId: publicCreator.id, brandId: null} as const;
+    const displayUrl = outfitFixture.image.url;
+    media.assets.set(assetID, {owner, displayUrl, status: OUTFIT_MEDIA.status.pending});
+    const body = {...input, images: [{url: media.locator.url(assetID), position: data.zero}]};
+    await expect(service.createOutfit(outfitFixture.actor, body)).rejects.toBeInstanceOf(BadRequestException);
+    media.assets.set(assetID, {owner: {creatorId: randomUUID(), brandId: null}, displayUrl, status: OUTFIT_MEDIA.status.ready});
+    await expect(service.createOutfit(outfitFixture.actor, body)).rejects.toBeInstanceOf(BadRequestException);
+    media.assets.set(assetID, {owner, displayUrl, status: OUTFIT_MEDIA.status.ready});
+    let detail = await service.createOutfit(outfitFixture.actor, body);
+    expect(detail.images[data.zero].displayUrl).toBe(displayUrl);
+    detail = await service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
+    media.failReads = true;
+    await expect(service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.published})).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(repository.outfits.get(detail.id)?.status).toBe(OUTFIT_STATUS.underReview);
+    expect(repository.outfits.get(detail.id)?.version).toBe(detail.version);
   });
   it('rejects incomplete submissions, foreign child IDs, unknown tags and unavailable products without changing the draft', async () => {
     const {service, input} = setup(); const detail = await service.createOutfit(outfitFixture.actor, {...input, description: data.empty, images: []});

@@ -128,3 +128,23 @@ actifs de marques actives. Accès créateur, membre de marque ou administrateur 
 paramètres `brandId`, `search` (nom littéral), `limit`, `cursor`. La projection
 publique inclut le nom de marque, les prix par devise, photos et variantes,
 sans SKU ni données de revue privées. Une marque en pause n’y apparaît pas.
+
+
+## Photos de tenues
+
+`POST /media/outfit-uploads` reçoit un multipart `file` JPEG, `requestId` et
+exactement un `creatorId` ou `brandId`. Le serveur vérifie le rôle et l’accès au
+profil avant réservation et après stockage. La même requête et les mêmes octets
+retrouvent le même asset ; une reprise vérifie un objet déjà accepté par Supabase.
+
+La réponse fournit `id`, `creatorId`, `brandId`, `url` stable et `displayUrl` privé
+à durée courte. `GET /media/outfit-assets/:id/private` renouvelle le lien pour le
+propriétaire. Les images des détails privés de tenue incluent aussi `displayUrl`.
+Une URL interne doit correspondre à un asset prêt, de la bonne famille et du même
+propriétaire ; les URL externes HTTP(S) du contrat existant restent distinctes.
+
+`GET /media/outfit-assets/:id/image` ne redirige vers le stockage que lorsqu’une
+tenue publiée et publique référence la photo sous le même propriétaire actif.
+Les fichiers restent dans le bucket privé `ufit-outfit-media`, JPEG seulement,
+limite8MiB. La migration0015 ajoute cette famille et son index de références ;
+les données/objets produit restent dans leur famille existante.

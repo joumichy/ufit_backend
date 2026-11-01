@@ -1,3 +1,4 @@
+import {MemoryOutfitMediaReader} from './outfits/memory-outfit-media.reader';
 import {OUTFIT_EDITING} from '../src/modules/outfits/domain/outfit-editing.contract';
 import {MemoryOutfitRepository, fixtureID as id, publicCreator, outfitFixture} from './outfits/memory-outfit.repository';
 import {randomUUID} from 'node:crypto';
@@ -52,12 +53,12 @@ class MemoryEditorialRepository implements EditorialRepository {
 
 function services() {
   const productRepository = new MemoryProductRepository();
-  const outfitRepository = new MemoryOutfitRepository(productRepository);
+  const media = new MemoryOutfitMediaReader(), outfitRepository = new MemoryOutfitRepository(productRepository, media.assets);
   return {
     productRepository,
     outfitRepository,
     productsService: new ProductsService(productRepository, new MemoryProductMediaReader()),
-    outfitsService: new OutfitsService(outfitRepository, productRepository)
+    outfitsService: new OutfitsService(outfitRepository, productRepository, media)
   };
 }
 

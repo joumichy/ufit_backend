@@ -1,5 +1,5 @@
 import type {AuthenticatedUser} from '../../identity/domain/user.types';
-import type {PROFILE_STATUSES} from '../../../shared/domain/profile-editing.contract';
+import type {ProfileOwner, ProfileOwnerInfo, ProfileKind} from '../../../shared/domain/profile-editing.contract';
 import type {OUTFIT_STATUSES, OUTFIT_TAG_TYPES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES} from './outfit-editing.contract';
 import type {GenderTarget} from '../../../shared/domain/gender-target';
 export type OutfitStatus = (typeof OUTFIT_STATUSES)[number];
@@ -48,7 +48,7 @@ export interface OutfitImage {
 
 export interface OutfitAuthor {
   id: string;
-  kind: 'creator' | 'brand';
+  kind: ProfileKind;
   name: string;
   avatarUrl: string | null;
 }
@@ -63,8 +63,8 @@ export interface OutfitDetail {
 }
 
 export type OutfitActor = Pick<AuthenticatedUser, 'id' | 'roles'>;
-export interface OutfitOwner {creatorId: string | null; brandId: string | null;}
-export interface OutfitOwnerInfo {id: string; kind: OutfitAuthor['kind']; name: string; status: (typeof PROFILE_STATUSES)[number];}
+export type OutfitOwner = ProfileOwner;
+export type OutfitOwnerInfo = ProfileOwnerInfo;
 export interface OutfitTag {id: string; type: (typeof OUTFIT_TAG_TYPES)[number]; slug: string; label: string;}
 export interface OutfitManagedPage {items: OutfitDetail[]; nextCursor: string | null;}
 export interface OutfitManagedQuery {creatorId?: string; brandId?: string; status?: OutfitStatus; cursor?: string; limit: number;}
@@ -84,6 +84,7 @@ export interface OutfitRepository {
   findByCreationRequest(owner: OutfitOwner, requestId: string): Promise<{detail: OutfitDetail; fingerprint: string | null} | null>;
   listManaged(query: OutfitManagedQuery): Promise<OutfitManagedPage>;
   listTags(): Promise<OutfitTag[]>;
+  hasReadyOutfitMedia(owner: OutfitOwner, ids: string[]): Promise<boolean>;
   findSelectableProductIds(ids: string[]): Promise<string[]>;
   replaceContent(id: string, input: OutfitContentUpdate): Promise<void>;
   replaceTags(id: string, tagIds: string[]): Promise<void>;

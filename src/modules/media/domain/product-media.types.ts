@@ -12,10 +12,6 @@ export interface ProductMediaRepository {
   findOwnedReady(id: string, userId: string): Promise<ProductMediaAsset | null>;
   findPublic(id: string, canonicalUrl: string): Promise<ProductMediaAsset | null>;
 }
-export interface ProductMediaStorage {
-  uploadOrVerify(path: string, bytes: Buffer, fingerprint: string): Promise<void>;
-  sign(paths: string[]): Promise<Map<string, string>>;
-}
 export interface ProductMediaReader {
   assetIDs(urls: string[]): string[];
   resolveImages(sources: Array<{brandId: string; url: string}>): Promise<Map<string, string>>;

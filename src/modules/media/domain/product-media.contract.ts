@@ -1,13 +1,13 @@
-const MEDIA_STATUS = {pending: 'pending', ready: 'ready'} as const;
+import {IMAGE_UPLOAD, IMAGE_STORAGE_SETTINGS, MEDIA_ASSET_STATUS, MEDIA_ASSET_STATUSES} from './image-upload.contract';
 export const PRODUCT_MEDIA = {
   repository: Symbol('ProductMediaRepository'), storage: Symbol('ProductMediaStorage'), reader: Symbol('ProductMediaReader'), locator: Symbol('ProductMediaLocator'),
-  bucket: 'ufit-product-media', mime: 'image/jpeg', extension: '.jpg', maxBytes: 8 * 1024 * 1024,
-  status: MEDIA_STATUS, statuses: [MEDIA_STATUS.pending, MEDIA_STATUS.ready],
+  bucket: 'ufit-product-media', mime: IMAGE_UPLOAD.mime, extension: IMAGE_UPLOAD.extension, maxBytes: IMAGE_UPLOAD.maxBytes,
+  status: MEDIA_ASSET_STATUS, statuses: MEDIA_ASSET_STATUSES,
   routes: {root: 'media', upload: 'product-uploads', image: 'assets/:id/image', private: 'assets/:id/private', id: 'id', assetPrefix: '/media/assets/', imageSuffix: '/image'},
   multipart: {file: 'file', files: 1, fields: 2},
-  hash: {algorithm: 'sha256', encoding: 'hex', pattern: '^[a-f0-9]{64}$'},
-  image: {prefix: [0xff, 0xd8, 0xff], suffix: [0xff, 0xd9], minimumBytes: 5, firstIndex: 0},
-  storageSettings: {signedSeconds: 60, bucketPublic: false, upsert: false, separator: '/', cacheControl: '3600'},
+  hash: IMAGE_UPLOAD.hash,
+  image: IMAGE_UPLOAD.image,
+  storageSettings: IMAGE_STORAGE_SETTINGS,
   snapshotImageKey: 'imageUrl',
   failure: {
     access: {code: 'media_brand_access_required', message: 'An active membership of a non-suspended brand is required'},

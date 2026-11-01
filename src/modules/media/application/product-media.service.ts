@@ -1,28 +1,29 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PRODUCT_MEDIA } from '../domain/product-media.contract';
-import { ProductMediaLocator } from './product-media-locator';
-import type { ProductMediaAsset, ProductMediaReader, ProductMediaRepository, ProductMediaStorage, UploadedProductImage } from '../domain/product-media.types';
+import { MediaAssetLocator } from './media-asset-locator';
+import {prepareImageUpload} from './prepare-image-upload';
+import type {ImageStorage, ImageUploadFile} from '../domain/image-upload.contract';
+import type { ProductMediaAsset, ProductMediaReader, ProductMediaRepository, UploadedProductImage } from '../domain/product-media.types';
 
-export interface ProductImageFile {buffer: Buffer; mimetype: string; size: number}
 @Injectable()
 export class ProductMediaService implements ProductMediaReader {
   constructor(
     @Inject(PRODUCT_MEDIA.repository) private readonly repository: ProductMediaRepository,
-    @Inject(PRODUCT_MEDIA.storage) private readonly storage: ProductMediaStorage,
-    @Inject(PRODUCT_MEDIA.locator) private readonly locator: ProductMediaLocator,
+    @Inject(PRODUCT_MEDIA.storage) private readonly storage: ImageStorage,
+    @Inject(PRODUCT_MEDIA.locator) private readonly locator: MediaAssetLocator,
   ) {}
   assetIDs(urls: string[]): string[] {
     try { return [...new Set(urls.flatMap(url => { const id = this.locator.id(url); return id ? [id] : []; }))]; }
     catch (error) { if (error instanceof ServiceUnavailableException) throw error; throw new BadRequestException(PRODUCT_MEDIA.failure.ownership); }
   }
-  async upload(userId: string, input: {brandId: string; requestId: string}, file?: ProductImageFile): Promise<UploadedProductImage> {
-    this.validateFile(file);
+  async upload(userId: string, input: {brandId: string; requestId: string}, file?: ImageUploadFile): Promise<UploadedProductImage> {
+    const image = prepareImageUpload(file, PRODUCT_MEDIA.failure.file);
     const id = randomUUID();
-    const fingerprint = createHash(PRODUCT_MEDIA.hash.algorithm).update(file.buffer).digest(PRODUCT_MEDIA.hash.encoding);
+    const fingerprint = image.fingerprint;
     const asset = await this.repository.reserve({id, brandId: input.brandId, uploadedBy: userId, requestId: input.requestId, fingerprint,
-      byteSize: file.buffer.length, contentType: PRODUCT_MEDIA.mime, objectPath: input.brandId + PRODUCT_MEDIA.storageSettings.separator + id + PRODUCT_MEDIA.extension});
-    if (asset.status !== PRODUCT_MEDIA.status.ready) await this.storage.uploadOrVerify(asset.objectPath, file.buffer, asset.fingerprint);
+      byteSize: image.bytes.length, contentType: PRODUCT_MEDIA.mime, objectPath: input.brandId + PRODUCT_MEDIA.storageSettings.separator + id + PRODUCT_MEDIA.extension});
+    if (asset.status !== PRODUCT_MEDIA.status.ready) await this.storage.uploadOrVerify(asset.objectPath, image.bytes, asset.fingerprint);
     // Membership can change during the external upload; it must still authorize the returned asset.
     const ready = await this.repository.markReady(asset, userId);
     return this.presentAsset(ready);
@@ -63,11 +64,5 @@ export class ProductMediaService implements ProductMediaReader {
     const displayUrl = signed.get(asset.objectPath);
     if (!displayUrl) throw new ServiceUnavailableException(PRODUCT_MEDIA.failure.unavailable);
     return {id: asset.id, brandId: asset.brandId, url: this.locator.url(asset.id), displayUrl};
-  }
-  private validateFile(file?: ProductImageFile): asserts file is ProductImageFile {
-    const image = PRODUCT_MEDIA.image;
-    if (!file || file.mimetype !== PRODUCT_MEDIA.mime || file.size !== file.buffer.length || file.buffer.length < image.minimumBytes || file.buffer.length > PRODUCT_MEDIA.maxBytes ||
-      !file.buffer.subarray(image.firstIndex, image.prefix.length).equals(Buffer.from(image.prefix)) ||
-      !file.buffer.subarray(-image.suffix.length).equals(Buffer.from(image.suffix))) throw new BadRequestException(PRODUCT_MEDIA.failure.file);
   }
 }

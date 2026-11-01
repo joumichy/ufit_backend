@@ -1,3 +1,4 @@
+import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
 import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
 import { GENDER_TARGETS } from '../../domain/gender-target';
 import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
@@ -480,7 +481,7 @@ export const outfitImages = ufitSchema.table('outfit_images', {
   url: text('url').notNull(),
   position: integer('position').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-});
+}, table => ({urlIndex: index('outfit_images_url_idx').on(table.url)}));
 
 export const tags = ufitSchema.table(
   'tags',
@@ -827,4 +828,22 @@ export const productMediaAssets = ufitSchema.table('product_media_assets', {
   typeCheck: check('product_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + PRODUCT_MEDIA.mime + "'")}`),
   hashCheck: check('product_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + PRODUCT_MEDIA.hash.pattern + "'")}`),
   statusCheck: check('product_media_status_valid', sql`${table.status} in (${sql.raw("'" + PRODUCT_MEDIA.status.pending + "', '" + PRODUCT_MEDIA.status.ready + "'")})`),
+}));
+
+export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
+  id: uuid('id').primaryKey(),
+  creatorId: uuid('creator_id').references(() => creatorProfiles.id), brandId: uuid('brand_id').references(() => brandProfiles.id),
+  uploadedBy: uuid('uploaded_by').notNull().references(() => users.id), requestId: uuid('request_id').notNull(),
+  fingerprint: text('fingerprint').notNull(), byteSize: integer('byte_size').notNull(), contentType: text('content_type').notNull(),
+  objectPath: text('object_path').notNull(), status: text('status', {enum: OUTFIT_MEDIA.statuses}).notNull().default(OUTFIT_MEDIA.status.pending),
+  ...timestamps,
+}, table => ({
+  ownerCheck: check('outfit_media_owner_required', sql`(${table.creatorId} is not null) <> (${table.brandId} is not null)`),
+  creatorRequest: uniqueIndex('outfit_media_creator_request_unique').on(table.creatorId, table.requestId),
+  brandRequest: uniqueIndex('outfit_media_brand_request_unique').on(table.brandId, table.requestId),
+  pathUnique: uniqueIndex('outfit_media_object_path_unique').on(table.objectPath),
+  sizeCheck: check('outfit_media_size_valid', sql`${table.byteSize} > 0 and ${table.byteSize} <= ${sql.raw(String(OUTFIT_MEDIA.maxBytes))}`),
+  typeCheck: check('outfit_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + OUTFIT_MEDIA.mime + "'")}`),
+  hashCheck: check('outfit_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + OUTFIT_MEDIA.hash.pattern + "'")}`),
+  statusCheck: check('outfit_media_status_valid', sql`${table.status} in (${sql.raw("'" + OUTFIT_MEDIA.status.pending + "', '" + OUTFIT_MEDIA.status.ready + "'")})`),
 }));

@@ -1,3 +1,5 @@
+import type {OutfitMediaFixtureAsset} from './memory-outfit-media.reader';
+import {OUTFIT_MEDIA} from '../../src/modules/media/domain/outfit-media.contract';
 import {randomUUID} from 'node:crypto';
 import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_VISIBILITY} from '../../src/modules/outfits/domain/outfit-editing.contract';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '../../src/modules/outfits/domain/public-outfit.contract';
@@ -26,7 +28,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
   readonly owners = new Map<string, OutfitOwnerInfo>([[outfitFixture.owner.id, {...outfitFixture.owner}]]);
   readonly members = new Map<string, Set<string>>([[outfitFixture.owner.id, new Set([outfitFixture.actor.id])]]);
   readonly tags: OutfitTag[] = [];
-  constructor(private readonly products: Pick<ProductRepository, 'findActiveByIds'>) {}
+  constructor(private readonly products: Pick<ProductRepository, 'findActiveByIds'>, private readonly mediaAssets: Map<string, OutfitMediaFixtureAsset>) {}
   async transaction<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T> {
     const before = structuredClone({outfits: this.outfits, items: this.items, images: this.images, requests: this.requests, selections: this.selections});
     try { return await operation(this); }
@@ -54,6 +56,9 @@ export class MemoryOutfitRepository implements OutfitRepository {
     return {items, nextCursor: rows.length > query.limit ? page.at(OUTFIT_EDITING.limits.last)!.id : null};
   }
   async listTags() { return this.tags; }
+  async hasReadyOutfitMedia(owner: OutfitOwner, ids: string[]) {
+    return ids.every(id => this.mediaAssets.get(id)?.status === OUTFIT_MEDIA.status.ready && this.mediaAssets.get(id)?.owner.creatorId === owner.creatorId && this.mediaAssets.get(id)?.owner.brandId === owner.brandId);
+  }
   async findSelectableProductIds(ids: string[]) { return (await this.products.findActiveByIds(ids)).map(detail => detail.product.id); }
   async replaceTags(id: string, tagIds: string[]) { this.selections.set(id, [...tagIds]); }
   async replaceContent(id: string, input: Parameters<OutfitRepository['replaceContent']>[1]) {

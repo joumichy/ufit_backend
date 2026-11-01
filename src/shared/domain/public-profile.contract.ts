@@ -1,7 +1,7 @@
-import {PROFILE_STATUS} from './profile-editing.contract';
+import {PROFILE_STATUS, PROFILE_KIND} from './profile-editing.contract';
 
 export const PUBLIC_PROFILE = {
-  kind: {creator: 'creator', brand: 'brand'},
+  kind: PROFILE_KIND,
   status: PROFILE_STATUS.active,
   userStatus: 'active',
   first: 0,

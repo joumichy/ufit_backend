@@ -1,4 +1,4 @@
-import {PROFILE_EDITING} from '../../../shared/domain/profile-editing.contract';
+import {PROFILE_EDITING, PROFILE_AUTHOR_ROLES} from '../../../shared/domain/profile-editing.contract';
 
 export const OUTFIT_STATUS = {draft: 'draft', submitted: 'submitted', underReview: 'under_review', published: 'published', rejected: 'rejected', archived: 'archived'} as const;
 export const OUTFIT_STATUSES = [OUTFIT_STATUS.draft, OUTFIT_STATUS.submitted, OUTFIT_STATUS.underReview, OUTFIT_STATUS.published, OUTFIT_STATUS.rejected, OUTFIT_STATUS.archived] as const;
@@ -16,7 +16,7 @@ export const OUTFIT_EDITING = {
   persistence: {lock: PROFILE_EDITING.persistence.lock},
   creation: {hash: 'sha256', encoding: 'hex'},
   emptyImage: '',
-  roles: {creator: 'creator', brandOwner: 'brand_owner', brandManager: 'brand_manager'},
+  roles: PROFILE_AUTHOR_ROLES,
   failure: {
     owner: {code: 'outfit_owner_required', message: 'Exactly one creator or brand owner is required'},
     access: {code: 'outfit_owner_access_required', message: 'An active membership of an editable profile is required'},

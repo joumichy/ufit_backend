@@ -1,6 +1,8 @@
+import {OUTFIT_MEDIA} from '../../media/domain/outfit-media.contract';
+import type {OutfitMediaReader} from '../../media/domain/outfit-media.types';
 import {createHash} from 'node:crypto';
 import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_STATUSES, OUTFIT_VISIBILITY, OUTFIT_ADMIN_ROLES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../domain/outfit-editing.contract';
-import {PROFILE_STATUS} from '../../../shared/domain/profile-editing.contract';
+import {PROFILE_STATUS, canAuthorProfile} from '../../../shared/domain/profile-editing.contract';
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PRODUCT_REPOSITORY, type ProductDetail, type ProductRepository } from '../../products/domain/product.types';
 import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository, type OutfitActor, type OutfitOwner, type OutfitContentUpdate } from '../domain/outfit.types';
@@ -50,7 +52,8 @@ export interface OutfitDetailDto extends OutfitCardDto {
 export class OutfitsService {
   constructor(
     @Inject(OUTFIT_REPOSITORY) private readonly outfits: OutfitRepository,
-    @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository
+    @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository,
+    @Inject(OUTFIT_MEDIA.reader) private readonly media: OutfitMediaReader
   ) {}
 
   async createOutfit(user: OutfitActor, input: CreateOutfitDto) {
@@ -63,7 +66,7 @@ export class OutfitsService {
         if (existing.fingerprint !== fingerprint) throw new ConflictException(OUTFIT_EDITING.failure.request);
         return existing.detail;
       }
-      await this.validateContent(repository, content);
+      await this.validateContent(repository, owner, content);
       const outfit = await repository.createOutfit({...owner, ...content.fields, creationRequestId: input.requestId, creationFingerprint: fingerprint,
         reviewedBy: null, reviewedAt: null, rejectionReason: null});
       await repository.addItems(outfit.id, content.items.map(({id: _, ...item}) => item));
@@ -80,7 +83,7 @@ export class OutfitsService {
       const itemIds = content.items.flatMap(item => item.id ? [item.id] : []), imageIds = content.images.flatMap(image => image.id ? [image.id] : []);
       if (new Set(itemIds).size !== itemIds.length || itemIds.some(id => !before.items.some(item => item.id === id))) throw new BadRequestException(OUTFIT_EDITING.failure.items);
       if (new Set(imageIds).size !== imageIds.length || imageIds.some(id => !before.images.some(image => image.id === id))) throw new BadRequestException(OUTFIT_EDITING.failure.images);
-      await this.validateContent(repository, content);
+      await this.validateContent(repository, this.owner(before.outfit), content);
       await repository.replaceContent(id, content);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
@@ -89,7 +92,7 @@ export class OutfitsService {
     const detail = await this.mutate(user, id, input, false, async (repository, before) => {
       if (before.outfit.status !== OUTFIT_STATUS.draft && before.outfit.status !== OUTFIT_STATUS.rejected) throw new ConflictException(OUTFIT_EDITING.failure.state);
       this.requireComplete(before);
-      await this.validateContent(repository, {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
+      await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
       await repository.updateStatus(id, OUTFIT_STATUS.underReview, OUTFIT_VISIBILITY.private);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
@@ -98,15 +101,17 @@ export class OutfitsService {
     this.requireAdmin(user);
     const reason = input.rejectionReason?.trim();
     if (input.decision === OUTFIT_STATUS.rejected && !reason) throw new BadRequestException(OUTFIT_EDITING.failure.reason);
+    const before = await this.outfits.readSnapshot(repository => this.requireOutfit(id, repository));
+    this.requireReviewable(before, input);
+    const prepared = await this.prepareManaged([before]);
     const detail = await this.mutate(user, id, input, true, async (repository, before) => {
-      if (before.outfit.status !== OUTFIT_STATUS.underReview) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      this.requireReviewable(before, input);
       if (input.decision === OUTFIT_STATUS.published) {
-        this.requireComplete(before);
-        await this.validateContent(repository, {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
+        await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
       }
       await repository.updateStatus(id, input.decision, input.decision === OUTFIT_STATUS.published ? OUTFIT_VISIBILITY.public : OUTFIT_VISIBILITY.private, user.id, reason);
     });
-    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+    return this.toManagedDetail(detail, prepared.products, prepared.displays);
   }
   async archiveOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
     const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
@@ -155,15 +160,14 @@ export class OutfitsService {
 
   private owner(input: {creatorId?: string | null; brandId?: string | null}): OutfitOwner {
     const creatorId = input.creatorId?.toLowerCase() ?? null, brandId = input.brandId?.toLowerCase() ?? null;
-    if ((creatorId === null) === (brandId === null)) throw new BadRequestException(OUTFIT_EDITING.failure.owner);
-    return {creatorId, brandId};
+    if (creatorId !== null && brandId === null) return {creatorId, brandId};
+    if (brandId !== null && creatorId === null) return {creatorId, brandId};
+    throw new BadRequestException(OUTFIT_EDITING.failure.owner);
   }
   private isAdmin(user: OutfitActor) { return user.roles.some(role => OUTFIT_ADMIN_ROLES.some(admin => admin === role)); }
   private requireAdmin(user: OutfitActor) { if (!this.isAdmin(user)) throw new ForbiddenException(OUTFIT_EDITING.failure.access); }
   private async requireOwner(repository: OutfitRepository, owner: OutfitOwner, user: OutfitActor, lock: boolean) {
-    const allowedRole = owner.creatorId !== null ? user.roles.includes(OUTFIT_EDITING.roles.creator)
-      : user.roles.includes(OUTFIT_EDITING.roles.brandOwner) || user.roles.includes(OUTFIT_EDITING.roles.brandManager);
-    if (!allowedRole) throw new ForbiddenException(OUTFIT_EDITING.failure.access);
+    if (!canAuthorProfile(user.roles, owner)) throw new ForbiddenException(OUTFIT_EDITING.failure.access);
     const profile = lock ? await repository.lockEditableOwner(owner, user.id) : await repository.findEditableOwner(owner, user.id);
     if (!profile) throw new ForbiddenException(OUTFIT_EDITING.failure.access);
     return profile;
@@ -191,7 +195,9 @@ export class OutfitsService {
     return {fields: {title: input.title, description: input.description, genderTarget: input.genderTarget ?? null,
       coverImageUrl: images[OUTFIT_EDITING.limits.first]?.url ?? OUTFIT_EDITING.emptyImage}, items, images, tagIds: input.tagIds.map(id => id.toLowerCase()).sort()};
   }
-  private async validateContent(repository: OutfitRepository, content: OutfitContentUpdate): Promise<void> {
+  private async validateContent(repository: OutfitRepository, owner: OutfitOwner, content: OutfitContentUpdate): Promise<void> {
+    const assetIds = this.media.assetIDs(content.images.map(image => image.url));
+    if (!await repository.hasReadyOutfitMedia(owner, assetIds)) throw new BadRequestException(OUTFIT_MEDIA.failure.ownership);
     const ids = content.items.flatMap(item => item.productId ? [item.productId] : []);
     if (new Set(ids).size !== ids.length || new Set(content.items.map(item => item.position)).size !== content.items.length ||
         content.items.some(item => item.isShoppable ? !item.productId || item.externalLabel !== null : item.productId !== null || !item.externalLabel?.trim())) throw new BadRequestException(OUTFIT_EDITING.failure.items);
@@ -200,21 +206,37 @@ export class OutfitsService {
     const available = new Set((await repository.listTags()).map(tag => tag.id));
     if (new Set(content.tagIds).size !== content.tagIds.length || content.tagIds.some(id => !available.has(id))) throw new BadRequestException(OUTFIT_EDITING.failure.tags);
   }
+  private requireReviewable(detail: OutfitDetail, input: ReviewOutfitDto) {
+    if (detail.outfit.version !== input.expectedVersion) throw new ConflictException(OUTFIT_EDITING.failure.changed);
+    if (detail.outfit.status !== OUTFIT_STATUS.underReview) throw new ConflictException(OUTFIT_EDITING.failure.state);
+    if (input.decision === OUTFIT_STATUS.published) this.requireComplete(detail);
+  }
   private requireComplete(detail: OutfitDetail) {
     if (detail.owner?.status !== PROFILE_STATUS.active || detail.author === null || !detail.outfit.description.trim() ||
         detail.items.length < OUTFIT_EDITING.limits.readyItems || detail.images.length < OUTFIT_EDITING.limits.readyImages) throw new BadRequestException(OUTFIT_EDITING.failure.incomplete);
   }
-  private async projectManaged(details: OutfitDetail[]) {
+  private async prepareManaged(details: OutfitDetail[]) {
+    const sources = details.flatMap(detail => detail.images.map(image => ({url: image.url,
+      owner: detail.outfit.creatorId !== null || detail.outfit.brandId !== null ? this.owner(detail.outfit) : null})));
+    const displays = await this.media.resolveImages(sources);
     const products = await this.products.findActiveByIds(this.uniqueShoppableProductIds(details.flatMap(detail => detail.items)));
-    return details.map(detail => this.toManagedDetail(detail, products));
+    return {displays, products};
   }
-  private toManagedDetail(detail: OutfitDetail, products: ProductDetail[]) {
+  private async projectManaged(details: OutfitDetail[]) {
+    const prepared = await this.prepareManaged(details);
+    return details.map(detail => this.toManagedDetail(detail, prepared.products, prepared.displays));
+  }
+  private toManagedDetail(detail: OutfitDetail, products: ProductDetail[], displays: Map<string, string>) {
     const publicFields = this.toOutfitDetail(detail, products);
     const sourceById = new Map(detail.items.map(item => [item.id, item]));
     return {...publicFields, version: detail.outfit.version, status: detail.outfit.status, visibility: detail.outfit.visibility,
       owner: detail.owner, genderTarget: detail.outfit.genderTarget, rejectionReason: detail.outfit.rejectionReason,
       reviewedAt: detail.outfit.reviewedAt?.toISOString() ?? null, createdAt: detail.outfit.createdAt.toISOString(),
-      updatedAt: detail.outfit.updatedAt.toISOString(), images: detail.images.map(image => ({id: image.id, url: image.url, position: image.position})),
+      updatedAt: detail.outfit.updatedAt.toISOString(), images: detail.images.map(image => {
+        const displayUrl = displays.get(image.url);
+        if (!displayUrl) throw new BadRequestException(OUTFIT_MEDIA.failure.ownership);
+        return {id: image.id, url: image.url, displayUrl, position: image.position};
+      }),
       items: publicFields.items.map(item => {
         const source = sourceById.get(item.id)!;
         return {...item, isShoppable: source.isShoppable, productId: source.productId, externalLabel: source.externalLabel};

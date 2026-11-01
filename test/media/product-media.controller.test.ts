@@ -1,3 +1,4 @@
+import type {ImageUploadFile} from '../../src/modules/media/domain/image-upload.contract';
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -6,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ProductMediaController } from '../../src/modules/media/presentation/product-media.controller';
-import { ProductMediaService, type ProductImageFile } from '../../src/modules/media/application/product-media.service';
+import { ProductMediaService } from '../../src/modules/media/application/product-media.service';
 import { PRODUCT_MEDIA } from '../../src/modules/media/domain/product-media.contract';
 import { AuthGuard } from '../../src/shared/presentation/guards/auth.guard';
 import type { RequestWithCurrentUser } from '../../src/shared/presentation/decorators/current-user.decorator';
@@ -25,7 +26,7 @@ describe('Product image multipart transport', () => {
   let reads: number = fixture.initialCalls;
   beforeAll(async () => {
     const module = await Test.createTestingModule({controllers: [ProductMediaController], providers: [{provide: ProductMediaService, useValue: {
-      async upload(userId: string, input: {brandId: string; requestId: string}, file: ProductImageFile) {
+      async upload(userId: string, input: {brandId: string; requestId: string}, file: ImageUploadFile) {
         assert.equal(userId, fixture.userId); assert.deepEqual(Object.keys(input).sort(), [fixture.brandField, fixture.requestField].sort());
         assert.equal(input.brandId, fixture.brandId); assert.equal(input.requestId, fixture.requestId);
         assert(file.buffer.equals(fixture.bytes)); assert.equal(file.size, fixture.bytes.length); assert.equal(file.mimetype, PRODUCT_MEDIA.mime);

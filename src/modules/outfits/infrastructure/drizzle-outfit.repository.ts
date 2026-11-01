@@ -1,13 +1,14 @@
+import {OUTFIT_MEDIA} from '../../media/domain/outfit-media.contract';
+import {findAuthoringProfile, ProfileAccessMode} from '../../../shared/infrastructure/database/profile-authoring-access';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, lt, inArray, isNull, isNotNull, or, exists, notInArray, gt, sql } from 'drizzle-orm';
 import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_VISIBILITY} from '../domain/outfit-editing.contract';
-import {PROFILE_EDITING} from '../../../shared/domain/profile-editing.contract';
 import {PRODUCT_STATUS} from '../../products/domain/product-contract';
 import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '../domain/public-outfit.contract';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
-import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfits, users, brandMembers, products, tags, outfitTags } from '../../../shared/infrastructure/database/schema';
+import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfits, users, products, tags, outfitTags, outfitMediaAssets } from '../../../shared/infrastructure/database/schema';
 import type { Outfit, OutfitAuthor, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility, OutfitOwner, OutfitOwnerInfo, OutfitManagedQuery, OutfitManagedPage, OutfitContentUpdate, OutfitTag } from '../domain/outfit.types';
 
 @Injectable()
@@ -26,27 +27,8 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     if (this.withinTransaction) return operation(this);
     return this.database.db.transaction(tx => operation(this.scoped({db: tx})), READ_SNAPSHOT);
   }
-  findEditableOwner(owner: OutfitOwner, userId: string) { return this.editableOwner(owner, userId, false); }
-  lockEditableOwner(owner: OutfitOwner, userId: string) { return this.editableOwner(owner, userId, true); }
-  private async editableOwner(owner: OutfitOwner, userId: string, lock: boolean): Promise<OutfitOwnerInfo | undefined> {
-    if (owner.creatorId !== null && owner.brandId === null) {
-      const query = this.database.db.select({id: creatorProfiles.id, name: creatorProfiles.displayName, status: creatorProfiles.status})
-        .from(creatorProfiles).innerJoin(users, eq(users.id, creatorProfiles.userId))
-        .where(and(eq(creatorProfiles.id, owner.creatorId), eq(creatorProfiles.userId, userId),
-          inArray(creatorProfiles.status, PROFILE_EDITING.writableStatuses), eq(users.status, PUBLIC_PROFILE.userStatus)));
-      const [row] = lock ? await query.for(OUTFIT_EDITING.persistence.lock) : await query;
-      return row ? {...row, kind: PUBLIC_PROFILE.kind.creator} : undefined;
-    }
-    if (owner.brandId !== null && owner.creatorId === null) {
-      const query = this.database.db.select({id: brandProfiles.id, name: brandProfiles.brandName, status: brandProfiles.status})
-        .from(brandProfiles).innerJoin(brandMembers, and(eq(brandMembers.brandProfileId, brandProfiles.id), eq(brandMembers.userId, userId), eq(brandMembers.status, PROFILE_EDITING.persistence.memberActive)))
-        .innerJoin(users, eq(users.id, brandMembers.userId))
-        .where(and(eq(brandProfiles.id, owner.brandId), inArray(brandProfiles.status, PROFILE_EDITING.writableStatuses), eq(users.status, PUBLIC_PROFILE.userStatus)));
-      const [row] = lock ? await query.for(OUTFIT_EDITING.persistence.lock) : await query;
-      return row ? {...row, kind: PUBLIC_PROFILE.kind.brand} : undefined;
-    }
-    return undefined;
-  }
+  findEditableOwner(owner: OutfitOwner, userId: string) { return findAuthoringProfile(this.database, owner, userId, ProfileAccessMode.Read); }
+  lockEditableOwner(owner: OutfitOwner, userId: string) { return findAuthoringProfile(this.database, owner, userId, ProfileAccessMode.Lock); }
   async lockOwner(owner: OutfitOwner): Promise<void> {
     if (owner.creatorId) await this.database.db.select({id: creatorProfiles.id}).from(creatorProfiles).innerJoin(users, eq(users.id, creatorProfiles.userId))
       .where(eq(creatorProfiles.id, owner.creatorId)).for(OUTFIT_EDITING.persistence.lock);
@@ -70,6 +52,13 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     return {items: await this.loadDetails(page, this.database), nextCursor: rows.length > query.limit ? page.at(OUTFIT_EDITING.limits.last)!.id : null};
   }
   listTags(): Promise<OutfitTag[]> { return this.database.db.select({id: tags.id, type: tags.type, slug: tags.slug, label: tags.label}).from(tags).orderBy(tags.type, tags.label, tags.id); }
+  async hasReadyOutfitMedia(owner: OutfitOwner, ids: string[]): Promise<boolean> {
+    if (!ids.length) return true;
+    const rows = await this.database.db.select({id: outfitMediaAssets.id}).from(outfitMediaAssets).where(and(inArray(outfitMediaAssets.id, ids),
+      owner.creatorId !== null ? eq(outfitMediaAssets.creatorId, owner.creatorId) : isNull(outfitMediaAssets.creatorId),
+      owner.brandId !== null ? eq(outfitMediaAssets.brandId, owner.brandId) : isNull(outfitMediaAssets.brandId), eq(outfitMediaAssets.status, OUTFIT_MEDIA.status.ready)));
+    return rows.length === new Set(ids).size;
+  }
   async findSelectableProductIds(ids: string[]): Promise<string[]> {
     if (!ids.length) return [];
     const rows = await this.database.db.select({id: products.id}).from(products).innerJoin(brandProfiles, eq(brandProfiles.id, products.brandId))

@@ -1,13 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto';
+import {MemoryImageStorage, imageStorageFixture} from './memory-image.storage';
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { ProductMediaService } from '../../src/modules/media/application/product-media.service';
-import { ProductMediaLocator } from '../../src/modules/media/application/product-media-locator';
+import { MediaAssetLocator } from '../../src/modules/media/application/media-asset-locator';
 import { PRODUCT_MEDIA } from '../../src/modules/media/domain/product-media.contract';
-import type { ProductMediaAsset, ProductMediaRepository, ProductMediaStorage } from '../../src/modules/media/domain/product-media.types';
+import type { ProductMediaAsset, ProductMediaRepository } from '../../src/modules/media/domain/product-media.types';
 
 const fixture = {
-  origin: 'https://media.test', external: 'https://cdn.test/image.jpg', signed: 'https://signed.test/', payload: 'image payload', changed: 'changed image payload', invalid: 'Invalid media fixture contract',
+  origin: 'https://media.test', external: 'https://cdn.test/image.jpg', signed: imageStorageFixture.signed, payload: 'image payload', changed: 'changed image payload', invalid: 'Invalid media fixture contract',
   timestamp: new Date('2026-10-31T00:00:00.000Z'), first: 0, firstCall: 1, missingSize: 0, malformedOrigin: 'https://media.test/extra',
 } as const;
 class MemoryMediaRepository implements ProductMediaRepository {
@@ -38,28 +39,9 @@ class MemoryMediaRepository implements ProductMediaRepository {
   }
   async findPublic(id: string, url: string) { return this.publicURLs.get(id) === url ? this.assets.get(id) ?? null : null; }
 }
-class MemoryMediaStorage implements ProductMediaStorage {
-  readonly files = new Map<string, Buffer>();
-  uploadCalls = fixture.missingSize;
-  failUpload = false;
-  omitSignedPath = false;
-  afterUpload?: () => void;
-  async uploadOrVerify(path: string, bytes: Buffer, fingerprint: string) {
-    if (createHash(PRODUCT_MEDIA.hash.algorithm).update(bytes).digest(PRODUCT_MEDIA.hash.encoding) !== fingerprint) throw new Error(fixture.invalid);
-    this.uploadCalls += fixture.firstCall;
-    if (this.failUpload) throw new ServiceUnavailableException(PRODUCT_MEDIA.failure.unavailable);
-    const previous = this.files.get(path);
-    if (previous && !previous.equals(bytes)) throw new Error(fixture.invalid);
-    this.files.set(path, bytes); this.afterUpload?.();
-  }
-  async sign(paths: string[]) {
-    if (paths.some(path => !this.files.has(path))) throw new ServiceUnavailableException(PRODUCT_MEDIA.failure.unavailable);
-    return this.omitSignedPath ? new Map<string, string>() : new Map(paths.map(path => [path, fixture.signed + path]));
-  }
-}
 function setup() {
   const brandId = randomUUID(), userId = randomUUID(), requestId = randomUUID();
-  const repository = new MemoryMediaRepository(), storage = new MemoryMediaStorage(), locator = new ProductMediaLocator(() => fixture.origin);
+  const repository = new MemoryMediaRepository(), storage = new MemoryImageStorage(PRODUCT_MEDIA.failure.unavailable), locator = new MediaAssetLocator(() => fixture.origin, PRODUCT_MEDIA);
   repository.members.add(brandId + userId);
   const buffer = Buffer.concat([Buffer.from(PRODUCT_MEDIA.image.prefix), Buffer.from(fixture.payload), Buffer.from(PRODUCT_MEDIA.image.suffix)]);
   return {brandId, userId, input: {brandId, requestId}, repository, storage, locator, file: {buffer, size: buffer.length, mimetype: PRODUCT_MEDIA.mime}, service: new ProductMediaService(repository, storage, locator)};
@@ -135,7 +117,7 @@ describe('Product media ownership and recovery', () => {
     const s = setup(), id = randomUUID(), canonical = s.locator.url(id);
     expect(s.service.assetIDs([canonical, canonical, fixture.external])).toEqual([id]);
     expect(() => s.service.assetIDs([canonical + PRODUCT_MEDIA.storageSettings.separator])).toThrow(BadRequestException);
-    const locator = new ProductMediaLocator(() => fixture.malformedOrigin);
+    const locator = new MediaAssetLocator(() => fixture.malformedOrigin, PRODUCT_MEDIA);
     expect(() => locator.url(id)).toThrow(ServiceUnavailableException);
   });
 });
