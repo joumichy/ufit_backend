@@ -1,10 +1,11 @@
+import type {IdentityAccess} from '../../src/modules/identity/domain/user.types';
+import {WORKSPACE_FINANCE} from '../../src/modules/workspaces/domain/workspace-finance';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
   WorkspacesService,
   type BrandWorkspaceMetrics,
   type BrandWorkspaceProduct,
-  type BrandWorkspaceOrder,
   type BrandWorkspaceOutfitIntegration,
   type CreatorWorkspaceOutfit,
   type CreatorWorkspaceCommission,
@@ -38,20 +39,11 @@ const creatorMetrics: CreatorWorkspaceMetrics = {
     published: 1,
     rejected: 0
   },
-  commissions: {
-    pendingAmount: 1200,
-    validatedAmount: 500,
-    paidAmount: 300,
-    totalAmount: 2000,
-    pendingCount: 2,
-    validatedCount: 1,
-    paidCount: 1
-  },
-  sales: {
-    paidOrderCount: 4,
-    grossAmount: 20000,
-    currency: 'CHF'
-  }
+  commissions: [{currency: 'CHF', originalAmount: 2000, adjustedAmount: 300, netAmount: 1700,
+    estimatedAmount: 0, pendingAmount: 1000, validatedAmount: 400, paidAmount: 300, paidAdjustmentAmount: 0,
+    estimatedCount: 0, pendingCount: 2, validatedCount: 1, paidCount: 1, cancelledCount: 0}],
+  sales: {basis: WORKSPACE_FINANCE.basis.attributedMerchandise,
+    currencies: [{currency: 'CHF', capturedOrderCount: 4, capturedAmount: 20000, refundedAmount: 3000, refundInProgressAmount: 500, netAmount: 17000}]}
 };
 
 const brandProfile: BrandWorkspaceProfile = {
@@ -79,17 +71,21 @@ const brandMetrics: BrandWorkspaceMetrics = {
     cancelled: 0,
     refunded: 0
   },
-  sales: {
-    paidOrderCount: 4,
-    grossAmount: 42000,
-    currency: 'CHF'
-  },
+  sales: {basis: WORKSPACE_FINANCE.basis.orderTotal,
+    currencies: [{currency: 'CHF', capturedOrderCount: 4, capturedAmount: 42000, refundedAmount: 2000, refundInProgressAmount: 0, netAmount: 40000}]},
   stock: {
     lowStockVariants: 2
   }
 };
 
 class FakeWorkspacesRepository implements WorkspacesRepository {
+  actor: IdentityAccess | undefined = {status: 'active', roles: ['creator', 'brand_owner']};
+  inSnapshot = false;
+  async snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T> {
+    this.inSnapshot = true;
+    try { return await operation(this); } finally { this.inSnapshot = false; }
+  }
+  async actorAccess() { expect(this.inSnapshot).toBe(true); return this.actor; }
   async listBrandsForUser(): Promise<{items: BrandWorkspaceProfile[]; nextCursor: string | null}> {
     return {items: [brandProfile], nextCursor: null};
   }
@@ -126,11 +122,6 @@ class FakeWorkspacesRepository implements WorkspacesRepository {
   async listBrandProducts(_brandProfileId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
     return emptyPage<BrandWorkspaceProduct>(page);
-  }
-
-  async listBrandOrders(_brandProfileId: string, page: Required<WorkspacePageInput>) {
-    this.lastPage = page;
-    return emptyPage<BrandWorkspaceOrder>(page);
   }
 
   async listBrandOutfitIntegrations(_brandProfileId: string, page: Required<WorkspacePageInput>) {
@@ -190,7 +181,16 @@ describe('WorkspacesService', () => {
     repository.brand = null;
     const service = new WorkspacesService(repository);
 
-    await expect(service.listBrandOrders('brand-1', 'user-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.getBrandDashboard('brand-1', 'user-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it.each([undefined, {status: 'suspended', roles: ['creator', 'brand_owner']},
+    {status: 'active', roles: ['customer']}])('rejects financial reads after current identity access changed: %j', async actor => {
+    const repository = new FakeWorkspacesRepository();
+    repository.actor = actor as IdentityAccess | undefined;
+    const service = new WorkspacesService(repository);
+    await expect(service.getCreatorDashboard('user-1')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.getBrandDashboard('brand-1', 'user-1')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('normalizes pagination for workspace lists', async () => {

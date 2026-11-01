@@ -1,3 +1,8 @@
+import type {WorkspaceSales, WorkspaceCommissionCurrency, WorkspaceCommission} from '../domain/workspace-finance';
+import {WORKSPACE_FINANCE} from '../domain/workspace-finance';
+import {canAuthorProfile, PROFILE_STATUS, type ProfileOwner} from '../../../shared/domain/profile-editing.contract';
+import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
+import type {IdentityAccess} from '../../identity/domain/user.types';
 import { z } from 'zod';
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
@@ -42,30 +47,14 @@ export interface BrandWorkspaceProfile {
 
 export interface CreatorWorkspaceMetrics {
   outfits: Record<'total' | 'draft' | 'underReview' | 'published' | 'rejected', number>;
-  commissions: {
-    pendingAmount: number;
-    validatedAmount: number;
-    paidAmount: number;
-    totalAmount: number;
-    pendingCount: number;
-    validatedCount: number;
-    paidCount: number;
-  };
-  sales: {
-    paidOrderCount: number;
-    grossAmount: number;
-    currency: string;
-  };
+  commissions: WorkspaceCommissionCurrency[];
+  sales: WorkspaceSales;
 }
 
 export interface BrandWorkspaceMetrics {
   products: Record<'total' | 'draft' | 'underReview' | 'active' | 'rejected' | 'archived', number>;
   orders: Record<'paid' | 'preparing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded', number>;
-  sales: {
-    paidOrderCount: number;
-    grossAmount: number;
-    currency: string;
-  };
+  sales: WorkspaceSales;
   stock: {
     lowStockVariants: number;
   };
@@ -82,17 +71,7 @@ export interface CreatorWorkspaceOutfit {
   updatedAt: string | null;
 }
 
-export interface CreatorWorkspaceCommission {
-  id: string;
-  orderItemId: string;
-  brandId: string;
-  sourceOutfitId: string;
-  status: string;
-  baseAmount: number;
-  commissionRate: number;
-  commissionAmount: number;
-  createdAt: string | null;
-}
+export type CreatorWorkspaceCommission = WorkspaceCommission;
 
 export interface BrandWorkspaceProduct {
   id: string;
@@ -104,17 +83,6 @@ export interface BrandWorkspaceProduct {
   totalStock: number;
   activeVariants: number;
   updatedAt: string | null;
-}
-
-export interface BrandWorkspaceOrder {
-  id: string;
-  orderNumber: string;
-  status: string;
-  totalAmount: number;
-  currency: string;
-  sourceCreatorId: string | null;
-  sourceOutfitId: string | null;
-  createdAt: string | null;
 }
 
 export interface BrandWorkspaceOutfitIntegration {
@@ -157,6 +125,8 @@ export interface WorkspaceMemberships {
   brands: BrandWorkspaceProfile[];
 }
 export interface WorkspacesRepository {
+  snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T>;
+  actorAccess(userId: string): Promise<IdentityAccess | undefined>;
   listBrandsForUser(
     userId: string,
     limit: number,
@@ -171,12 +141,18 @@ export interface WorkspacesRepository {
   findBrandProfileForMember(brandProfileId: string, userId: string): Promise<BrandWorkspaceProfile | null>;
   getBrandMetrics(brandProfileId: string): Promise<BrandWorkspaceMetrics>;
   listBrandProducts(brandProfileId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<BrandWorkspaceProduct>>;
-  listBrandOrders(brandProfileId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<BrandWorkspaceOrder>>;
   listBrandOutfitIntegrations(
     brandProfileId: string,
     page: Required<WorkspacePageInput>
   ): Promise<WorkspacePage<BrandWorkspaceOutfitIntegration>>;
 }
+
+const WORKSPACE_ACCESS_MESSAGE = {
+  creatorMissing: 'Creator profile not found',
+  creatorSuspended: 'Suspended creators cannot access the creator workspace',
+  brandMembership: 'Brand membership is required',
+  brandSuspended: 'Suspended brands cannot access the brand workspace',
+} as const;
 
 @Injectable()
 export class WorkspacesService {
@@ -210,29 +186,32 @@ export class WorkspacesService {
     };
   }
   async getCreatorDashboard(userId: string) {
-    const profile = await this.requireActiveCreator(userId);
-    return {
-      profile,
-      performance: await this.workspaces.getCreatorMetrics(profile.id)
-    };
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireCreatorProfile(userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: profile.id, brandId: null});
+      return {profile, performance: await repository.getCreatorMetrics(profile.id)};
+    });
   }
 
   async listCreatorOutfits(userId: string, input: WorkspacePageInput) {
-    const profile = await this.requireActiveCreator(userId);
+    const profile = await this.requireCreatorProfile(userId);
     return this.workspaces.listCreatorOutfits(profile.id, this.normalizePage(input));
   }
 
   async listCreatorCommissions(userId: string, input: WorkspacePageInput) {
-    const profile = await this.requireActiveCreator(userId);
-    return this.workspaces.listCreatorCommissions(profile.id, this.normalizePage(input));
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireCreatorProfile(userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: profile.id, brandId: null});
+      return repository.listCreatorCommissions(profile.id, this.normalizePage(input));
+    });
   }
 
   async getBrandDashboard(brandProfileId: string, userId: string) {
-    const profile = await this.requireBrandMember(brandProfileId, userId);
-    return {
-      profile,
-      performance: await this.workspaces.getBrandMetrics(profile.id)
-    };
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireBrandMember(brandProfileId, userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: null, brandId: profile.id});
+      return {profile, performance: await repository.getBrandMetrics(profile.id)};
+    });
   }
 
   async listBrandProducts(brandProfileId: string, userId: string, input: WorkspacePageInput) {
@@ -240,36 +219,38 @@ export class WorkspacesService {
     return this.workspaces.listBrandProducts(profile.id, this.normalizePage(input));
   }
 
-  async listBrandOrders(brandProfileId: string, userId: string, input: WorkspacePageInput) {
-    const profile = await this.requireBrandMember(brandProfileId, userId);
-    return this.workspaces.listBrandOrders(profile.id, this.normalizePage(input));
-  }
-
   async listBrandOutfitIntegrations(brandProfileId: string, userId: string, input: WorkspacePageInput) {
     const profile = await this.requireBrandMember(brandProfileId, userId);
     return this.workspaces.listBrandOutfitIntegrations(profile.id, this.normalizePage(input));
   }
 
-  private async requireActiveCreator(userId: string): Promise<CreatorWorkspaceProfile> {
-    const profile = await this.workspaces.findCreatorProfileByUserId(userId);
+  private async requireCreatorProfile(userId: string, repository = this.workspaces): Promise<CreatorWorkspaceProfile> {
+    const profile = await repository.findCreatorProfileByUserId(userId);
     if (!profile) {
-      throw new NotFoundException('Creator profile not found');
+      throw new NotFoundException(WORKSPACE_ACCESS_MESSAGE.creatorMissing);
     }
-    if (profile.status === 'suspended') {
-      throw new ForbiddenException('Suspended creators cannot access the creator workspace');
+    if (profile.status === PROFILE_STATUS.suspended) {
+      throw new ForbiddenException(WORKSPACE_ACCESS_MESSAGE.creatorSuspended);
     }
     return profile;
   }
 
-  private async requireBrandMember(brandProfileId: string, userId: string): Promise<BrandWorkspaceProfile> {
-    const profile = await this.workspaces.findBrandProfileForMember(brandProfileId, userId);
+  private async requireBrandMember(brandProfileId: string, userId: string, repository = this.workspaces): Promise<BrandWorkspaceProfile> {
+    const profile = await repository.findBrandProfileForMember(brandProfileId, userId);
     if (!profile) {
-      throw new ForbiddenException('Brand membership is required');
+      throw new ForbiddenException(WORKSPACE_ACCESS_MESSAGE.brandMembership);
     }
-    if (profile.status === 'suspended') {
-      throw new ForbiddenException('Suspended brands cannot access the brand workspace');
+    if (profile.status === PROFILE_STATUS.suspended) {
+      throw new ForbiddenException(WORKSPACE_ACCESS_MESSAGE.brandSuspended);
     }
     return profile;
+  }
+
+  private async requireFinancialAccess(repository: WorkspacesRepository, userId: string, owner: ProfileOwner) {
+    const actor = await repository.actorAccess(userId);
+    if (!actor || actor.status !== PUBLIC_PROFILE.userStatus || !canAuthorProfile(actor.roles, owner)) {
+      throw new ForbiddenException(WORKSPACE_FINANCE.failure.access);
+    }
   }
 
   private normalizePage(input: WorkspacePageInput): Required<WorkspacePageInput> {

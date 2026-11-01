@@ -1,10 +1,9 @@
 import {eq} from 'drizzle-orm';
 import type {DatabaseSession} from '../../../../shared/infrastructure/database/database-session';
 import {users, userRoles} from '../../../../shared/infrastructure/database/schema';
-import type {UserRole, UserStatus} from '../../domain/user.types';
+import type {IdentityAccess} from '../../domain/user.types';
 
 export enum IdentityAccessMode {Read, Lock}
-export interface IdentityAccess {status: UserStatus; roles: UserRole[];}
 const IDENTITY_ACCESS = {rowLock: 'update', singleRow: 1} as const;
 export async function findIdentityAccess(database: DatabaseSession, actorId: string, mode: IdentityAccessMode): Promise<IdentityAccess | undefined> {
   const actorQuery = database.db.select({status: users.status}).from(users).where(eq(users.id, actorId)).limit(IDENTITY_ACCESS.singleRow);

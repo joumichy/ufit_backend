@@ -1,10 +1,16 @@
+import {OUTFIT_STATUS} from '../../outfits/domain/outfit-editing.contract';
+import {PRODUCT_STATUS, PRODUCT_VARIANT_STATUS} from '../../products/domain/product-contract';
+import {ORDER_STATUS} from '../../orders/domain/order-lifecycle';
+import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
+import {findIdentityAccess, IdentityAccessMode} from '../../identity/infrastructure/persistence/identity-access';
+import {DrizzleWorkspaceFinanceReader} from './drizzle-workspace-finance.reader';
+import {WORKSPACE_FINANCE as FINANCE} from '../domain/workspace-finance';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gt, inArray, sql, sum } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
   brandMembers,
   brandProfiles,
-  commissions,
   creatorGrades,
   creatorProfiles,
   outfitItems,
@@ -16,7 +22,6 @@ import {
 import { WORKSPACE_MEMBERSHIP } from '../application/workspaces.service';
 import type {
   BrandWorkspaceMetrics,
-  BrandWorkspaceOrder,
   BrandWorkspaceOutfitIntegration,
   BrandWorkspaceProduct,
   BrandWorkspaceProfile,
@@ -30,11 +35,15 @@ import type {
 } from '../application/workspaces.service';
 
 const MEMBERSHIP_ACTIVE = "active";
-const paidOrderStatuses = ['paid', 'preparing', 'shipped', 'delivered'] as const;
 
 @Injectable()
 export class DrizzleWorkspacesRepository implements WorkspacesRepository {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
+
+  snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T> {
+    return this.database.db.transaction(tx => operation(new DrizzleWorkspacesRepository({db: tx})), READ_SNAPSHOT);
+  }
+  actorAccess(userId: string) { return findIdentityAccess(this.database, userId, IdentityAccessMode.Read); }
 
   async listBrandsForUser(
     userId: string,
@@ -113,56 +122,27 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
   }
 
   async getCreatorMetrics(creatorId: string): Promise<CreatorWorkspaceMetrics> {
-    const [outfitRows, commissionRows, salesRow] = await Promise.all([
-      this.database.db
+    const outfitRows = await this.database.db
         .select({ status: outfits.status, value: count() })
         .from(outfits)
         .where(eq(outfits.creatorId, creatorId))
-        .groupBy(outfits.status),
-      this.database.db
-        .select({
-          status: commissions.status,
-          value: count(),
-          amount: sum(commissions.commissionAmount)
-        })
-        .from(commissions)
-        .where(eq(commissions.creatorId, creatorId))
-        .groupBy(commissions.status),
-      this.database.db
-        .select({
-          orderCount: count(),
-          grossAmount: sum(orders.totalAmount)
-        })
-        .from(orders)
-        .where(and(eq(orders.sourceCreatorId, creatorId), inArray(orders.status, paidOrderStatuses)))
-    ]);
+        .groupBy(outfits.status);
+    const finance = new DrizzleWorkspaceFinanceReader(this.database);
+    const commissionCurrencies = await finance.creatorCommissions(creatorId);
+    const sales = await finance.sales({kind: FINANCE.scope.creator, profileId: creatorId});
 
     const outfitCounts = new Map(outfitRows.map((row) => [row.status, row.value]));
-    const commissionCounts = new Map(commissionRows.map((row) => [row.status, row.value]));
-    const commissionAmounts = new Map(commissionRows.map((row) => [row.status, toNumber(row.amount)]));
 
     return {
       outfits: {
-        total: outfitRows.reduce((total, row) => total + row.value, 0),
-        draft: outfitCounts.get('draft') ?? 0,
-        underReview: (outfitCounts.get('submitted') ?? 0) + (outfitCounts.get('under_review') ?? 0),
-        published: outfitCounts.get('published') ?? 0,
-        rejected: outfitCounts.get('rejected') ?? 0
+        total: outfitRows.reduce<number>((total, row) => total + row.value, FINANCE.zero),
+        draft: outfitCounts.get(OUTFIT_STATUS.draft) ?? FINANCE.zero,
+        underReview: (outfitCounts.get(OUTFIT_STATUS.submitted) ?? FINANCE.zero) + (outfitCounts.get(OUTFIT_STATUS.underReview) ?? FINANCE.zero),
+        published: outfitCounts.get(OUTFIT_STATUS.published) ?? FINANCE.zero,
+        rejected: outfitCounts.get(OUTFIT_STATUS.rejected) ?? FINANCE.zero
       },
-      commissions: {
-        pendingAmount: commissionAmounts.get('pending') ?? 0,
-        validatedAmount: commissionAmounts.get('validated') ?? 0,
-        paidAmount: commissionAmounts.get('paid') ?? 0,
-        totalAmount: [...commissionAmounts.values()].reduce((total, amount) => total + amount, 0),
-        pendingCount: commissionCounts.get('pending') ?? 0,
-        validatedCount: commissionCounts.get('validated') ?? 0,
-        paidCount: commissionCounts.get('paid') ?? 0
-      },
-      sales: {
-        paidOrderCount: salesRow[0]?.orderCount ?? 0,
-        grossAmount: toNumber(salesRow[0]?.grossAmount),
-        currency: 'CHF'
-      }
+      commissions: commissionCurrencies,
+      sales
     };
   }
 
@@ -199,33 +179,7 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
     creatorId: string,
     page: Required<WorkspacePageInput>
   ): Promise<WorkspacePage<CreatorWorkspaceCommission>> {
-    const where = eq(commissions.creatorId, creatorId);
-    const [rows, total] = await Promise.all([
-      this.database.db
-        .select()
-        .from(commissions)
-        .where(where)
-        .orderBy(desc(commissions.createdAt))
-        .limit(page.limit)
-        .offset(page.offset),
-      this.database.db.select({ value: count() }).from(commissions).where(where)
-    ]);
-
-    return toPage(
-      rows.map((row) => ({
-        id: row.id,
-        orderItemId: row.orderItemId,
-        brandId: row.brandId,
-        sourceOutfitId: row.sourceOutfitId,
-        status: row.status,
-        baseAmount: row.baseAmount,
-        commissionRate: Number(row.commissionRate),
-        commissionAmount: row.commissionAmount,
-        createdAt: row.createdAt?.toISOString() ?? null
-      })),
-      page,
-      total[0]?.value ?? 0
-    );
+    return new DrizzleWorkspaceFinanceReader(this.database).commissionPage(creatorId, page);
   }
 
   async findBrandProfileForMember(brandProfileId: string, userId: string): Promise<BrandWorkspaceProfile | null> {
@@ -253,58 +207,46 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
   }
 
   async getBrandMetrics(brandProfileId: string): Promise<BrandWorkspaceMetrics> {
-    const [productRows, orderRows, salesRow, lowStockRow] = await Promise.all([
-      this.database.db
+    const productRows = await this.database.db
         .select({ status: products.status, value: count() })
         .from(products)
         .where(eq(products.brandId, brandProfileId))
-        .groupBy(products.status),
-      this.database.db
+        .groupBy(products.status);
+    const orderRows = await this.database.db
         .select({ status: orders.status, value: count() })
         .from(orders)
         .where(eq(orders.brandId, brandProfileId))
-        .groupBy(orders.status),
-      this.database.db
-        .select({
-          orderCount: count(),
-          grossAmount: sum(orders.totalAmount)
-        })
-        .from(orders)
-        .where(and(eq(orders.brandId, brandProfileId), inArray(orders.status, paidOrderStatuses))),
-      this.database.db
+        .groupBy(orders.status);
+    const sales = await new DrizzleWorkspaceFinanceReader(this.database).sales({kind: FINANCE.scope.brand, profileId: brandProfileId});
+    const lowStockRow = await this.database.db
         .select({ value: count() })
         .from(productVariants)
         .innerJoin(products, eq(products.id, productVariants.productId))
-        .where(and(eq(products.brandId, brandProfileId), eq(productVariants.status, 'active'), sql`${productVariants.stockQuantity} <= 3`))
-    ]);
+        .where(and(eq(products.brandId, brandProfileId), eq(productVariants.status, PRODUCT_VARIANT_STATUS.active), sql`${productVariants.stockQuantity} <= ${FINANCE.lowStockThreshold}`));
 
     const productCounts = new Map(productRows.map((row) => [row.status, row.value]));
     const orderCounts = new Map(orderRows.map((row) => [row.status, row.value]));
 
     return {
       products: {
-        total: productRows.reduce((total, row) => total + row.value, 0),
-        draft: productCounts.get('draft') ?? 0,
-        underReview: productCounts.get('under_review') ?? 0,
-        active: productCounts.get('active') ?? 0,
-        rejected: productCounts.get('rejected') ?? 0,
-        archived: productCounts.get('archived') ?? 0
+        total: productRows.reduce<number>((total, row) => total + row.value, FINANCE.zero),
+        draft: productCounts.get(PRODUCT_STATUS.draft) ?? FINANCE.zero,
+        underReview: productCounts.get(PRODUCT_STATUS.underReview) ?? FINANCE.zero,
+        active: productCounts.get(PRODUCT_STATUS.active) ?? FINANCE.zero,
+        rejected: productCounts.get(PRODUCT_STATUS.rejected) ?? FINANCE.zero,
+        archived: productCounts.get(PRODUCT_STATUS.archived) ?? FINANCE.zero
       },
       orders: {
-        paid: orderCounts.get('paid') ?? 0,
-        preparing: orderCounts.get('preparing') ?? 0,
-        shipped: orderCounts.get('shipped') ?? 0,
-        delivered: orderCounts.get('delivered') ?? 0,
-        cancelled: orderCounts.get('cancelled') ?? 0,
-        refunded: orderCounts.get('refunded') ?? 0
+        paid: orderCounts.get(ORDER_STATUS.paid) ?? FINANCE.zero,
+        preparing: orderCounts.get(ORDER_STATUS.preparing) ?? FINANCE.zero,
+        shipped: orderCounts.get(ORDER_STATUS.shipped) ?? FINANCE.zero,
+        delivered: orderCounts.get(ORDER_STATUS.delivered) ?? FINANCE.zero,
+        cancelled: orderCounts.get(ORDER_STATUS.cancelled) ?? FINANCE.zero,
+        refunded: orderCounts.get(ORDER_STATUS.refunded) ?? FINANCE.zero
       },
-      sales: {
-        paidOrderCount: salesRow[0]?.orderCount ?? 0,
-        grossAmount: toNumber(salesRow[0]?.grossAmount),
-        currency: 'CHF'
-      },
+      sales,
       stock: {
-        lowStockVariants: lowStockRow[0]?.value ?? 0
+        lowStockVariants: lowStockRow[0]?.value ?? FINANCE.zero
       }
     };
   }
@@ -342,35 +284,6 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
           updatedAt: product.updatedAt?.toISOString() ?? null
         };
       }),
-      page,
-      total[0]?.value ?? 0
-    );
-  }
-
-  async listBrandOrders(brandProfileId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<BrandWorkspaceOrder>> {
-    const where = eq(orders.brandId, brandProfileId);
-    const [rows, total] = await Promise.all([
-      this.database.db
-        .select()
-        .from(orders)
-        .where(where)
-        .orderBy(desc(orders.createdAt))
-        .limit(page.limit)
-        .offset(page.offset),
-      this.database.db.select({ value: count() }).from(orders).where(where)
-    ]);
-
-    return toPage(
-      rows.map((row) => ({
-        id: row.id,
-        orderNumber: row.orderNumber,
-        status: row.status,
-        totalAmount: row.totalAmount,
-        currency: row.currency,
-        sourceCreatorId: row.sourceCreatorId,
-        sourceOutfitId: row.sourceOutfitId,
-        createdAt: row.createdAt?.toISOString() ?? null
-      })),
       page,
       total[0]?.value ?? 0
     );

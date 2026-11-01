@@ -4,6 +4,8 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const USER_STATUSES = ['active', 'onboarding', 'suspended', 'deleted'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
+export interface IdentityAccess {status: UserStatus; roles: UserRole[];}
+
 export interface AuthenticatedUser {
   id: string;
   email: string;

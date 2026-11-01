@@ -59,17 +59,6 @@ export class WorkspacesController {
     return this.workspacesService.listBrandProducts(brandProfileId, user.id, pageFromQuery(limit, offset));
   }
 
-  @Get('brands/:brandProfileId/orders')
-  @Roles('brand_owner', 'brand_manager')
-  listBrandOrders(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('brandProfileId') brandProfileId: string,
-    @Query('limit') limit?: string,
-    @Query('offset') offset?: string
-  ) {
-    return this.workspacesService.listBrandOrders(brandProfileId, user.id, pageFromQuery(limit, offset));
-  }
-
   @Get('brands/:brandProfileId/outfit-integrations')
   @Roles('brand_owner', 'brand_manager')
   listBrandOutfitIntegrations(
