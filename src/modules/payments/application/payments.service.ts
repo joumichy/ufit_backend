@@ -33,6 +33,8 @@ import { STRIPE_ORDER_METADATA, STRIPE_COMMERCE } from "./stripe-commerce";
 
 export { STRIPE_CLIENT } from "./stripe-commerce";
 import { STRIPE_CLIENT } from "./stripe-commerce";
+import {refundStripeReturn} from '../infrastructure/stripe-order-return';
+import type {ReturnRefundClaim} from '../../orders/domain/return-refund';
 export type StripePaymentsClient = Pick<
   StripeSDK,
   | "paymentIntents"
@@ -69,15 +71,20 @@ export class PaymentsService {
       return { settlement: { outcome: CANCELLATION.outcome.notCharged } };
     if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
       throw new ServiceUnavailableException(
-        "Stripe payments are not configured",
+        STRIPE_COMMERCE.configuration.paymentsUnavailable,
       );
     return reverseStripeCancellation(this.stripe, claim);
+  }
+
+  async refundReturn(claim: ReturnRefundClaim) {
+    if (!this.stripe || !getEnv().STRIPE_SECRET_KEY) throw new ServiceUnavailableException(STRIPE_COMMERCE.configuration.paymentsUnavailable);
+    return refundStripeReturn(this.stripe, claim);
   }
 
   async createPaymentIntent(order: Order): Promise<NativePaymentIntentResult> {
     if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
       throw new ServiceUnavailableException(
-        "Stripe payments are not configured",
+        STRIPE_COMMERCE.configuration.paymentsUnavailable,
       );
     await this.connect.assertSaleRecipients(
       order.brandId,

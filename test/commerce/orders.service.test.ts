@@ -47,6 +47,7 @@ describe("OrdersService", () => {
       totalAmount: 10000,
       returnWindowDays: 30,
       returnPolicy: "Qualification",
+      refundPolicyCode: 'proportional_tax_full_shipping_v1',
       taxNotice: "Qualification",
       customsNotice: "Qualification",
       pricesIncludeTaxes: true,

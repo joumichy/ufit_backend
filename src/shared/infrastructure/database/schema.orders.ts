@@ -1,6 +1,9 @@
 import {BRAND_ORDERS} from '../../../modules/orders/domain/brand-order.contract';
+import {ORDER_RETURN} from '../../../modules/orders/domain/order-return.contract';
+import {sql} from 'drizzle-orm';
 import {
   index,
+  check,
   integer,
   jsonb,
   numeric,
@@ -62,6 +65,7 @@ export const orders = ufitSchema.table(
     ),
     brandCreatedIndex: index(BRAND_ORDERS.index.brandCreated).on(table.brandId, table.createdAt.desc(), table.id.desc()),
     createdAtIndex: index("orders_created_at_idx").on(table.createdAt),
+    returnPolicyCheck: check('orders_return_refund_policy_known', sql`(${table.commerceSnapshot} is null or (jsonb_typeof(${table.commerceSnapshot}) = 'object' and ${table.commerceSnapshot}->>'refundPolicyCode' = ${sql.raw("'" + ORDER_RETURN.policy.code + "'")})) is true`),
   }),
 );
 
@@ -98,6 +102,7 @@ export const orderItems = ufitSchema.table(
   },
   (table) => ({
     orderIdIndex: index("order_items_order_id_idx").on(table.orderId),
+    orderIdentityUnique: uniqueIndex("order_items_id_order_unique").on(table.id, table.orderId),
   }),
 );
 

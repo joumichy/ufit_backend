@@ -15,6 +15,7 @@ import {ufitSchema,timestamps} from './schema-base';
 export {ufitSchema} from './schema-base';
 import {orders,orderItems} from './schema.orders';
 export {orders,orderItems,orderStatusHistory,orderCancellations} from './schema.orders';
+export {orderReturns,orderReturnItems,orderReturnRefunds,returnCommissionAdjustments} from './schema.returns';
 
 export const userStatusEnum = ufitSchema.enum('user_status', ['active', 'onboarding', 'suspended', 'deleted']);
 

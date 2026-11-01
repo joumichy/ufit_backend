@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { BrandCommerceService } from "../../brands/brand-commerce.service";
 import { shippingCountrySchema } from "../../brands/commerce-policy";
 import { CartService, type Cart, type CartLine } from "./cart.service";
+import {ORDER_RETURN} from '../../orders/domain/order-return.contract';
 
 const QUOTE_FAILURE = {
   country: {
@@ -47,6 +48,7 @@ export interface CartQuote {
   totalAmount: number;
   returnWindowDays: number;
   returnPolicy: string;
+  refundPolicyCode: typeof ORDER_RETURN.policy.code;
   pricesIncludeTaxes: boolean;
   taxNotice: string;
   customsNotice: string;
@@ -103,6 +105,7 @@ export class CartQuoteService {
       totalAmount,
       returnWindowDays: policy.returnWindowDays,
       returnPolicy: policy.returnPolicy,
+      refundPolicyCode: ORDER_RETURN.policy.code,
       pricesIncludeTaxes: policy.pricesIncludeTaxes,
       taxNotice: policy.taxNotice,
       customsNotice: policy.customsNotice,

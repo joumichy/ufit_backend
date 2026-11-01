@@ -1,4 +1,6 @@
 import {DrizzleBrandOrdersRepository} from '../src/modules/orders/infrastructure/drizzle-brand-orders.repository';
+import {DrizzleOrderReturnRepository} from '../src/modules/orders/infrastructure/drizzle-order-return.repository';
+import {DrizzleReturnRefundRepository} from '../src/modules/orders/infrastructure/drizzle-return-refund.repository';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { DrizzleAdminAuditRepository } from '../src/modules/admin-audit/infrastructure/drizzle-admin-audit.repository';
@@ -41,6 +43,8 @@ const databaseBackedProviders = [
   DrizzleIdentityRepository,
   DrizzleOrderRepository,
   DrizzleBrandOrdersRepository,
+  DrizzleOrderReturnRepository,
+  DrizzleReturnRefundRepository,
   DrizzleProductSnapshotReader,
   DrizzleOrderCancellationRepository,
   DrizzleOutfitRepository,

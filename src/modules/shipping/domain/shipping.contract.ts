@@ -1,6 +1,7 @@
 import {ConflictException} from '@nestjs/common';
 import {z} from 'zod';
 import {ORDER_STATUS, type OrderStatus} from '../../orders/domain/order-lifecycle';
+import {parcelTrackingFields} from '../../../shared/domain/parcel-tracking';
 
 export const SHIPMENT_STATUS = {
   pending: 'pending', preparing: 'preparing', shipped: 'shipped', delivered: 'delivered', failed: 'failed', cancelled: 'cancelled',
@@ -11,9 +12,9 @@ export const SHIPPING = {
   route: {root: 'shipping', action: 'shipments/:id/actions', id: 'id'},
   roles: ['brand_owner', 'brand_manager', 'admin', 'super_admin'] as const,
   revision: {initial: 1, step: 1, maximum: 2147483647},
-  limit: {minimumText: 1, carrier: 120, tracking: 160, incident: 2000, singleRow: 1},
+  limit: {minimumText: 1, incident: 2000, singleRow: 1},
   persistence: {lock: 'update', historyReason: 'brand_shipment_updated'},
-  protocol: {https: 'https:', actionField: 'action'},
+  protocol: {actionField: 'action'},
   failure: {
     input: {code: 'shipment_action_invalid', message: 'Invalid shipment action'},
     changed: {code: 'shipment_version_changed', message: 'The shipment changed; refresh before continuing'},
@@ -27,16 +28,13 @@ export const SHIPMENT_ACTION = {
 } as const;
 export type ShipmentActionName = typeof SHIPMENT_ACTION[keyof typeof SHIPMENT_ACTION];
 const expectedVersion = z.number().int().min(SHIPPING.revision.initial).max(SHIPPING.revision.maximum - SHIPPING.revision.step);
-const carrier = z.string().trim().min(SHIPPING.limit.minimumText).max(SHIPPING.limit.carrier);
-const trackingNumber = z.string().trim().min(SHIPPING.limit.minimumText).max(SHIPPING.limit.tracking);
-const trackingUrl = z.url().refine(value => new URL(value).protocol === SHIPPING.protocol.https).nullable().optional();
 export const shipmentActionSchema = z.discriminatedUnion(SHIPPING.protocol.actionField, [
   z.object({action: z.literal(SHIPMENT_ACTION.prepare), expectedVersion}).strict(),
-  z.object({action: z.literal(SHIPMENT_ACTION.ship), expectedVersion, carrier, trackingNumber, trackingUrl}).strict(),
+  z.object({action: z.literal(SHIPMENT_ACTION.ship), expectedVersion, ...parcelTrackingFields}).strict(),
   z.object({action: z.literal(SHIPMENT_ACTION.deliver), expectedVersion}).strict(),
   z.object({action: z.literal(SHIPMENT_ACTION.reportIncident), expectedVersion, incidentReason: z.string().trim().min(SHIPPING.limit.minimumText).max(SHIPPING.limit.incident)}).strict(),
   z.object({action: z.literal(SHIPMENT_ACTION.resolveIncident), expectedVersion}).strict(),
-  z.object({action: z.literal(SHIPMENT_ACTION.updateTracking), expectedVersion, carrier, trackingNumber, trackingUrl}).strict(),
+  z.object({action: z.literal(SHIPMENT_ACTION.updateTracking), expectedVersion, ...parcelTrackingFields}).strict(),
 ]);
 export type ShipmentAction = z.infer<typeof shipmentActionSchema>;
 export interface Shipment {

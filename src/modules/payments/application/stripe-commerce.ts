@@ -14,6 +14,7 @@ export const STRIPE_REFUND_STATE = {
   cancelled: "canceled",
 } as const;
 export const STRIPE_COMMERCE = {
+  configuration: {paymentsUnavailable: 'Stripe payments are not configured'},
   paymentSucceeded: "payment_intent.succeeded",
   cancellationReason: "requested_by_customer",
   pageLimit: 100,

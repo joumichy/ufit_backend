@@ -18,6 +18,14 @@ import { OrderCancellationService } from "./application/order-cancellation.servi
 import { DrizzleOrderCancellationRepository } from "./infrastructure/drizzle-order-cancellation.repository";
 import { OrderCancellationWorker } from "./infrastructure/order-cancellation.worker";
 import { OrdersController } from "./presentation/orders.controller";
+import {CustomerReturnsController, BrandReturnsController, AdminReturnsController} from './presentation/order-returns.controller';
+import {OrderReturnsService} from './application/order-returns.service';
+import {ReturnRefundsService} from './application/return-refunds.service';
+import {DrizzleOrderReturnRepository} from './infrastructure/drizzle-order-return.repository';
+import {DrizzleReturnRefundRepository} from './infrastructure/drizzle-return-refund.repository';
+import {ReturnRefundWorker} from './infrastructure/return-refund.worker';
+import {ORDER_RETURN} from './domain/order-return.contract';
+import {RETURN_REFUND} from './domain/return-refund';
 
 @Module({
   imports: [
@@ -26,9 +34,16 @@ import { OrdersController } from "./presentation/orders.controller";
     CommissionsModule,
     forwardRef(() => PaymentsModule),
   ],
-  controllers: [OrdersController, BrandOrdersController],
+  controllers: [OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
   providers: [
     OrdersService,
+    OrderReturnsService,
+    ReturnRefundsService,
+    ReturnRefundWorker,
+    DrizzleOrderReturnRepository,
+    DrizzleReturnRefundRepository,
+    {provide: ORDER_RETURN.repository, useExisting: DrizzleOrderReturnRepository},
+    {provide: RETURN_REFUND.repository, useExisting: DrizzleReturnRefundRepository},
     BrandOrdersService,
     DrizzleBrandOrdersRepository,
     {provide: BRAND_ORDERS.repository, useExisting: DrizzleBrandOrdersRepository},

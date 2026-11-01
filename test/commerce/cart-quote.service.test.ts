@@ -45,6 +45,7 @@ describe("CartQuoteService", () => {
       taxAmount: 875,
       totalAmount: 11680,
       currency: "CHF",
+      refundPolicyCode: 'proportional_tax_full_shipping_v1',
     });
   });
   it("does not add tax twice for tax-inclusive prices", async () => {
