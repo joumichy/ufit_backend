@@ -1,3 +1,7 @@
+import {BrandOrdersController} from './presentation/brand-orders.controller';
+import {BrandOrdersService} from './application/brand-orders.service';
+import {DrizzleBrandOrdersRepository} from './infrastructure/drizzle-brand-orders.repository';
+import {BRAND_ORDERS} from './domain/brand-order.contract';
 import { Module, forwardRef } from "@nestjs/common";
 import { CartModule } from "../cart/cart.module";
 import { CommissionsModule } from "../commissions/commissions.module";
@@ -22,9 +26,12 @@ import { OrdersController } from "./presentation/orders.controller";
     CommissionsModule,
     forwardRef(() => PaymentsModule),
   ],
-  controllers: [OrdersController],
+  controllers: [OrdersController, BrandOrdersController],
   providers: [
     OrdersService,
+    BrandOrdersService,
+    DrizzleBrandOrdersRepository,
+    {provide: BRAND_ORDERS.repository, useExisting: DrizzleBrandOrdersRepository},
     OrderCheckoutService,
     OrderCancellationService,
     OrderCancellationWorker,

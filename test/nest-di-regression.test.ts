@@ -1,3 +1,4 @@
+import {DrizzleBrandOrdersRepository} from '../src/modules/orders/infrastructure/drizzle-brand-orders.repository';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import { DrizzleAdminAuditRepository } from '../src/modules/admin-audit/infrastructure/drizzle-admin-audit.repository';
@@ -39,6 +40,7 @@ const databaseBackedProviders = [
   DrizzleEditorialRepository,
   DrizzleIdentityRepository,
   DrizzleOrderRepository,
+  DrizzleBrandOrdersRepository,
   DrizzleProductSnapshotReader,
   DrizzleOrderCancellationRepository,
   DrizzleOutfitRepository,

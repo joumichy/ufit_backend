@@ -1,3 +1,4 @@
+import type {ShippingAddressSnapshot} from '../domain/shipping-address';
 import {
   BadRequestException,
   Inject,
@@ -20,16 +21,6 @@ import {
   type CancellationClaim,
 } from "../domain/order-lifecycle";
 export type { OrderStatus } from "../domain/order-lifecycle";
-
-export interface ShippingAddressSnapshot {
-  fullName: string;
-  line1: string;
-  line2?: string;
-  postalCode: string;
-  city: string;
-  country: string;
-  phone?: string;
-}
 
 export interface OrderItemSnapshot {
   id: string;

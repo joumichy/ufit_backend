@@ -55,8 +55,8 @@ function buildService(repositoryOverrides: Partial<BrandsRepository> = {}) {
   const repository: BrandsRepository = {
     transaction: async () => {throw new Error('Commerce transactions are outside this profile fixture');},
     snapshot: async () => {throw new Error('Commerce snapshots are outside this profile fixture');},
-    findCommerceAccess: async () => {throw new Error('Commerce access is outside this profile fixture');},
-    lockCommerceAccess: async () => {throw new Error('Commerce access is outside this profile fixture');},
+    findManagementAccess: async () => {throw new Error('Commerce access is outside this profile fixture');},
+    lockManagementAccess: async () => {throw new Error('Commerce access is outside this profile fixture');},
     findPublicProfileById: async () => undefined,
     findSettings: vi.fn().mockResolvedValue(undefined),
     saveCommercePolicy: async () => {throw new Error('Commerce policy is outside this profile fixture');},

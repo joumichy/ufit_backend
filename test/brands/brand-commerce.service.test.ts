@@ -2,7 +2,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {NotFoundException} from '@nestjs/common';
 import {BrandCommerceService} from '../../src/modules/brands/brand-commerce.service';
 import {BrandsService} from '../../src/modules/brands/brands.service';
-import type {BrandsRepository, BrandCommerceAccess} from '../../src/modules/brands/brands.repository';
+import type {BrandsRepository, BrandManagementAccess} from '../../src/modules/brands/brands.repository';
 import {brandCommercePolicySchema, updateBrandCommercePolicySchema, type BrandCommercePolicy} from '../../src/modules/brands/commerce-policy';
 
 type Settings = NonNullable<Awaited<ReturnType<BrandsRepository['findSettings']>>>;
@@ -19,7 +19,7 @@ const fixture = {
 function setup() {
   let settings: Settings | undefined;
   let failAfterWrite = false;
-  const context: BrandCommerceAccess = {brand: {id: fixture.brandID, brandName: 'Maison', status: 'paused'},
+  const context: BrandManagementAccess = {brand: {id: fixture.brandID, brandName: 'Maison', status: 'paused'},
     actor: {status: 'active', roles: ['brand_owner']}, memberRole: 'owner'};
   function access(brandID: string, actorID: string) {
     if (brandID !== fixture.brandID || actorID !== fixture.actor.id) throw new Error(fixture.invalid);
@@ -38,8 +38,8 @@ function setup() {
       try { return await operation(port); } catch (error) { settings = before; throw error; }
     },
     snapshot: async <T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T> => operation(port),
-    findCommerceAccess: vi.fn(async (brandID: string, actorID: string) => access(brandID, actorID)),
-    lockCommerceAccess: vi.fn(async (brandID: string, actorID: string) => access(brandID, actorID)),
+    findManagementAccess: vi.fn(async (brandID: string, actorID: string) => access(brandID, actorID)),
+    lockManagementAccess: vi.fn(async (brandID: string, actorID: string) => access(brandID, actorID)),
     findSettings: async (brandID: string) => {
       if (brandID !== fixture.brandID) throw new Error(fixture.invalid);
       return structuredClone(settings);
@@ -74,7 +74,7 @@ describe('BrandCommerceService', () => {
       .rejects.toMatchObject({response: {code: 'brand_policy_version_changed'}});
     expect(state.settings?.commercePolicyVersion).toBe(1);
     expect(state.settings?.metadata.commercePolicy).toEqual(fixture.policy);
-    expect(state.port.lockCommerceAccess).toHaveBeenCalledWith(fixture.brandID, fixture.actor.id);
+    expect(state.port.lockManagementAccess).toHaveBeenCalledWith(fixture.brandID, fixture.actor.id);
   });
   it('preserves unrelated metadata and returns the same canonical policy to public checkout only while active', async () => {
     const state = setup();

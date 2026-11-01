@@ -1,12 +1,11 @@
-import {BadRequestException, ConflictException, ForbiddenException, Inject, Injectable} from '@nestjs/common';
+import {BadRequestException, ConflictException, Inject, Injectable} from '@nestjs/common';
 import {BRANDS_REPOSITORY} from './brands.tokens';
-import type {BrandsRepository, BrandCommerceAccess} from './brands.repository';
+import type {BrandsRepository} from './brands.repository';
 import {BrandsService} from './brands.service';
 import {BRAND_COMMERCE, brandCommercePolicySchema, COMMERCE_POLICY_KEY, updateBrandCommercePolicySchema,
   type BrandCommercePolicy, type BrandCommercePolicyDocument} from './commerce-policy';
 import type {AuthenticatedUser} from '../identity/domain/user.types';
-import {PROFILE_EDITING, canAuthorProfile} from '../../shared/domain/profile-editing.contract';
-import {PUBLIC_PROFILE} from '../../shared/domain/public-profile.contract';
+import {requireBrandManagementAccess} from './brand-management-access';
 
 type Settings = Awaited<ReturnType<BrandsRepository['findSettings']>>;
 
@@ -22,7 +21,7 @@ export class BrandCommerceService {
   }
   readManaged(brandID: string, actor: Pick<AuthenticatedUser, 'id'>): Promise<BrandCommercePolicyDocument> {
     return this.brands.snapshot(async repository => {
-      this.requireAccess(await repository.findCommerceAccess(brandID, actor.id));
+      requireBrandManagementAccess(await repository.findManagementAccess(brandID, actor.id), BRAND_COMMERCE.failure.access);
       return this.document(brandID, await repository.findSettings(brandID));
     });
   }
@@ -30,19 +29,11 @@ export class BrandCommerceService {
     const request = updateBrandCommercePolicySchema.safeParse(input);
     if (!request.success) throw new BadRequestException(BRAND_COMMERCE.failure.input);
     return this.brands.transaction(async repository => {
-      this.requireAccess(await repository.lockCommerceAccess(brandID, actor.id));
+      requireBrandManagementAccess(await repository.lockManagementAccess(brandID, actor.id), BRAND_COMMERCE.failure.access);
       const saved = await repository.saveCommercePolicy(brandID, request.data.policy, request.data.expectedVersion);
       if (!saved) throw new ConflictException(BRAND_COMMERCE.failure.changed);
       return this.document(brandID, saved);
     });
-  }
-  private requireAccess(context: BrandCommerceAccess | undefined): void {
-    if (!context || context.actor.status !== PUBLIC_PROFILE.userStatus || !PROFILE_EDITING.writableStatuses.some(status => status === context.brand.status)) {
-      throw new ForbiddenException(BRAND_COMMERCE.failure.access);
-    }
-    const administrator = BRAND_COMMERCE.adminRoles.some(role => context.actor.roles.includes(role));
-    const member = context.memberRole !== null && canAuthorProfile(context.actor.roles, {brandId: context.brand.id, creatorId: null});
-    if (!administrator && !member) throw new ForbiddenException(BRAND_COMMERCE.failure.access);
   }
   private document(brandId: string, settings: Settings): BrandCommercePolicyDocument {
     const version = settings?.commercePolicyVersion ?? BRAND_COMMERCE.revision.unconfigured;

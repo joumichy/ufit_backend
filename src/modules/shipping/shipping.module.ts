@@ -1,4 +1,4 @@
-import { BrandsModule } from "../brands/brands.module";
+import {SHIPPING} from './domain/shipping.contract';
 import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../shared/infrastructure/database/database.module";
 import { IdentityModule } from "../identity/identity.module";
@@ -8,11 +8,11 @@ import { InMemoryShipmentRepository } from "./infrastructure/in-memory-shipping.
 import { ShippingController } from "./presentation/shipping.controller";
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, BrandsModule],
+  imports: [DatabaseModule, IdentityModule],
   controllers: [ShippingController],
   providers: [
     ShippingService,
-    { provide: "ShipmentRepository", useExisting: DrizzleShipmentRepository },
+    { provide: SHIPPING.repository, useExisting: DrizzleShipmentRepository },
     DrizzleShipmentRepository,
     InMemoryShipmentRepository,
   ],

@@ -1,3 +1,4 @@
+import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
 import {BRAND_COMMERCE, COMMERCE_POLICY_KEY} from '../../../modules/brands/commerce-policy';
 import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
@@ -765,7 +766,10 @@ export const shipments = ufitSchema.table(
       .references(() => orders.id, { onDelete: 'cascade' })
       .unique(),
     brandId: uuid('brand_id').notNull(),
-    status: text('status').notNull().default('pending'),
+    status: text('status').notNull().default(SHIPMENT_STATUS.pending),
+    version: integer('version').notNull().default(SHIPPING.revision.initial),
+    incidentReason: text('incident_reason'),
+    incidentAt: timestamp('incident_at', { withTimezone: true }),
     carrier: text('carrier'),
     trackingNumber: text('tracking_number'),
     trackingUrl: text('tracking_url'),
@@ -775,7 +779,12 @@ export const shipments = ufitSchema.table(
     ...timestamps
   },
   (table) => ({
-    brandStatusIndex: index('shipments_brand_status_idx').on(table.brandId, table.status)
+    brandStatusIndex: index('shipments_brand_status_idx').on(table.brandId, table.status),
+    knownStatus: check(SHIPPING.constraint.status, sql`${table.status} in (${SHIPMENT_STATUS.pending}, ${SHIPMENT_STATUS.preparing}, ${SHIPMENT_STATUS.shipped}, ${SHIPMENT_STATUS.delivered}, ${SHIPMENT_STATUS.failed}, ${SHIPMENT_STATUS.cancelled})`),
+    versionPositive: check(SHIPPING.constraint.version, sql`${table.version} >= ${SHIPPING.revision.initial}`),
+    incidentConsistent: check(SHIPPING.constraint.incident, sql`(${table.incidentReason} is null) = (${table.incidentAt} is null)
+      and (${table.incidentReason} is null or char_length(btrim(${table.incidentReason})) between ${SHIPPING.limit.minimumText} and ${SHIPPING.limit.incident})
+      and (${table.status} <> ${SHIPMENT_STATUS.failed} or ${table.incidentReason} is not null)`)
   })
 );
 

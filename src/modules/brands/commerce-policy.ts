@@ -6,7 +6,6 @@ export const BRAND_COMMERCE = {
   revision: {unconfigured: 0, initial: 1, step: 1, maximum: 2147483647},
   limits: {basisPoints: 10000, safeAmount: 2147483647},
   roles: ['brand_owner', 'brand_manager', 'admin', 'super_admin'],
-  adminRoles: ['admin', 'super_admin'],
   persistence: {lock: 'update', versionColumn: 'commerce_policy_version', versionConstraint: 'brand_commerce_policy_version_valid'},
   routes: {brands: 'brands', metadata: 'commerce-policy/metadata', policy: ':id/commerce-policy'},
   failure: {

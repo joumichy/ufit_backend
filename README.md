@@ -80,6 +80,47 @@ dans la commande ; une nouvelle politique ne réécrit pas les commandes existan
 La migration additive0017 initialise la révision des politiques déjà présentes
 sans modifier leur contenu. Les écritures conservent les autres settings/métadonnées.
 
+## Commandes et expéditions des marques
+
+`GET /brands/:brandId/orders?limit=20&cursor=<UUID>&status=preparing` retourne
+`{items, nextCursor}`. Les résumés sont ordonnés par date puis identifiant
+décroissants ; limite1–50, filtre facultatif parmi les statuts de commande hors
+`pending_payment`. Les résumés ne contiennent pas d’adresse.
+
+`GET /brands/:brandId/orders/:id` retourne les lignes et montants historiques,
+l’adresse de livraison, l’expédition et les actions actuellement autorisées.
+Ces lectures exigent le compte actif, la marque active/en pause et une adhésion
+active avec rôle marque, ou le rôle administrateur actuel. Une commande d’une
+autre marque n’est pas lisible. Aucun identifiant de paiement/client, empreinte
+de checkout ou règle de commission n’est exposé dans cette projection.
+
+`POST /shipping/shipments/:id/actions` reçoit un corps strict :
+
+```json
+{"action":"ship","expectedVersion":2,"carrier":"Transporteur","trackingNumber":"NUMERO","trackingUrl":null}
+```
+
+Les actions sont `prepare`, `ship`, `deliver`, `report_incident`,
+`resolve_incident` et `update_tracking`. `ship` et `update_tracking` exigent
+transporteur et numéro ; le lien facultatif est HTTPS ou null. `report_incident`
+exige `incidentReason`. Les autres actions n’acceptent que leur nom et
+`expectedVersion`. La réponse201 contient `{shipment, orderStatus, actions}` ;
+la révision commence à1 et augmente à chaque action acceptée. Une version
+périmée reçoit409 `shipment_version_changed` sans nouvelle écriture. L’ancienne
+routePATCH`/shipping/shipments/:id/status` et le corps `nextStatus` sont retirés.
+
+La préparation verrouille la même commande que l’annulation client : une
+commande en préparation ne peut plus être annulée. Les états commande et
+expédition changent dans la même transaction. Un incident interrompt l’expédition
+sans avancer l’étape de la commande ; sa résolution reprend cette étape et
+conserve le suivi ainsi que le dernier motif/date d’incident. Une correction du
+suivi ne réécrit pas la date d’expédition. Livré et annulé sont terminaux.
+
+La migration additive0018 ajoute version et motif/date d’incident, vérifie leur
+cohérence et crée l’index de pagination par marque/date/identifiant. Les comptes,
+rôles et adhésions sont relus depuis la base dans la transaction d’écriture.
+Ces contrats ne constituent pas à eux seuls une qualification du parcours iOS.
+
 ## Photos produit
 
 Appliquer la migration `0013_product_media.sql` avec `npm run db:migrate`.

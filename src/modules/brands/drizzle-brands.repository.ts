@@ -21,7 +21,7 @@ import {
   type NewBrandMemberRow,
   type NewBrandProfileRow
 } from '../../shared/infrastructure/database/schema';
-import type { BrandsRepository, BrandCommerceAccess } from './brands.repository';
+import type { BrandsRepository, BrandManagementAccess } from './brands.repository';
 
 @Injectable()
 export class DrizzleBrandsRepository implements BrandsRepository {
@@ -33,21 +33,21 @@ export class DrizzleBrandsRepository implements BrandsRepository {
   snapshot<T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T> {
     return this.database.db.transaction(tx => operation(new DrizzleBrandsRepository({db: tx})), READ_SNAPSHOT);
   }
-  findCommerceAccess(brandId: string, actorId: string) { return this.commerceAccess(brandId, actorId, false); }
-  lockCommerceAccess(brandId: string, actorId: string) { return this.commerceAccess(brandId, actorId, true); }
-  private async commerceAccess(brandId: string, actorId: string, locking: boolean): Promise<BrandCommerceAccess | undefined> {
+  findManagementAccess(brandId: string, actorId: string) { return this.managementAccess(brandId, actorId, false); }
+  lockManagementAccess(brandId: string, actorId: string) { return this.managementAccess(brandId, actorId, true); }
+  private async managementAccess(brandId: string, actorId: string, locking: boolean): Promise<BrandManagementAccess | undefined> {
     const actorQuery = this.database.db.select({status: users.status}).from(users).where(eq(users.id, actorId));
-    const [actor] = locking ? await actorQuery.for(BRAND_COMMERCE.persistence.lock) : await actorQuery;
+    const [actor] = locking ? await actorQuery.for(PROFILE_EDITING.persistence.lock) : await actorQuery;
     if (!actor) return undefined;
     const rolesQuery = this.database.db.select({role: userRoles.role}).from(userRoles).where(eq(userRoles.userId, actorId)).orderBy(userRoles.role);
-    const roles = locking ? await rolesQuery.for(BRAND_COMMERCE.persistence.lock) : await rolesQuery;
+    const roles = locking ? await rolesQuery.for(PROFILE_EDITING.persistence.lock) : await rolesQuery;
     const brandQuery = this.database.db.select({id: brandProfiles.id, brandName: brandProfiles.brandName, status: brandProfiles.status})
       .from(brandProfiles).where(eq(brandProfiles.id, brandId));
-    const [brand] = locking ? await brandQuery.for(BRAND_COMMERCE.persistence.lock) : await brandQuery;
+    const [brand] = locking ? await brandQuery.for(PROFILE_EDITING.persistence.lock) : await brandQuery;
     if (!brand) return undefined;
     const memberQuery = this.database.db.select({role: brandMembers.role}).from(brandMembers)
       .where(and(eq(brandMembers.brandProfileId, brandId), eq(brandMembers.userId, actorId), eq(brandMembers.status, PROFILE_EDITING.persistence.memberActive)));
-    const [member] = locking ? await memberQuery.for(BRAND_COMMERCE.persistence.lock) : await memberQuery;
+    const [member] = locking ? await memberQuery.for(PROFILE_EDITING.persistence.lock) : await memberQuery;
     return {brand, actor: {status: actor.status, roles: roles.map(row => row.role)}, memberRole: member?.role ?? null};
   }
 

@@ -7,26 +7,15 @@ import {
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { CartQuoteService } from "../../cart/application/cart-quote.service";
-import { shippingCountrySchema } from "../../brands/commerce-policy";
+import {shippingAddressSchema} from "../domain/shipping-address";
 import { PaymentsService } from "../../payments/application/payments.service";
 import { OrdersService } from "./orders.service";
 
-const addressSchema = z
-  .object({
-    fullName: z.string().trim().min(1).max(160),
-    line1: z.string().trim().min(1).max(200),
-    line2: z.string().trim().max(200).optional(),
-    postalCode: z.string().trim().min(1).max(32),
-    city: z.string().trim().min(1).max(120),
-    country: shippingCountrySchema,
-    phone: z.string().trim().max(40).optional(),
-  })
-  .strict();
 export const checkoutRequestSchema = z
   .object({
     requestId: z.uuid(),
     quoteFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-    shippingAddress: addressSchema,
+    shippingAddress: shippingAddressSchema,
   })
   .strict();
 const CHECKOUT_FAILURE = {

@@ -1,3 +1,4 @@
+import type {ShippingAddressSnapshot} from '../domain/shipping-address';
 import {
   BadRequestException,
   ConflictException,
@@ -24,7 +25,6 @@ import type {
   OrderItemSnapshot,
   OrderRepository,
   ProductSnapshotReader,
-  ShippingAddressSnapshot,
 } from "../application/orders.service";
 
 import {

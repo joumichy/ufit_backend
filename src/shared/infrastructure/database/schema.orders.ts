@@ -1,3 +1,4 @@
+import {BRAND_ORDERS} from '../../../modules/orders/domain/brand-order.contract';
 import {
   index,
   integer,
@@ -59,6 +60,7 @@ export const orders = ufitSchema.table(
       table.brandId,
       table.status,
     ),
+    brandCreatedIndex: index(BRAND_ORDERS.index.brandCreated).on(table.brandId, table.createdAt.desc(), table.id.desc()),
     createdAtIndex: index("orders_created_at_idx").on(table.createdAt),
   }),
 );

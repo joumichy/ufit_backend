@@ -1,3 +1,4 @@
+import { SHIPPING, SHIPMENT_STATUS } from '../../shipping/domain/shipping.contract';
 import {
   ConflictException,
   Inject,
@@ -29,7 +30,6 @@ import {
   type OrderStatus,
 } from "../domain/order-lifecycle";
 
-const SHIPMENT_CANCELLED = "cancelled";
 const ROW_LOCK = "update";
 const RECOVERY_ROW = "cancellation_recovery";
 const ORDER_NOT_FOUND = "Order not found";
@@ -266,7 +266,7 @@ export class DrizzleOrderCancellationRepository
       }
       await tx
         .update(shipments)
-        .set({ status: SHIPMENT_CANCELLED, updatedAt: new Date() })
+        .set({ status: SHIPMENT_STATUS.cancelled, version: sql`${shipments.version} + ${SHIPPING.revision.step}`, updatedAt: new Date() })
         .where(eq(shipments.orderId, order.id));
       await tx
         .update(orders)

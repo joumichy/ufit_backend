@@ -30,6 +30,7 @@ const fixture = {
   second: 1,
   zero: 0,
   single: 1,
+  cancelledShipmentVersion: 2,
   registry: homedir() + "/.codex/private/ufit/qualification.credentials.json",
   paymentPrefix: "pi_qualification_",
   eventPrefix: "evt_qualification_",
@@ -198,7 +199,8 @@ try {
         stock.stockQuantity === startingStock &&
           payment.status === fixture.statuses.payment &&
           commission.status === fixture.statuses.commission &&
-          shipment.status === fixture.statuses.shipment,
+          shipment.status === fixture.statuses.shipment &&
+          shipment.version === fixture.cancelledShipmentVersion,
         "Cancellation did not reverse the paid order exactly once",
       );
       passed++;

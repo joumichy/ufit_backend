@@ -13,8 +13,8 @@ import type {
 export interface BrandsRepository {
   transaction<T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T>;
   snapshot<T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T>;
-  findCommerceAccess(brandId: string, actorId: string): Promise<BrandCommerceAccess | undefined>;
-  lockCommerceAccess(brandId: string, actorId: string): Promise<BrandCommerceAccess | undefined>;
+  findManagementAccess(brandId: string, actorId: string): Promise<BrandManagementAccess | undefined>;
+  lockManagementAccess(brandId: string, actorId: string): Promise<BrandManagementAccess | undefined>;
   findPublicProfileById(id: string): Promise<PublicBrandProfile | undefined>;
   findSettings(brandProfileId: string): Promise<typeof brandSettings.$inferSelect | undefined>;
   saveCommercePolicy(brandProfileId: string, policy: BrandCommercePolicy, expectedVersion: number): Promise<typeof brandSettings.$inferSelect | undefined>;
@@ -31,7 +31,7 @@ export interface BrandsRepository {
   ): Promise<BrandProfileRow | undefined>;
 }
 
-export interface BrandCommerceAccess {
+export interface BrandManagementAccess {
   brand: Pick<BrandProfileRow, 'id' | 'brandName' | 'status'>;
   actor: {status: UserStatus; roles: UserRole[]};
   memberRole: BrandMemberRow['role'] | null;
