@@ -1,12 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, lt } from 'drizzle-orm';
+import { and, desc, eq, lt, inArray, isNull, isNotNull, or, exists } from 'drizzle-orm';
+import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
+import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
+import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '../domain/public-outfit.contract';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfits, users } from '../../../shared/infrastructure/database/schema';
 import type { Outfit, OutfitAuthor, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility } from '../domain/outfit.types';
 
 @Injectable()
 export class DrizzleOutfitRepository implements OutfitRepository {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
 
   async createOutfit(input: Parameters<OutfitRepository['createOutfit']>[0]): Promise<Outfit> {
     const [row] = await this.database.db
@@ -31,31 +34,27 @@ export class DrizzleOutfitRepository implements OutfitRepository {
   }
 
   async findById(outfitId: string): Promise<OutfitDetail | null> {
-    const [outfit] = await this.database.db.select().from(outfits).where(eq(outfits.id, outfitId)).limit(1);
-    if (!outfit) {
-      return null;
-    }
-
-    const [items, images] = await Promise.all([
-      this.database.db.select().from(outfitItems).where(eq(outfitItems.outfitId, outfitId)),
-      this.database.db.select().from(outfitImages).where(eq(outfitImages.outfitId, outfitId))
-    ]);
-    return { outfit, items, images, author: await this.findAuthor(outfit) };
+    return this.database.db.transaction(async tx => {
+      const rows = await tx.select().from(outfits).where(eq(outfits.id, outfitId));
+      const details = await this.loadDetails(rows, {db: tx});
+      return details[PUBLIC_OUTFIT.limits.first] ?? null;
+    }, READ_SNAPSHOT);
   }
 
-  private async findAuthor(outfit: Outfit): Promise<OutfitAuthor | null> {
-    if (outfit.creatorId) {
-      const [creator] = await this.database.db.select({ id: creatorProfiles.id, name: creatorProfiles.displayName, avatarUrl: users.avatarUrl })
-        .from(creatorProfiles).innerJoin(users, eq(creatorProfiles.userId, users.id))
-        .where(and(eq(creatorProfiles.id, outfit.creatorId), eq(creatorProfiles.status, 'active'), eq(users.status, 'active'))).limit(1);
-      return creator ? { ...creator, kind: 'creator' } : null;
-    }
-    if (outfit.brandId) {
-      const [brand] = await this.database.db.select({ id: brandProfiles.id, name: brandProfiles.brandName }).from(brandProfiles)
-        .where(and(eq(brandProfiles.id, outfit.brandId), eq(brandProfiles.status, 'active'))).limit(1);
-      return brand ? { ...brand, kind: 'brand', avatarUrl: null } : null;
-    }
-    return null;
+  private async loadDetails(rows: Outfit[], database: DatabaseSession): Promise<OutfitDetail[]> {
+    if (!rows.length) return [];
+    const ids = rows.map(row => row.id), creatorIDs = rows.flatMap(row => row.creatorId ? [row.creatorId] : []), brandIDs = rows.flatMap(row => row.brandId ? [row.brandId] : []);
+    const items = await database.db.select().from(outfitItems).where(inArray(outfitItems.outfitId, ids)).orderBy(outfitItems.position, outfitItems.id);
+    const images = await database.db.select().from(outfitImages).where(inArray(outfitImages.outfitId, ids)).orderBy(outfitImages.position, outfitImages.id);
+    const creators = creatorIDs.length ? await database.db.select({id: creatorProfiles.id, name: creatorProfiles.displayName, avatarUrl: creatorProfiles.avatarUrl})
+      .from(creatorProfiles).innerJoin(users, eq(creatorProfiles.userId, users.id))
+      .where(and(inArray(creatorProfiles.id, creatorIDs), eq(creatorProfiles.status, PUBLIC_PROFILE.status), eq(users.status, PUBLIC_PROFILE.userStatus))) : [];
+    const brands = brandIDs.length ? await database.db.select({id: brandProfiles.id, name: brandProfiles.brandName}).from(brandProfiles)
+      .where(and(inArray(brandProfiles.id, brandIDs), eq(brandProfiles.status, PUBLIC_PROFILE.status))) : [];
+    const authorByCreator = new Map<string, OutfitAuthor>(creators.map(row => [row.id, {...row, kind: PUBLIC_PROFILE.kind.creator}]));
+    const authorByBrand = new Map<string, OutfitAuthor>(brands.map(row => [row.id, {...row, kind: PUBLIC_PROFILE.kind.brand, avatarUrl: null}]));
+    return rows.map(outfit => ({outfit, items: items.filter(row => row.outfitId === outfit.id), images: images.filter(row => row.outfitId === outfit.id),
+      author: outfit.creatorId ? authorByCreator.get(outfit.creatorId) ?? null : outfit.brandId ? authorByBrand.get(outfit.brandId) ?? null : null}));
   }
 
   async updateStatus(
@@ -90,10 +89,18 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     return row;
   }
 
-  async findPublishedPage(input: { limit: number; cursor?: string }): Promise<OutfitDetail[]> {
-    const where = input.cursor ? and(eq(outfits.status, 'published'), lt(outfits.id, input.cursor)) : eq(outfits.status, 'published');
-    const rows = await this.database.db.select().from(outfits).where(where).orderBy(desc(outfits.id)).limit(input.limit);
-    const details = await Promise.all(rows.map((outfit) => this.findById(outfit.id)));
-    return details.filter((detail): detail is OutfitDetail => Boolean(detail));
+  async findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]> {
+    return this.database.db.transaction(async tx => {
+      const creator = tx.select({id: creatorProfiles.id}).from(creatorProfiles).innerJoin(users, eq(users.id, creatorProfiles.userId))
+        .where(and(eq(creatorProfiles.id, outfits.creatorId), eq(creatorProfiles.status, PUBLIC_PROFILE.status), eq(users.status, PUBLIC_PROFILE.userStatus)));
+      const brand = tx.select({id: brandProfiles.id}).from(brandProfiles).where(and(eq(brandProfiles.id, outfits.brandId), eq(brandProfiles.status, PUBLIC_PROFILE.status)));
+      const visibleOwner = or(and(isNull(outfits.creatorId), isNull(outfits.brandId)),
+        and(isNotNull(outfits.creatorId), isNull(outfits.brandId), exists(creator)),
+        and(isNull(outfits.creatorId), isNotNull(outfits.brandId), exists(brand)));
+      const rows = await tx.select().from(outfits).where(and(eq(outfits.status, PUBLIC_OUTFIT.status), inArray(outfits.visibility, PUBLIC_OUTFIT_VISIBILITIES), visibleOwner,
+        input.creatorId ? eq(outfits.creatorId, input.creatorId) : undefined, input.brandId ? eq(outfits.brandId, input.brandId) : undefined,
+        input.cursor ? lt(outfits.id, input.cursor) : undefined)).orderBy(desc(outfits.id)).limit(input.limit);
+      return this.loadDetails(rows, {db: tx});
+    }, READ_SNAPSHOT);
   }
 }

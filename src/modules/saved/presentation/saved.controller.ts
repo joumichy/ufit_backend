@@ -1,8 +1,10 @@
-import { Controller, Delete, Get, Inject, Param, Put, Query, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { SavedService } from '../application/saved.service';
+
+const creatorFollowRoute = {path: 'creator-follows/:creatorId', id: 'creatorId'} as const;
 
 @Controller('me')
 @UseGuards(AuthGuard)
@@ -26,13 +28,17 @@ export class SavedController {
     return this.savedService.unsaveOutfit(user.id, outfitId);
   }
 
-  @Put('creator-follows/:creatorId')
-  followCreator(@CurrentUser() user: AuthenticatedUser, @Param('creatorId') creatorId: string) {
+  @Put(creatorFollowRoute.path)
+  followCreator(@CurrentUser() user: AuthenticatedUser, @Param(creatorFollowRoute.id, ParseUUIDPipe) creatorId: string) {
     return this.savedService.followCreator(user.id, creatorId);
   }
 
-  @Delete('creator-follows/:creatorId')
-  unfollowCreator(@CurrentUser() user: AuthenticatedUser, @Param('creatorId') creatorId: string) {
+  @Delete(creatorFollowRoute.path)
+  unfollowCreator(@CurrentUser() user: AuthenticatedUser, @Param(creatorFollowRoute.id, ParseUUIDPipe) creatorId: string) {
     return this.savedService.unfollowCreator(user.id, creatorId);
+  }
+  @Get(creatorFollowRoute.path)
+  getCreatorFollow(@CurrentUser() user: AuthenticatedUser, @Param(creatorFollowRoute.id, ParseUUIDPipe) creatorId: string) {
+    return this.savedService.getCreatorFollow(user.id, creatorId);
   }
 }

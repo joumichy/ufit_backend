@@ -42,6 +42,7 @@ function application(): CreatorApplicationRow {
 
 function buildService(repositoryOverrides: Partial<CreatorsRepository> = {}) {
   const repository: CreatorsRepository = {
+    findPublicProfileById: async () => undefined,
     findDetailsByUserId: vi.fn().mockResolvedValue({profile: profile(), socialAccounts: []}),
     findProfileByUserId: vi.fn().mockResolvedValue(profile()),
     findProfileByApplicationId: vi.fn().mockResolvedValue(undefined),

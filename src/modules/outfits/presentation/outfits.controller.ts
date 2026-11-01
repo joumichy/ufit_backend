@@ -48,8 +48,8 @@ export class OutfitsController {
   }
 
   @Get()
-  getPublicFeed(@Query('limit') limit?: string, @Query('cursor') cursor?: string) {
-    return this.outfitsService.getPublicFeed({ limit: limit ? Number(limit) : undefined, cursor });
+  getPublicFeed(@Query() query: Record<string, unknown>) {
+    return this.outfitsService.getPublicFeed(query);
   }
 
   @Get(':id')

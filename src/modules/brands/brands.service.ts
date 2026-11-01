@@ -4,6 +4,7 @@ import type { BrandApplicationRow, BrandProfileRow } from '../../shared/infrastr
 import type { BrandsRepository } from './brands.repository';
 import { BRANDS_REPOSITORY } from './brands.tokens';
 import type { UpdateBrandProfileRequest } from './dto/update-brand-profile.request';
+import {PUBLIC_BRAND} from './public-brand.contract';
 
 function slugify(value: string): string {
   const slug = value
@@ -45,9 +46,9 @@ export class BrandsService {
   }
 
   async getPublicProfile(brandProfileId: string) {
-    const profile = await this.brandsRepository.findProfileById(brandProfileId);
-    if (!profile || profile.status !== PROFILE_STATUS.active) throw new NotFoundException('Public brand not found');
-    return { id: profile.id, brandName: profile.brandName, slug: profile.slug, bio: profile.bio, websiteUrl: profile.websiteUrl };
+    const profile = await this.brandsRepository.findPublicProfileById(brandProfileId);
+    if (!profile) throw new NotFoundException(PUBLIC_BRAND.missing);
+    return profile;
   }
 
   async getProfileForMember(brandProfileId: string, userId: string): Promise<BrandProfileRow> {

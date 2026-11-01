@@ -5,6 +5,7 @@ import type { CreatorApplicationRow, CreatorProfileRow } from '../../shared/infr
 import type { UpdateCreatorProfileRequest } from './dto/update-creator-profile.request';
 import type { CreatorsRepository } from './creators.repository';
 import { CREATORS_REPOSITORY } from './creators.tokens';
+import {PUBLIC_CREATOR, type PublicCreatorProfile} from './public-creator.contract';
 
 const creatorProfileFailure = {notFound: 'Creator profile not found', suspended: 'Suspended creators cannot update their profile'} as const;
 
@@ -22,6 +23,11 @@ function slugify(value: string): string {
 @Injectable()
 export class CreatorsService {
   constructor(@Inject(CREATORS_REPOSITORY) private readonly creatorsRepository: CreatorsRepository) {}
+  async getPublicProfile(id: string): Promise<PublicCreatorProfile> {
+    const profile = await this.creatorsRepository.findPublicProfileById(id);
+    if (!profile) throw new NotFoundException(PUBLIC_CREATOR.missing);
+    return profile;
+  }
 
   async provisionFromApplication(application: CreatorApplicationRow): Promise<void> {
     const existing = await this.creatorsRepository.findProfileByApplicationId(application.id);

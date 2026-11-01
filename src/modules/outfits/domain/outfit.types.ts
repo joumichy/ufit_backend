@@ -62,7 +62,8 @@ export interface OutfitRepository {
   findById(outfitId: string): Promise<OutfitDetail | null>;
   updateStatus(outfitId: string, status: OutfitStatus, visibility: OutfitVisibility, reviewerId?: string, rejectionReason?: string): Promise<Outfit>;
   updateTotals(outfitId: string, totalPriceMin: number, totalPriceMax: number): Promise<Outfit>;
-  findPublishedPage(input: { limit: number; cursor?: string }): Promise<OutfitDetail[]>;
+  findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]>;
 }
 
 export const OUTFIT_REPOSITORY = Symbol('OUTFIT_REPOSITORY');
+import type {PublicOutfitPage} from './public-outfit.contract';

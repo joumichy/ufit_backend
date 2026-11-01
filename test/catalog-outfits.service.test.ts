@@ -1,4 +1,6 @@
 import {randomUUID} from 'node:crypto';
+import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '../src/modules/outfits/domain/public-outfit.contract';
+import {PUBLIC_PROFILE} from '../src/shared/domain/public-profile.contract';
 import {MemoryProductRepository, productFixture} from './products/memory-product.repository';
 import {MemoryProductMediaReader} from './products/memory-product-media.reader';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
@@ -10,7 +12,10 @@ import type { Outfit, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, O
 import { EditorialService } from '../src/modules/editorial/application/editorial.service';
 import type { EditorialCollection, EditorialCollectionDetail, EditorialCollectionItem, EditorialRepository } from '../src/modules/editorial/domain/editorial.types';
 
-const id = (name: string) => `00000000-0000-4000-8000-${name.padStart(12, '0').slice(0, 12)}`;
+const identities = new Map<string, string>();
+const id = (name: string) => { let value = identities.get(name); if (!value) { value = randomUUID(); identities.set(name, value); } return value; };
+const publicCreator = {id: id('creator'), kind: PUBLIC_PROFILE.kind.creator, name: 'Créateur de qualification', avatarUrl: null};
+const publicProfileFixture = {title: 'Tenue publique de profil', description: 'Une silhouette de qualification', image: 'https://cdn.test/profile-outfit.jpg', inspiration: 'Pièce personnelle', itemType: 'top', position: 0, pageSize: 1, empty: 0, nextRow: 1} as const;
 
 class MemoryOutfitRepository implements OutfitRepository {
   outfits = new Map<string, Outfit>();
@@ -51,7 +56,7 @@ class MemoryOutfitRepository implements OutfitRepository {
     return outfit
       ? {
           outfit,
-          author: null,
+          author: outfit.creatorId === publicCreator.id && outfit.brandId === null ? publicCreator : null,
           items: this.items.filter((item) => item.outfitId === outfitId),
           images: this.images.filter((image) => image.outfitId === outfitId)
         }
@@ -86,9 +91,11 @@ class MemoryOutfitRepository implements OutfitRepository {
     return updated;
   }
 
-  async findPublishedPage(input: { limit: number; cursor?: string }): Promise<OutfitDetail[]> {
+  async findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]> {
     const rows = [...this.outfits.values()]
-      .filter((outfit) => outfit.status === 'published')
+      .filter((outfit) => outfit.status === PUBLIC_OUTFIT.status && PUBLIC_OUTFIT_VISIBILITIES.some(visibility => visibility === outfit.visibility) &&
+        ((outfit.creatorId === null && outfit.brandId === null) || (outfit.creatorId === publicCreator.id && outfit.brandId === null)) &&
+        (!input.creatorId || outfit.creatorId === input.creatorId) && (!input.brandId || outfit.brandId === input.brandId))
       .sort((a, b) => b.id.localeCompare(a.id))
       .filter((outfit) => (input.cursor ? outfit.id < input.cursor : true))
       .slice(0, input.limit);
@@ -143,6 +150,30 @@ function services() {
 }
 
 describe('Products and outfits services', () => {
+  it('paginates public profile outfits by their canonical author and hides private or unavailable authors', async () => {
+    const {outfitsService, outfitRepository} = services();
+    async function publish() {
+      const detail = await outfitsService.createOutfit({creatorId: publicCreator.id, title: publicProfileFixture.title,
+        description: publicProfileFixture.description, coverImageUrl: publicProfileFixture.image,
+        items: [{itemType: publicProfileFixture.itemType, externalLabel: publicProfileFixture.inspiration, position: publicProfileFixture.position, isRequired: true, isShoppable: false}]});
+      await outfitsService.submitOutfit(detail.outfit.id);
+      await outfitsService.reviewOutfit(detail.outfit.id, {decision: PUBLIC_OUTFIT.status});
+      return detail.outfit.id;
+    }
+    const first = await publish(), second = await publish();
+    const page = await outfitsService.getPublicFeed({creatorId: publicCreator.id, limit: publicProfileFixture.pageSize});
+    expect(page.items).toHaveLength(publicProfileFixture.pageSize); expect(page.nextCursor).toBe(page.items[publicProfileFixture.position].id);
+    const next = await outfitsService.getPublicFeed({creatorId: publicCreator.id, limit: publicProfileFixture.pageSize, cursor: page.nextCursor});
+    expect(new Set([...page.items, ...next.items].map(row => row.id))).toEqual(new Set([first, second])); expect(next.nextCursor).toBeNull();
+    expect((await outfitsService.getPublicFeed({creatorId: randomUUID()})).items).toHaveLength(publicProfileFixture.empty);
+    await expect(outfitsService.getPublicFeed({creatorId: publicCreator.id, brandId: randomUUID()})).rejects.toBeInstanceOf(BadRequestException);
+    const hidden = outfitRepository.outfits.get(first)!; hidden.visibility = 'private';
+    await expect(outfitsService.getPublicDetail(first)).rejects.toBeInstanceOf(NotFoundException);
+    const unavailable = outfitRepository.outfits.get(second)!; unavailable.creatorId = randomUUID();
+    await expect(outfitsService.getPublicDetail(second)).rejects.toBeInstanceOf(NotFoundException);
+    expect((await outfitsService.getPublicFeed({})).items).toHaveLength(publicProfileFixture.empty);
+  });
+
   it('moves product through submit and review statuses and only exposes active products publicly', async () => {
     const { productsService } = services();
     const detail = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency,
@@ -217,7 +248,7 @@ describe('Products and outfits services', () => {
     expect(card.prices).toEqual([{currency: 'CHF', min: 10090, max: 10090}, {currency: 'EUR', min: 9000, max: 9000}]);
     expect(card).not.toHaveProperty('currency');
     expect(card).not.toHaveProperty('totalPriceMax');
-    expect(card.author).toBeNull();
+    expect(card.author).toEqual(publicCreator);
   });
 
   it('keeps public feed/detail limited to published outfits and paginates basics', async () => {

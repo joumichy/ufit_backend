@@ -2,6 +2,11 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { PRODUCT_REPOSITORY, type ProductDetail, type ProductRepository } from '../../products/domain/product.types';
 import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository } from '../domain/outfit.types';
 import { CreateOutfitDto, ReviewOutfitDto } from './dto/outfit.dto';
+import {z} from 'zod';
+import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES} from '../domain/public-outfit.contract';
+
+const publicPage = z.object({limit: z.coerce.number().int().min(PUBLIC_OUTFIT.limits.minimum).max(PUBLIC_OUTFIT.limits.maximum).default(PUBLIC_OUTFIT.limits.default),
+  cursor: z.uuid().optional(), creatorId: z.uuid().optional(), brandId: z.uuid().optional()}).strict().refine(value => !(value.creatorId && value.brandId));
 
 export interface OutfitPriceDto { currency: string; min: number; max: number }
 
@@ -116,22 +121,26 @@ export class OutfitsService {
     return this.requireOutfit(outfitId);
   }
 
-  async getPublicFeed(input: { limit?: number; cursor?: string }): Promise<{ items: OutfitCardDto[]; nextCursor: string | null }> {
-    const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
-    const rows = await this.outfits.findPublishedPage({ limit: limit + 1, cursor: input.cursor });
-    const page = rows.slice(0, limit);
+  async getPublicFeed(input: unknown): Promise<{ items: OutfitCardDto[]; nextCursor: string | null }> {
+    const parsed = publicPage.safeParse(input);
+    if (!parsed.success) throw new BadRequestException(PUBLIC_OUTFIT.failure.page);
+    const {limit, ...filter} = parsed.data;
+    const rows = await this.outfits.findPublishedPage({ ...filter, limit: limit + PUBLIC_OUTFIT.limits.overflow });
+    const page = rows.slice(PUBLIC_OUTFIT.limits.first, limit);
     const productIds = this.uniqueShoppableProductIds(page.flatMap(detail => detail.items));
     const products = await this.products.findActiveByIds(productIds);
     return {
       items: page.map((detail) => this.toOutfitCard(detail, products)),
-      nextCursor: rows.length > limit ? (page.at(-1)?.outfit.id ?? null) : null
+      nextCursor: rows.length > limit ? page.at(PUBLIC_OUTFIT.limits.last)!.outfit.id : null
     };
   }
 
   async getPublicDetail(outfitId: string): Promise<OutfitDetailDto> {
     const detail = await this.requireOutfit(outfitId);
-    if (detail.outfit.status !== 'published') {
-      throw new NotFoundException('Public outfit not found');
+    if (detail.outfit.status !== PUBLIC_OUTFIT.status || !PUBLIC_OUTFIT_VISIBILITIES.some(visibility => visibility === detail.outfit.visibility) ||
+        (detail.outfit.creatorId !== null && detail.outfit.brandId !== null) ||
+        ((detail.outfit.creatorId !== null || detail.outfit.brandId !== null) && detail.author === null)) {
+      throw new NotFoundException(PUBLIC_OUTFIT.failure.missing);
     }
     return this.toOutfitDetail(detail, await this.products.findActiveByIds(this.uniqueShoppableProductIds(detail.items)));
   }

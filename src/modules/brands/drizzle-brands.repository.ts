@@ -1,13 +1,19 @@
 import { PROFILE_EDITING, PROFILE_STATUS } from '../../shared/domain/profile-editing.contract';
+import {PUBLIC_PROFILE} from '../../shared/domain/public-profile.contract';
+import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES} from '../outfits/domain/public-outfit.contract';
+import {PRODUCT_STATUS} from '../products/domain/product-contract';
+import type {PublicBrandProfile} from './public-brand.contract';
 import type { DatabaseSession } from "../../shared/infrastructure/database/database-session";
 import { COMMERCE_POLICY_KEY, type BrandCommercePolicy } from './commerce-policy';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, ne, sql, inArray, isNull } from 'drizzle-orm';
 import { DatabaseService } from '../../shared/infrastructure/database/database.service';
 import {
   brandMembers,
   brandProfiles,
   brandSettings,
+  outfits,
+  products,
   type BrandMemberRow,
   type BrandProfileRow,
   type NewBrandMemberRow,
@@ -18,6 +24,17 @@ import type { BrandsRepository } from './brands.repository';
 @Injectable()
 export class DrizzleBrandsRepository implements BrandsRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
+
+  async findPublicProfileById(id: string): Promise<PublicBrandProfile | undefined> {
+    const [profile] = await this.database.db.select({id: brandProfiles.id, brandName: brandProfiles.brandName, slug: brandProfiles.slug,
+      bio: brandProfiles.bio, websiteUrl: brandProfiles.websiteUrl, stats: {
+        publishedOutfits: sql<number>`(select count(*)::integer from ${outfits} where ${and(eq(outfits.brandId, brandProfiles.id), isNull(outfits.creatorId),
+          eq(outfits.status, PUBLIC_OUTFIT.status), inArray(outfits.visibility, PUBLIC_OUTFIT_VISIBILITIES))})`,
+        activeProducts: sql<number>`(select count(*)::integer from ${products} where ${and(eq(products.brandId, brandProfiles.id), eq(products.status, PRODUCT_STATUS.active))})`,
+      }})
+      .from(brandProfiles).where(and(eq(brandProfiles.id, id), eq(brandProfiles.status, PUBLIC_PROFILE.status)));
+    return profile;
+  }
 
   async findSettings(brandProfileId: string) {
     return this.database.db.query.brandSettings.findFirst({where: eq(brandSettings.brandProfileId,brandProfileId)});
