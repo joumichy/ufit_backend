@@ -6,12 +6,22 @@ import {ProductsService} from '../../src/modules/products/application/products.s
 import type {ProductDetail} from '../../src/modules/products/domain/product.types';
 import {MemoryProductRepository,productFixture} from './memory-product.repository';
 import {MemoryProductMediaReader,mediaReaderFixture} from './memory-product-media.reader';
+import {PROFILE_STATUS} from '../../src/shared/domain/profile-editing.contract';
 function setup(){const repository=new MemoryProductRepository();const media=new MemoryProductMediaReader();return{repository,media,service:new ProductsService(repository,media)};}
 const create=()=>({brandId:productFixture.brandID,requestId:randomUUID(),name:productFixture.name,description:productFixture.description,category:productFixture.category,basePrice:productFixture.basePrice,currency:productFixture.currency,
  variants:[{sku:productFixture.skuPrefix+randomUUID(),stockQuantity:productFixture.stock}],images:[productFixture.image]});
 function edit(detail:ProductDetail){return{name:detail.product.name,description:detail.product.description,category:detail.product.category,basePrice:detail.product.basePrice,currency:detail.product.currency,
  expectedVersion:detail.product.version,variants:detail.variants.map(({id,size,color,sku,stockQuantity,priceOverride,status})=>({id,size,color,sku,stockQuantity,priceOverride,status,expectedStockQuantity:stockQuantity})),images:detail.images.map(({id,url,position,kind})=>({id,url,position,kind}))};}
 describe('owned product lifecycle',()=>{
+ it('returns the authoritative brand context in private detail, queue and creation recovery',async()=>{
+  const{service,repository}=setup(),body=create(),created=await service.createProduct(productFixture.actor,body);
+  const brand={id:productFixture.brandID,brandName:productFixture.brandName,status:PROFILE_STATUS.paused};
+  repository.brands.set(brand.id,brand);
+  const moderator={id:productFixture.adminID,roles:[...productFixture.adminRoles]};
+  expect((await service.getManagedProduct(moderator,created.product.id)).brand).toEqual(brand);
+  expect((await service.listProducts(moderator,{})).items[productFixture.firstIndex].brand).toEqual(brand);
+  expect((await service.recoverCreation(productFixture.actor,body.brandId,body.requestId)).brand).toEqual(brand);
+ });
  it('reuses a creation key for the same payload and refuses a changed payload',async()=>{
   const{service,repository}=setup(),body=create();const first=await service.createProduct(productFixture.actor,body);const replay=await service.createProduct(productFixture.actor,body);
   expect(replay.product.id).toBe(first.product.id);expect(repository.products.size).toBe(productFixture.createdProductCount);

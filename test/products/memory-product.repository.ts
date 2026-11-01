@@ -4,11 +4,14 @@ import {isUUID} from 'class-validator';
 import type {Product, ProductDetail, ProductImage, ProductRepository, ProductStatus, ProductVariant} from '../../src/modules/products/domain/product.types';
 import {PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_VARIANT_STATUS} from '../../src/modules/products/domain/product-contract';
 import type {AuthenticatedUser} from '../../src/modules/identity/domain/user.types';
+import {PROFILE_STATUS} from '../../src/shared/domain/profile-editing.contract';
 
 export const productFixture = {
   actor: {id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', roles: ['brand_owner']} satisfies Pick<AuthenticatedUser, 'id' | 'roles'>,
   adminID: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  adminRoles: ['admin'],
   brandID: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  brandName: 'Maison de qualification',
   image: {url: 'https://cdn.test/product.jpg', position: 0, kind: 'product'} as const,
   firstIndex: 0, createdProductCount: 1, invalidVersion: 0, restockQuantity: 5, changedName: 'Changed', revisedName: 'Nouvelle veste', rollbackName: 'Must rollback', name: 'Veste Ufit', description: 'Veste de qualification', category: 'Veste', basePrice: 12345, currency: 'CHF', skuPrefix: 'CATALOG-', stock: 2, timestamp: new Date('2026-05-20T00:00:00.000Z'),
   invalid: 'Invalid product fixture contract',
@@ -17,6 +20,7 @@ export class MemoryProductRepository implements ProductRepository {
   products = new Map<string, Product>();
   variants: ProductVariant[] = [];
   images: ProductImage[] = [];
+  brands = new Map<string, ProductDetail['brand']>([[productFixture.brandID, {id: productFixture.brandID, brandName: productFixture.brandName, status: PROFILE_STATUS.active}]]);
   members = new Set([productFixture.brandID + productFixture.actor.id]);
   activeBrands = new Set<string>([productFixture.brandID]);
   readyMedia = new Map<string, string>();
@@ -64,7 +68,8 @@ export class MemoryProductRepository implements ProductRepository {
   }
   async findById(productId: string): Promise<ProductDetail | null> {
     const product = this.products.get(productId);
-    return product ? {product, variants: this.variants.filter(row => row.productId === productId), images: this.images.filter(row => row.productId === productId)} : null;
+    const brand = product && this.brands.get(product.brandId);
+    return product && brand ? {product, brand, variants: this.variants.filter(row => row.productId === productId), images: this.images.filter(row => row.productId === productId)} : null;
   }
   async findActiveByIds(productIds: string[]): Promise<ProductDetail[]> {
     const details = await Promise.all(productIds.map(id => this.findById(id)));

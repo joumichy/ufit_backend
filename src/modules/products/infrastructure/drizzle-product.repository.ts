@@ -15,6 +15,7 @@ const productProjection = {id: products.id, brandId: products.brandId, version: 
 const variantProjection = {id: productVariants.id, productId: productVariants.productId, size: productVariants.size, color: productVariants.color,
   sku: productVariants.sku, stockQuantity: productVariants.stockQuantity, priceOverride: productVariants.priceOverride, status: productVariants.status};
 const imageProjection = {id: productImages.id, productId: productImages.productId, url: productImages.url, position: productImages.position, kind: productImages.kind};
+const brandProjection = {id: brandProfiles.id, brandName: brandProfiles.brandName, status: brandProfiles.status};
 
 @Injectable()
 export class DrizzleProductRepository implements ProductRepository {
@@ -58,19 +59,20 @@ export class DrizzleProductRepository implements ProductRepository {
     return detail ? {detail, fingerprint: row.fingerprint} : null;
   }
   async list(query: ProductListQuery): Promise<ProductListPage> {
-    const rows = await this.database.db.select(productProjection).from(products)
+    const rows = await this.database.db.select({product: productProjection, brand: brandProjection}).from(products)
+      .innerJoin(brandProfiles, eq(brandProfiles.id, products.brandId))
       .where(and(query.brandId ? eq(products.brandId, query.brandId) : undefined,
         query.status ? eq(products.status, query.status) : undefined, query.cursor ? gt(products.id, query.cursor) : undefined))
       .orderBy(products.id).limit(query.limit + PRODUCT_EDITING.limits.pageOverflow);
     const page = rows.slice(PRODUCT_EDITING.limits.firstIndex, query.limit);
-    const ids = page.map(row => row.id);
+    const ids = page.map(row => row.product.id);
     if (!ids.length) return {items: [], nextCursor: null};
     const [variants, images] = await Promise.all([
       this.database.db.select(variantProjection).from(productVariants).where(inArray(productVariants.productId, ids)).orderBy(productVariants.id),
       this.database.db.select(imageProjection).from(productImages).where(inArray(productImages.productId, ids)).orderBy(productImages.position, productImages.id)
     ]);
-    return {items: page.map(product => ({product, variants: variants.filter(row => row.productId === product.id), images: images.filter(row => row.productId === product.id)})),
-      nextCursor: rows.length > query.limit ? page.at(PRODUCT_EDITING.limits.lastIndex)!.id : null};
+    return {items: page.map(({product, brand}) => ({product, brand, variants: variants.filter(row => row.productId === product.id), images: images.filter(row => row.productId === product.id)})),
+      nextCursor: rows.length > query.limit ? page.at(PRODUCT_EDITING.limits.lastIndex)!.product.id : null};
   }
   async createProduct(input: Parameters<ProductRepository['createProduct']>[0]): Promise<Product> {
     const [row] = await this.database.db.insert(products).values({...input, status: input.status ?? PRODUCT_STATUS.draft}).returning(productProjection);
@@ -86,26 +88,27 @@ export class DrizzleProductRepository implements ProductRepository {
     return this.database.db.insert(productImages).values(images.map(image => ({...image, productId}))).returning(imageProjection);
   }
   async findById(productId: string): Promise<ProductDetail | null> {
-    const [product] = await this.database.db.select(productProjection).from(products).where(eq(products.id, productId));
-    if (!product) return null;
+    const [row] = await this.database.db.select({product: productProjection, brand: brandProjection}).from(products)
+      .innerJoin(brandProfiles, eq(brandProfiles.id, products.brandId)).where(eq(products.id, productId));
+    if (!row) return null;
     const [variants, images] = await Promise.all([
       this.database.db.select(variantProjection).from(productVariants).where(eq(productVariants.productId, productId)).orderBy(productVariants.id),
       this.database.db.select(imageProjection).from(productImages).where(eq(productImages.productId, productId)).orderBy(productImages.position, productImages.id)
     ]);
-    return {product, variants, images};
+    return {...row, variants, images};
   }
   async findActiveByIds(productIds: string[]): Promise<ProductDetail[]> {
     if (!productIds.length) return [];
-    const rows = await this.database.db.select({product: productProjection}).from(products)
+    const rows = await this.database.db.select({product: productProjection, brand: brandProjection}).from(products)
       .innerJoin(brandProfiles, and(eq(brandProfiles.id, products.brandId), eq(brandProfiles.status, PROFILE_STATUS.active)))
-      .where(and(inArray(products.id, productIds), eq(products.status, PRODUCT_STATUS.active))).then(rows => rows.map(row => row.product));
+      .where(and(inArray(products.id, productIds), eq(products.status, PRODUCT_STATUS.active)));
     if (!rows.length) return [];
-    const activeIDs = rows.map(product => product.id);
+    const activeIDs = rows.map(row => row.product.id);
     const [variants, images] = await Promise.all([
       this.database.db.select(variantProjection).from(productVariants).where(inArray(productVariants.productId, activeIDs)),
       this.database.db.select(imageProjection).from(productImages).where(inArray(productImages.productId, activeIDs))
     ]);
-    return rows.map(product => ({product, variants: variants.filter(variant => variant.productId === product.id), images: images.filter(image => image.productId === product.id)}));
+    return rows.map(({product, brand}) => ({product, brand, variants: variants.filter(variant => variant.productId === product.id), images: images.filter(image => image.productId === product.id)}));
   }
   async replaceProduct(productId: string, input: ProductContentUpdate): Promise<void> {
     await this.database.db.update(products).set({...input.fields, status: PRODUCT_STATUS.draft, reviewedBy: null, reviewedAt: null, rejectionReason: null,

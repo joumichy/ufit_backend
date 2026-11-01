@@ -1,4 +1,5 @@
 import type { PRODUCT_STATUSES, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from './product-contract';
+import type { PROFILE_STATUSES } from '../../../shared/domain/profile-editing.contract';
 export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
 export type ProductVariantStatus = (typeof PRODUCT_VARIANT_STATUSES)[number];
 import type { GenderTarget } from '../../../shared/domain/gender-target';
@@ -46,6 +47,7 @@ export interface ProductImage {
 
 export interface ProductDetail {
   product: Product;
+  brand: {id: string; brandName: string; status: (typeof PROFILE_STATUSES)[number]};
   variants: ProductVariant[];
   images: ProductImage[];
 }
