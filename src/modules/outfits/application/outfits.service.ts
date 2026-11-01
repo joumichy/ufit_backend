@@ -29,13 +29,15 @@ export interface OutfitCardDto {
   creatorId: string | null;
   brandId: string | null;
   publishedAt: string | null;
+  pins: OutfitDetail['pins'];
+  items: OutfitDetailDto['items'];
+  images: Array<{id: string; url: string; position: number}>;
 }
 
 export interface OutfitDetailDto extends OutfitCardDto {
   description: string;
   creatorId: string | null;
   brandId: string | null;
-  images: Array<{ url: string; position: number }>;
   items: Array<{
     id: string;
     itemType: OutfitItem['itemType'];
@@ -44,7 +46,7 @@ export interface OutfitDetailDto extends OutfitCardDto {
     isRequired: boolean;
     isShoppable: boolean;
     stylingNote: string | null;
-    product: null | { id: string; name: string; brandId: string; price: number; currency: string; imageUrl: string | null };
+    product: null | { id: string; name: string; brandId: string; brandName: string; price: number; currency: string; imageUrl: string | null };
   }>;
 }
 
@@ -58,7 +60,7 @@ export class OutfitsService {
 
   async createOutfit(user: OutfitActor, input: CreateOutfitDto) {
     const owner = this.owner(input), content = this.content(input), fingerprint = createHash(OUTFIT_EDITING.creation.hash)
-      .update(JSON.stringify(content)).digest(OUTFIT_EDITING.creation.encoding);
+      .update(JSON.stringify({...content, pins: content.pins.length ? content.pins : undefined})).digest(OUTFIT_EDITING.creation.encoding);
     const detail = await this.outfits.transaction(async repository => {
       await this.requireOwner(repository, owner, user, true);
       const existing = await repository.findByCreationRequest(owner, input.requestId);
@@ -72,6 +74,7 @@ export class OutfitsService {
       await repository.addItems(outfit.id, content.items.map(({id: _, ...item}) => item));
       await repository.addImages(outfit.id, content.images.map(({id: _, ...image}) => image));
       await repository.replaceTags(outfit.id, content.tagIds);
+      await repository.replacePins(outfit.id, content.pins);
       return this.requireOutfit(outfit.id, repository);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
@@ -92,7 +95,7 @@ export class OutfitsService {
     const detail = await this.mutate(user, id, input, false, async (repository, before) => {
       if (before.outfit.status !== OUTFIT_STATUS.draft && before.outfit.status !== OUTFIT_STATUS.rejected) throw new ConflictException(OUTFIT_EDITING.failure.state);
       this.requireComplete(before);
-      await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
+      await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id), pins: before.pins.map(pin => ({imagePosition: before.images.find(image => image.id === pin.imageId)!.position, itemPosition: before.items.find(item => item.id === pin.itemId)!.position, x: pin.x, y: pin.y}))});
       await repository.updateStatus(id, OUTFIT_STATUS.underReview, OUTFIT_VISIBILITY.private);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
@@ -107,7 +110,7 @@ export class OutfitsService {
     const detail = await this.mutate(user, id, input, true, async (repository, before) => {
       this.requireReviewable(before, input);
       if (input.decision === OUTFIT_STATUS.published) {
-        await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id)});
+        await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id), pins: before.pins.map(pin => ({imagePosition: before.images.find(image => image.id === pin.imageId)!.position, itemPosition: before.items.find(item => item.id === pin.itemId)!.position, x: pin.x, y: pin.y}))});
       }
       await repository.updateStatus(id, input.decision, input.decision === OUTFIT_STATUS.published ? OUTFIT_VISIBILITY.public : OUTFIT_VISIBILITY.private, user.id, reason);
     });
@@ -193,9 +196,14 @@ export class OutfitsService {
       .sort((left, right) => left.position - right.position);
     const images = input.images.map(image => ({id: (image as EditOutfitImageDto).id?.toLowerCase(), url: image.url, position: image.position})).sort((left, right) => left.position - right.position);
     return {fields: {title: input.title, description: input.description, genderTarget: input.genderTarget ?? null,
-      coverImageUrl: images[OUTFIT_EDITING.limits.first]?.url ?? OUTFIT_EDITING.emptyImage}, items, images, tagIds: input.tagIds.map(id => id.toLowerCase()).sort()};
+      coverImageUrl: images[OUTFIT_EDITING.limits.first]?.url ?? OUTFIT_EDITING.emptyImage}, items, images, tagIds: input.tagIds.map(id => id.toLowerCase()).sort(), pins: [...(input.pins ?? [])].sort((left, right) => left.imagePosition - right.imagePosition || left.itemPosition - right.itemPosition)};
   }
   private async validateContent(repository: OutfitRepository, owner: OutfitOwner, content: OutfitContentUpdate): Promise<void> {
+    const pairs = content.pins.map(pin => JSON.stringify([pin.imagePosition, pin.itemPosition]));
+    if (content.pins.length > OUTFIT_EDITING.limits.pinsMax || new Set(pairs).size !== pairs.length || content.pins.some(pin =>
+      !content.images.some(image => image.position === pin.imagePosition) || !content.items.some(item => item.position === pin.itemPosition) ||
+      !Number.isInteger(pin.x) || !Number.isInteger(pin.y) || pin.x < OUTFIT_EDITING.limits.integerMin || pin.y < OUTFIT_EDITING.limits.integerMin ||
+      pin.x > OUTFIT_EDITING.limits.pinCoordinateMax || pin.y > OUTFIT_EDITING.limits.pinCoordinateMax)) throw new BadRequestException(OUTFIT_EDITING.failure.pins);
     const assetIds = this.media.assetIDs(content.images.map(image => image.url));
     if (!await repository.hasReadyOutfitMedia(owner, assetIds)) throw new BadRequestException(OUTFIT_MEDIA.failure.ownership);
     const ids = content.items.flatMap(item => item.productId ? [item.productId] : []);
@@ -268,6 +276,7 @@ export class OutfitsService {
   }
 
   toOutfitCard(detail: OutfitDetail, products: ProductDetail[]): OutfitCardDto {
+    const byId = new Map(products.map(product => [product.product.id, product]));
     return {
       id: detail.outfit.id,
       title: detail.outfit.title,
@@ -276,18 +285,9 @@ export class OutfitsService {
       author: detail.author,
       creatorId: detail.outfit.creatorId,
       brandId: detail.outfit.brandId,
-      publishedAt: detail.outfit.publishedAt?.toISOString() ?? null
-    };
-  }
-
-  toOutfitDetail(detail: OutfitDetail, products: ProductDetail[]): OutfitDetailDto {
-    const byId = new Map(products.map((product) => [product.product.id, product]));
-    return {
-      ...this.toOutfitCard(detail, products),
-      description: detail.outfit.description,
-      creatorId: detail.outfit.creatorId,
-      brandId: detail.outfit.brandId,
-      images: detail.images.sort((a, b) => a.position - b.position).map((image) => ({ url: image.url, position: image.position })),
+      publishedAt: detail.outfit.publishedAt?.toISOString() ?? null,
+      pins: detail.pins,
+      images: [...detail.images].sort((a, b) => a.position - b.position).map(image => ({id: image.id, url: image.url, position: image.position})),
       items: detail.items
         .sort((a, b) => a.position - b.position)
         .map((item) => {
@@ -295,16 +295,17 @@ export class OutfitsService {
           return {
             id: item.id,
             itemType: item.itemType,
-            label: product?.product.name ?? item.externalLabel ?? 'Piece',
+            label: product?.product.name ?? item.externalLabel ?? OUTFIT_EDITING.labels.unavailable,
             position: item.position,
             isRequired: item.isRequired,
-            isShoppable: item.isShoppable && Boolean(product),
+            isShoppable: item.isShoppable,
             stylingNote: item.stylingNote,
             product: product
               ? {
                   id: product.product.id,
                   name: product.product.name,
                   brandId: product.product.brandId,
+                  brandName: product.brand.brandName,
                   price: this.minProductPrice(product),
                   currency: product.product.currency,
                   imageUrl: product.images.sort((a, b) => a.position - b.position)[0]?.url ?? null
@@ -313,6 +314,10 @@ export class OutfitsService {
           };
         })
     };
+  }
+
+  toOutfitDetail(detail: OutfitDetail, products: ProductDetail[]): OutfitDetailDto {
+    return {...this.toOutfitCard(detail, products), description: detail.outfit.description};
   }
 
   private priceGroups(items: OutfitItem[], products: ProductDetail[]): OutfitPriceDto[] {

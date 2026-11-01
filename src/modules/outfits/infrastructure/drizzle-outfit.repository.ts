@@ -8,7 +8,7 @@ import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructur
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '../domain/public-outfit.contract';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
-import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfits, users, products, tags, outfitTags, outfitMediaAssets } from '../../../shared/infrastructure/database/schema';
+import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfitPins, outfits, users, products, tags, outfitTags, outfitMediaAssets } from '../../../shared/infrastructure/database/schema';
 import type { Outfit, OutfitAuthor, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility, OutfitOwner, OutfitOwnerInfo, OutfitManagedQuery, OutfitManagedPage, OutfitContentUpdate, OutfitTag } from '../domain/outfit.types';
 
 @Injectable()
@@ -70,6 +70,15 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     await this.database.db.delete(outfitTags).where(eq(outfitTags.outfitId, id));
     if (tagIds.length) await this.database.db.insert(outfitTags).values(tagIds.map(tagId => ({outfitId: id, tagId})));
   }
+  async replacePins(id: string, pins: Parameters<OutfitRepository['replacePins']>[1]): Promise<void> {
+    await this.database.db.delete(outfitPins).where(eq(outfitPins.outfitId, id));
+    if (!pins.length) return;
+    const items = await this.database.db.select().from(outfitItems).where(eq(outfitItems.outfitId, id));
+    const images = await this.database.db.select().from(outfitImages).where(eq(outfitImages.outfitId, id));
+    await this.database.db.insert(outfitPins).values(pins.map(pin => ({outfitId: id,
+      itemId: items.find(item => item.position === pin.itemPosition)!.id,
+      imageId: images.find(image => image.position === pin.imagePosition)!.id, x: pin.x, y: pin.y})));
+  }
   async replaceContent(id: string, input: OutfitContentUpdate): Promise<void> {
     const itemIds = input.items.flatMap(item => item.id ? [item.id] : []), imageIds = input.images.flatMap(image => image.id ? [image.id] : []);
     await this.database.db.delete(outfitItems).where(and(eq(outfitItems.outfitId, id), itemIds.length ? notInArray(outfitItems.id, itemIds) : undefined));
@@ -83,6 +92,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
       else await this.database.db.insert(outfitImages).values({...image, outfitId: id});
     }
     await this.replaceTags(id, input.tagIds);
+    await this.replacePins(id, input.pins);
     await this.database.db.update(outfits).set({...input.fields, status: OUTFIT_STATUS.draft, visibility: OUTFIT_VISIBILITY.private,
       version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, reviewedBy: null, reviewedAt: null, rejectionReason: null,
       publishedAt: null, updatedAt: new Date()}).where(eq(outfits.id, id));
@@ -122,6 +132,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     const ids = rows.map(row => row.id), creatorIDs = rows.flatMap(row => row.creatorId ? [row.creatorId] : []), brandIDs = rows.flatMap(row => row.brandId ? [row.brandId] : []);
     const items = await database.db.select().from(outfitItems).where(inArray(outfitItems.outfitId, ids)).orderBy(outfitItems.position, outfitItems.id);
     const images = await database.db.select().from(outfitImages).where(inArray(outfitImages.outfitId, ids)).orderBy(outfitImages.position, outfitImages.id);
+    const pins = await database.db.select().from(outfitPins).where(inArray(outfitPins.outfitId, ids)).orderBy(outfitPins.imageId, outfitPins.itemId);
     const creators = creatorIDs.length ? await database.db.select({id: creatorProfiles.id, name: creatorProfiles.displayName, avatarUrl: creatorProfiles.avatarUrl, status: creatorProfiles.status, userStatus: users.status})
       .from(creatorProfiles).innerJoin(users, eq(creatorProfiles.userId, users.id))
       .where(inArray(creatorProfiles.id, creatorIDs)) : [];
@@ -135,7 +146,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
       .map(row => [row.id, {id: row.id, name: row.name, kind: PUBLIC_PROFILE.kind.brand, avatarUrl: null}]));
     const ownersByCreator = new Map<string, OutfitOwnerInfo>(creators.map(row => [row.id, {id: row.id, name: row.name, status: row.status, kind: PUBLIC_PROFILE.kind.creator}]));
     const ownersByBrand = new Map<string, OutfitOwnerInfo>(brands.map(row => [row.id, {id: row.id, name: row.name, status: row.status, kind: PUBLIC_PROFILE.kind.brand}]));
-    return rows.map(outfit => ({outfit, items: items.filter(row => row.outfitId === outfit.id), images: images.filter(row => row.outfitId === outfit.id),
+    return rows.map(outfit => ({outfit, pins: pins.filter(pin => pin.outfitId === outfit.id).map(({outfitId: _, ...pin}) => pin), items: items.filter(row => row.outfitId === outfit.id), images: images.filter(row => row.outfitId === outfit.id),
       tags: tagRows.filter(row => row.outfitId === outfit.id).map(({outfitId: _, ...tag}) => tag),
       owner: outfit.creatorId ? ownersByCreator.get(outfit.creatorId) ?? null : outfit.brandId ? ownersByBrand.get(outfit.brandId) ?? null : null,
       author: outfit.creatorId ? authorByCreator.get(outfit.creatorId) ?? null : outfit.brandId ? authorByBrand.get(outfit.brandId) ?? null : null}));

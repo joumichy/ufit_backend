@@ -53,7 +53,11 @@ export interface OutfitAuthor {
   avatarUrl: string | null;
 }
 
+export interface OutfitPin { imageId: string; itemId: string; x: number; y: number; }
+export interface OutfitPinInput { imagePosition: number; itemPosition: number; x: number; y: number; }
+
 export interface OutfitDetail {
+  pins: OutfitPin[];
   author: OutfitAuthor | null;
   owner: OutfitOwnerInfo | null;
   tags: OutfitTag[];
@@ -73,6 +77,7 @@ export interface OutfitContentUpdate {
   items: Array<Omit<OutfitItem, 'id' | 'outfitId'> & {id?: string}>;
   images: Array<Omit<OutfitImage, 'id' | 'outfitId'> & {id?: string}>;
   tagIds: string[];
+  pins: OutfitPinInput[];
 }
 export interface OutfitRepository {
   transaction<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T>;
@@ -88,6 +93,7 @@ export interface OutfitRepository {
   findSelectableProductIds(ids: string[]): Promise<string[]>;
   replaceContent(id: string, input: OutfitContentUpdate): Promise<void>;
   replaceTags(id: string, tagIds: string[]): Promise<void>;
+  replacePins(id: string, pins: OutfitPinInput[]): Promise<void>;
   createOutfit(input: Omit<Outfit, 'id' | 'version' | 'status' | 'visibility' | 'totalPriceMin' | 'totalPriceMax' | 'publishedAt' | 'createdAt' | 'updatedAt'> & {creationRequestId: string; creationFingerprint: string}): Promise<Outfit>;
   addItems(outfitId: string, items: Array<Omit<OutfitItem, 'id' | 'outfitId'>>): Promise<OutfitItem[]>;
   addImages(outfitId: string, images: Array<Omit<OutfitImage, 'id' | 'outfitId'>>): Promise<OutfitImage[]>;

@@ -9,7 +9,7 @@ import { PROFILE_STATUS, PROFILE_STATUSES } from '../../domain/profile-editing.c
 import { CREATOR_SOCIAL_PLATFORMS } from '../../../modules/creators/creator-social.contract';
 import type { CreatorApplicationDossier, BrandApplicationDossier } from "../../../modules/applications/types/application-contract";
 import { sql } from 'drizzle-orm';
-import { boolean, check, date, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgSchema, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 import {ufitSchema,timestamps} from './schema-base';
 export {ufitSchema} from './schema-base';
@@ -474,7 +474,8 @@ export const outfitItems = ufitSchema.table(
   },
   (table) => ({
     outfitPositionIndex: index('outfit_items_outfit_position_idx').on(table.outfitId, table.position),
-    productIndex: index('outfit_items_product_idx').on(table.productId)
+    productIndex: index('outfit_items_product_idx').on(table.productId),
+    outfitIdentity: uniqueIndex('outfit_items_outfit_id_unique').on(table.outfitId, table.id)
   })
 );
 
@@ -486,7 +487,20 @@ export const outfitImages = ufitSchema.table('outfit_images', {
   url: text('url').notNull(),
   position: integer('position').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-}, table => ({urlIndex: index('outfit_images_url_idx').on(table.url)}));
+}, table => ({urlIndex: index('outfit_images_url_idx').on(table.url),
+  outfitIdentity: uniqueIndex('outfit_images_outfit_id_unique').on(table.outfitId, table.id)}));
+
+export const outfitPins = ufitSchema.table('outfit_pins', {
+  outfitId: uuid('outfit_id').notNull().references(() => outfits.id, {onDelete: 'cascade'}),
+  imageId: uuid('image_id').notNull(), itemId: uuid('item_id').notNull(),
+  x: integer('x').notNull(), y: integer('y').notNull()
+}, table => ({
+  pair: uniqueIndex('outfit_pins_pair_unique').on(table.imageId, table.itemId),
+  image: foreignKey({columns: [table.outfitId, table.imageId], foreignColumns: [outfitImages.outfitId, outfitImages.id]}).onDelete('cascade'),
+  item: foreignKey({columns: [table.outfitId, table.itemId], foreignColumns: [outfitItems.outfitId, outfitItems.id]}).onDelete('cascade'),
+  xRange: check('outfit_pins_x_range', sql`${table.x} between ${OUTFIT_EDITING.limits.integerMin} and ${OUTFIT_EDITING.limits.pinCoordinateMax}`),
+  yRange: check('outfit_pins_y_range', sql`${table.y} between ${OUTFIT_EDITING.limits.integerMin} and ${OUTFIT_EDITING.limits.pinCoordinateMax}`)
+}));
 
 export const tags = ufitSchema.table(
   'tags',

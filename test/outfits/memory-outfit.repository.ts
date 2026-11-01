@@ -22,6 +22,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
   outfits = new Map<string, Outfit>();
   items: OutfitItem[] = [];
   images: OutfitImage[] = [];
+  pins = new Map<string, OutfitDetail["pins"]>();
   private sequence = OUTFIT_EDITING.versionInitial;
   private requests = new Map<string, {id: string; fingerprint: string}>();
   private selections = new Map<string, string[]>();
@@ -30,9 +31,9 @@ export class MemoryOutfitRepository implements OutfitRepository {
   readonly tags: OutfitTag[] = [];
   constructor(private readonly products: Pick<ProductRepository, 'findActiveByIds'>, private readonly mediaAssets: Map<string, OutfitMediaFixtureAsset>) {}
   async transaction<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T> {
-    const before = structuredClone({outfits: this.outfits, items: this.items, images: this.images, requests: this.requests, selections: this.selections});
+    const before = structuredClone({outfits: this.outfits, items: this.items, images: this.images, pins: this.pins, requests: this.requests, selections: this.selections});
     try { return await operation(this); }
-    catch (error) { this.outfits = before.outfits; this.items = before.items; this.images = before.images; this.requests = before.requests; this.selections = before.selections; throw error; }
+    catch (error) { this.outfits = before.outfits; this.items = before.items; this.images = before.images; this.pins = before.pins; this.requests = before.requests; this.selections = before.selections; throw error; }
   }
   async readSnapshot<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T> { return operation(this); }
   async findEditableOwner(owner: OutfitOwner, userId: string) {
@@ -61,12 +62,17 @@ export class MemoryOutfitRepository implements OutfitRepository {
   }
   async findSelectableProductIds(ids: string[]) { return (await this.products.findActiveByIds(ids)).map(detail => detail.product.id); }
   async replaceTags(id: string, tagIds: string[]) { this.selections.set(id, [...tagIds]); }
+  async replacePins(id: string, pins: Parameters<OutfitRepository['replacePins']>[1]) {
+    this.pins.set(id, pins.map(pin => ({imageId: this.images.find(image => image.outfitId === id && image.position === pin.imagePosition)!.id,
+      itemId: this.items.find(item => item.outfitId === id && item.position === pin.itemPosition)!.id, x: pin.x, y: pin.y})));
+  }
   async replaceContent(id: string, input: Parameters<OutfitRepository['replaceContent']>[1]) {
     this.items = this.items.filter(item => item.outfitId !== id);
     this.items.push(...input.items.map(item => ({...item, outfitId: id, id: item.id ?? fixtureID(`item${this.sequence++}`)})));
     this.images = this.images.filter(image => image.outfitId !== id);
     this.images.push(...input.images.map(image => ({...image, outfitId: id, id: image.id ?? fixtureID(`image${this.sequence++}`)})));
     await this.replaceTags(id, input.tagIds);
+    await this.replacePins(id, input.pins);
     const before = this.outfits.get(id)!;
     this.outfits.set(id, {...before, ...input.fields, status: OUTFIT_STATUS.draft, visibility: OUTFIT_VISIBILITY.private,
       version: before.version + OUTFIT_EDITING.versionStep, reviewedBy: null, reviewedAt: null, rejectionReason: null, publishedAt: null});
@@ -106,7 +112,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
     const outfit = this.outfits.get(outfitId);
     return outfit
       ? {
-          outfit,
+          outfit, pins: this.pins.get(outfitId) ?? [],
           owner: outfit.creatorId ? this.owners.get(outfit.creatorId) ?? null : outfit.brandId ? this.owners.get(outfit.brandId) ?? null : null,
           tags: this.tags.filter(tag => this.selections.get(outfit.id)?.includes(tag.id)),
           author: outfit.creatorId === publicCreator.id && outfit.brandId === null && this.owners.get(outfit.creatorId)?.status === PROFILE_STATUS.active ? publicCreator : null,

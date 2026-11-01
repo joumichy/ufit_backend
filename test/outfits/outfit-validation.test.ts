@@ -18,7 +18,7 @@ describe('Outfit input contract', () => {
     expect(await validate(value, options)).toHaveLength(data.zero); expect(value.title).toBe(data.title);
   });
   it('rejects forged authority and alternative cover fields, missing requests and null collections', async () => {
-    for (const patch of [{status: OUTFIT_STATUS.published}, {reviewedBy: randomUUID()}, {coverImageUrl: outfitFixture.image.url}, {requestId: null}, {items: null}, {images: null}, {tagIds: null}, {items: [null]}, {images: [null]}]) {
+    for (const patch of [{status: OUTFIT_STATUS.published}, {reviewedBy: randomUUID()}, {coverImageUrl: outfitFixture.image.url}, {requestId: null}, {items: null}, {images: null}, {tagIds: null}, {items: [null]}, {images: [null]}, {pins: null}, {pins: [null]}, {pins: [{imagePosition: data.zero, itemPosition: data.zero, x: data.negative, y: data.zero}]}]) {
       expect((await validate(plainToInstance(CreateOutfitDto, {...payload(), ...patch}), options)).length).toBeGreaterThan(data.zero);
     }
   });

@@ -22,7 +22,15 @@ export class CreateOutfitImageDto {
   @IsInt() @Min(limits.integerMin) @Max(limits.imagesMax) position!: number;
 }
 export class EditOutfitImageDto extends CreateOutfitImageDto { @ValidateIf(fieldProvided) @IsUUID() id?: string; }
+export class OutfitPinDto {
+  @IsInt() @Min(limits.integerMin) @Max(limits.imagesMax) imagePosition!: number;
+  @IsInt() @Min(limits.integerMin) @Max(limits.itemsMax) itemPosition!: number;
+  @IsInt() @Min(limits.integerMin) @Max(limits.pinCoordinateMax) x!: number;
+  @IsInt() @Min(limits.integerMin) @Max(limits.pinCoordinateMax) y!: number;
+}
 export class OutfitFieldsDto {
+  @ValidateIf(fieldProvided) @IsArray() @ArrayMaxSize(limits.pinsMax)
+  @IsObject({each: true}) @ValidateNested({each: true}) @Type(() => OutfitPinDto) pins?: OutfitPinDto[];
   @Transform(trimText) @IsString() @Length(limits.titleMin, limits.titleMax) title!: string;
   @Transform(trimText) @IsString() @Length(limits.descriptionMin, limits.descriptionMax) description!: string;
   @IsOptional() @IsIn(GENDER_TARGETS) genderTarget?: GenderTarget | null;
