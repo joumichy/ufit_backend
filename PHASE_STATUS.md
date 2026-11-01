@@ -1,8 +1,21 @@
 # UFit Backend - Etat des phases
 
-Derniere mise a jour : 2026-05-20
+Dernière mise à jour : 2026-11-01
 
-## Etat courant
+## Point de passage iOS complète
+
+L’application complète reste en cours de réalisation sur `codex/ios-complete`.
+Les phases ci-dessous décrivent le socle MVP historique ; elles ne prouvent pas
+la qualification de tous les parcours iPhone ni la mise en production Stripe.
+
+La migration `0016_outfit_cover_gallery` conserve les couvertures autonomes dans
+la galerie ordonnée avant leur reprise dans l’éditeur natif. Les identifiants de
+photos existants et les statuts de publication sont conservés ; les seules tenues
+modifiées avancent de version. Dix-sept migrations sont tracées et vérifiées ;
+177 tests backend dans 38 fichiers passent. La qualification SQL couvre adoption,
+ordre, conservation, version, idempotence et rollback. Éditeur natif encore en cours.
+
+## Socle MVP historique
 
 | Phase | Statut | Etat |
 |---:|---|---|
