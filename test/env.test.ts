@@ -64,3 +64,14 @@ describe('Notification email environment',()=>{
     expect(()=>parseEnv({...requiredEnv,RESEND_TIMEOUT_MS:'15001'})).toThrow(/RESEND_TIMEOUT_MS/);
   });
 });
+
+describe('Notification push environment',()=>{
+  it('keeps push disabled by default, independently of email',()=>{
+    const env=parseEnv(requiredEnv);expect(env.NOTIFICATION_PUSH_ENABLED).toBe(false);expect(env.APNS_PRIVATE_KEY).toBeUndefined();
+  });
+  it('requires an explicit valid APNs environment and positive timeout when provided',()=>{
+    expect(parseEnv({...requiredEnv,NOTIFICATION_PUSH_ENABLED:'true',APNS_ENVIRONMENT:'development'}).NOTIFICATION_PUSH_ENABLED).toBe(true);
+    expect(()=>parseEnv({...requiredEnv,APNS_ENVIRONMENT:'other'})).toThrow(/APNS_ENVIRONMENT/);
+    expect(()=>parseEnv({...requiredEnv,APNS_TIMEOUT_MS:'-1'})).toThrow(/APNS_TIMEOUT_MS/);
+  });
+});

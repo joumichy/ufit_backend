@@ -4,6 +4,8 @@ import {DatabaseService} from '../../../shared/infrastructure/database/database.
 import {READ_SNAPSHOT,type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {users} from '../../../shared/infrastructure/database/schema.identity';
 import {notificationPreferences as preferences} from '../../../shared/infrastructure/database/schema.notification-preferences';
+import {notificationPushDeliveries as pushes} from '../../../shared/infrastructure/database/schema.notification-push';
+import {NOTIFICATION_PUSH as PUSH} from '../domain/notification-push.contract';
 import {notifications,notificationEmailDeliveries as emails} from '../../../shared/infrastructure/database/schema.notifications';
 import {NOTIFICATION_READING} from '../domain/notification-reading';
 import {NOTIFICATION_EMAIL} from '../domain/notification-email.contract';
@@ -30,6 +32,13 @@ export class DrizzleNotificationPreferencesRepository {
       if(!saved.emailEnabled)await db.update(emails).set({status:NOTIFICATION_EMAIL.status.cancelled,lastFailure:PREF.failure.disabled,updatedAt:saved.updatedAt})
         .where(and(inArray(emails.status,[NOTIFICATION_EMAIL.status.pending,NOTIFICATION_EMAIL.status.retry]),
           inArray(emails.notificationId,db.select({id:notifications.id}).from(notifications).where(eq(notifications.recipientUserId,actorId)))));
+      if(!saved.pushEnabled){
+        const own=db.select({id:notifications.id}).from(notifications).where(eq(notifications.recipientUserId,actorId));
+        await db.update(pushes).set({status:PUSH.status.cancelled,leaseToken:null,leaseUntil:null,cancelRequestedAt:saved.updatedAt,
+          lastFailure:PREF.failure.disabled,updatedAt:saved.updatedAt}).where(and(inArray(pushes.status,[PUSH.status.pending,PUSH.status.retry,PUSH.status.reserved]),inArray(pushes.notificationId,own)));
+        await db.update(pushes).set({cancelRequestedAt:saved.updatedAt,updatedAt:saved.updatedAt})
+          .where(and(eq(pushes.status,PUSH.status.sending),inArray(pushes.notificationId,own)));
+      }
       return notificationPreferencesSchema.parse({...saved,updatedAt:saved.updatedAt.toISOString()});
     });
   }

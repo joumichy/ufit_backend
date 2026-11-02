@@ -33,7 +33,7 @@ export class DrizzleNotificationInstallationsRepository {
     const requestHash=createHash(I.crypto.algorithm).update(JSON.stringify(input),I.crypto.requestEncoding).digest(I.crypto.encoding);
     try {
       return await this.database.db.transaction(async db=>{
-        await lock({db},id);await requireAccount({db},actorId,true);
+        await lockNotificationInstallation({db},id);await requireAccount({db},actorId,true);
         const previous=await current({db},id);
         if(previous)requireCredential(previous,credential);
         let association=await findAssociation({db},input.associationId);
@@ -75,7 +75,7 @@ export class DrizzleNotificationInstallationsRepository {
     const id=identifier(installationId),target=identifier(associationId),credential=credentialHash(proof);
     if(!installationDetachSchema.safeParse(raw).success||!Number.isFinite(now.getTime()))throw new BadRequestException(I.failure.invalid);
     return this.database.db.transaction(async db=>{
-      await lock({db},id);
+      await lockNotificationInstallation({db},id);
       const row=await current({db},id);
       if(row){
         requireCredential(row,credential);
@@ -94,7 +94,7 @@ export class DrizzleNotificationInstallationsRepository {
     if(!parsed.success||!Number.isFinite(now.getTime())||invalidatedAt!==null&&!Number.isFinite(invalidatedAt.getTime()))throw new BadRequestException(I.failure.invalid);
     const target=parsed.data;
     return this.database.db.transaction(async db=>{
-      await lock({db},target.installationId);
+      await lockNotificationInstallation({db},target.installationId);
       const row=await current({db},target.installationId);
       if(!row||row.state!==I.state.registered||row.currentAssociationId!==target.associationId||row.registrationId!==target.registrationId||row.version>=I.revision.maximum)return false;
       if(!row.registeredAt)throw invalid();
@@ -115,7 +115,7 @@ function requireCredential(row:InstallationRow,credential:string):void {
   if(!installationProofSchema.safeParse(row.credentialHash).success)throw invalid();
   if(!timingSafeEqual(Buffer.from(row.credentialHash,I.crypto.encoding),Buffer.from(credential,I.crypto.encoding)))throw new UnauthorizedException(I.failure.proof);
 }
-async function lock(database:DatabaseSession,id:string):Promise<void> {
+export async function lockNotificationInstallation(database:DatabaseSession,id:string):Promise<void> {
   await database.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${I.storage.lockPrefix+id},${I.storage.lockSeed}))`);
 }
 async function current(database:DatabaseSession,id:string):Promise<InstallationRow|undefined> {

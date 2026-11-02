@@ -832,3 +832,5 @@ export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
 }));
 
 export {creatorGradeRevisions} from './schema.creator-grades';
+
+export * from './schema.notification-push';

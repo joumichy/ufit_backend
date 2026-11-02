@@ -4,6 +4,7 @@ export const NOTIFICATION = {
   resource: {creatorApplication:'creator_application',brandApplication:'brand_application',order:'order',shipment:'shipment',orderReturn:'order_return'},
   audience: {applicant:'applicant',customer:'customer',brand:'brand'},
   account: {deleted:'deleted'},
+  recipientLock:'no key update',
   limits: {minimum:1,eventKey:256},
   link: {prefix:'ufit://notifications/',paragraph:'\n\n'},
   failure: {missing:'Notification recipient is unavailable',changed:'Notification intent already exists with different content',persisted:'Notification state is invalid'},

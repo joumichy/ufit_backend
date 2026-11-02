@@ -1,9 +1,9 @@
 import {z} from 'zod';
-import {notificationIdentifierSchema} from './notification.contract';
+import {NOTIFICATION,notificationIdentifierSchema} from './notification.contract';
 export const NOTIFICATION_PREFERENCES = {
   route:{path:'preferences/:userId',userId:'userId'},validation:{customIssue:'custom'}, defaults:{emailEnabled:true,pushEnabled:true},
   revision:{absent:0,initial:1,step:1,maximum:2147483647},
-  persistence:{lock:'update',one:1},
+  persistence:{lock:NOTIFICATION.recipientLock,one:1},
   failure:{invalid:{code:'notification_preferences_invalid',message:'Invalid notification preferences'},
     changed:{code:'notification_preferences_changed',message:'Notification preferences changed; refresh before saving'},
     inactive:{code:'notification_preferences_account_unavailable',message:'This account cannot change notification preferences'},

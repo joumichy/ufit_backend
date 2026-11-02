@@ -1,3 +1,4 @@
+import {PUSH_DELIVERY} from '../modules/notifications/domain/push-delivery';
 import {EMAIL_DELIVERY} from '../modules/notifications/domain/email-delivery';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -52,6 +53,12 @@ const envSchema = z.object({
   SUPABASE_DB_SSL: booleanFromEnv.default(true),
   SUPABASE_DB_TLS_REJECT_UNAUTHORIZED: booleanFromEnv.default(false),
   SUPABASE_DB_CA_CERT: optionalNonEmptyString,
+  NOTIFICATION_PUSH_ENABLED: booleanFromEnv.default(false),
+  APNS_ENVIRONMENT: z.enum(Object.values(PUSH_DELIVERY.environment)).optional(),
+  APNS_KEY_ID: optionalNonEmptyString,
+  APNS_TEAM_ID: optionalNonEmptyString,
+  APNS_PRIVATE_KEY: optionalNonEmptyString,
+  APNS_TIMEOUT_MS: z.coerce.number().int().positive().optional(),
   NOTIFICATION_EMAIL_ENABLED: booleanFromEnv.default(false),
   RESEND_API_KEY: optionalNonEmptyString,
   RESEND_BASE_URL: z.string().url().optional(),

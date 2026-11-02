@@ -352,8 +352,8 @@ ont une longueur variable. La fermeture libère aussi une connexion en préparat
 
 Ce transport est qualifié avec un serveur HTTP/2 local et des clés éphémères de
 test ; les connexions TLS/h2 aux deux hôtes Apple ont été vérifiées sans POST.
-L’outbox/worker push, la configuration d’activation
-et l’adaptateur iOS restent à raccorder. Aucun envoi APNs n’est activé par la seule
+L'outbox/worker push et leur activation sont décrits ci-dessous ; l'adaptateur
+iOS reste à raccorder. Aucun envoi APNs n’est activé par la seule
 présence de cette classe, et aucune réception réelle n’est encore qualifiée.
 
 La migration 0026 ajoute le registre des installations, leurs associations de
@@ -380,7 +380,53 @@ collision d’endpoint APNs actif avec une autre installation renvoie un conflit
 
 L’invalidation interne utilise l’association et l’enregistrement réservés ; une
 ancienne réponse APNs ne désactive pas un token réinscrit depuis. Le registre
-serveur n’atteste pas l’autorisation iOS ni la réception. L’adaptateur iOS et la
-file push restent à raccorder. Après un build, `node dist/scripts/verify-notification-installations.js`
+serveur n’atteste pas l’autorisation iOS ni la réception. La file push est décrite
+ci-dessous ; le client iOS reste à raccorder. Après un build,
+`node dist/scripts/verify-notification-installations.js`
 qualifie le contrat et les contraintes dans une transaction annulée sur le seul
 profil de développement 4014/Stripe TEST, sans envoi fournisseur.
+
+
+### File push et activation APNs
+
+`0027_notification_push_deliveries.sql` ajoute la file persistante. Le producteur
+crée les livraisons dans sa transaction, pour les associations actives du
+nouveau message uniquement. Inscription d'un appareil et réactivation push ne
+rejouent pas l'historique. Une livraison est liée à son installation, sa session
+et son environnement ; sa durée de validité opérationnelle est de 24 heures.
+
+`NOTIFICATION_PUSH_ENABLED=false` par défaut : le worker ne réserve rien et ne
+construit aucune connexion APNs. Pour l'activer, fournir dans le seul profil Ufit
+sélectionné `APNS_ENVIRONMENT=development` ou `production`, `APNS_KEY_ID`,
+`APNS_TEAM_ID` et `APNS_PRIVATE_KEY` (clé privée P-256 PEM). `APNS_TIMEOUT_MS` est
+facultatif ; le transport valide sa limite. Une configuration activée incomplète
+fait échouer le démarrage avant réservation. L'environnement est explicite, sans
+bascule automatique ; les origines Apple et le topic `com.stellark.ufit` restent
+possédés par le transport. Ne pas réutiliser les clés d'un autre projet.
+
+La réservation récupérable précède la tentative persistée avant POST. Le worker
+recontrôle compte, association, préférences et droit d'ouvrir la ressource ; il
+relit le token courant avant les tentatives sûres. Aucun verrou DB pendant le
+réseau. Une réponse inconnue ou une lease de tentative expirée devient incertaine,
+sans renvoi automatique. Seuls les refus explicitement non traités sont repris,
+en respectant le délai du fournisseur et l'expiration. Un refus d'authentification
+Apple attend au moins 15 minutes pour permettre la correction de la configuration,
+sans renouveler l'historique ; l'UUID APNs reste stable,
+sans promesse de réception exactement une fois. Un message déjà en vol peut
+encore arriver après désactivation ou changement de compte ; son texte est
+neutre et son ouverture reste autorisée séparément.
+
+Désactiver push annule les réservations/attentes et interdit une future reprise
+des tentatives en vol. Réactiver ne ressuscite pas ces livraisons. Une réponse
+de token invalide ne désactive que son enregistrement toujours courant ; un
+ancien 410 ne désactive pas une réinscription plus récente.
+
+Après un build, `node dist/scripts/verify-notification-pushes.js` qualifie les
+transactions/états sur PostgreSQL avec rollback. `--with-migration` valide 0027 en
+transaction annulée avant son application supportée. Le script
+`verify-notification-push-concurrency.js` est réservé au profil development 4014 /
+Stripe TEST, envois désactivés : deux connexions conservent réellement leurs
+réservations en concurrence, puis deux démarrages disputent la même réservation.
+Il utilise le registre privé du propriétaire courant ; ses nouveaux messages de
+qualification sont conservés, leurs envois annulés et son installation détachée.
+Ces contrôles ne prouvent ni enregistrement OS d'un appareil ni réception APNs.

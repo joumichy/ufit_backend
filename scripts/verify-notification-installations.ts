@@ -47,7 +47,7 @@ async function verify(){
       async function rejected(operation:()=>Promise<unknown>,status:number){await assert.rejects(operation,e=>e instanceof HttpException&&e.getStatus()===status);cases++;}
       async function relation(){await client.query(PROOF.query.constraints+PROOF.query.immediate);await client.query(PROOF.query.constraints+PROOF.query.deferred);}
       const initial=await registry.read(a.id,id,key);assert.equal(initial.version,PROOF.zero);assert.equal(initial.state,I.state.unregistered);
-      assert.equal((await tx.select().from(schema.notificationInstallations)).length,PROOF.zero);cases++;
+      assert.equal((await tx.select().from(schema.notificationInstallations).where(eq(schema.notificationInstallations.id,id))).length,PROOF.zero);cases++;
       const associationA=randomUUID(),firstInput=input(PROOF.zero,associationA),first=await registry.register(a.id,id,key,firstInput,now());
       assert.equal(first.version,PROOF.one);assert.equal(first.isCurrentAccount,true);assert.equal(first.state,I.state.registered);await relation();cases++;
       const raw=(await tx.select().from(schema.notificationInstallations).where(eq(schema.notificationInstallations.id,id)))[PROOF.zero];assert.notEqual(raw.credentialHash,key);assert.match(raw.credentialHash,I.crypto.proof);cases++;

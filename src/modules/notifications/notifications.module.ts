@@ -1,3 +1,5 @@
+import {NotificationPushesWorker} from './infrastructure/notification-pushes.worker';
+import {DrizzleNotificationPushesRepository} from './infrastructure/drizzle-notification-pushes.repository';
 import {DrizzleNotificationPreferencesRepository} from './infrastructure/drizzle-notification-preferences.repository';
 import {DrizzleNotificationInstallationsRepository} from './infrastructure/drizzle-notification-installations.repository';
 import {NotificationInstallationsController} from './presentation/notification-installations.controller';
@@ -10,5 +12,5 @@ import {DrizzleNotificationsRepository} from './infrastructure/drizzle-notificat
 import {DrizzleNotificationEmailsRepository} from './infrastructure/drizzle-notification-emails.repository';
 import {NotificationEmailsWorker} from './infrastructure/notification-emails.worker';
 
-@Module({imports:[DatabaseModule,IdentityModule],controllers:[NotificationsController,NotificationInstallationsController],providers:[DrizzleNotificationInstallationsRepository,DrizzleNotificationPreferencesRepository,DrizzleNotificationReader,DrizzleNotificationsRepository,DrizzleNotificationEmailsRepository,NotificationEmailsWorker],exports:[DrizzleNotificationsRepository]})
+@Module({imports:[DatabaseModule,IdentityModule],controllers:[NotificationsController,NotificationInstallationsController],providers:[DrizzleNotificationPushesRepository,NotificationPushesWorker,DrizzleNotificationInstallationsRepository,DrizzleNotificationPreferencesRepository,DrizzleNotificationReader,DrizzleNotificationsRepository,DrizzleNotificationEmailsRepository,NotificationEmailsWorker],exports:[DrizzleNotificationsRepository]})
 export class NotificationsModule {}
