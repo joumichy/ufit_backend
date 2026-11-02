@@ -6,6 +6,7 @@ export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from 
 export {notifications, notificationEmailDeliveries} from './schema.notifications';
 import {CREATOR_GRADE} from '../../../modules/creators/grades/creator-grade.contract';
 import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
+import {PROFILE_IMAGE} from '../../../modules/media/domain/profile-image.contract';
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
 import {BRAND_COMMERCE, COMMERCE_POLICY_KEY} from '../../../modules/brands/commerce-policy';
 import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
@@ -152,6 +153,7 @@ export const creatorProfiles = ufitSchema.table(
     slug: text('slug').notNull(),
     bio: text('bio'),
     avatarUrl: text('avatar_url'),
+    imageVersion: integer('image_version').notNull().default(PROFILE_IMAGE.limits.initialVersion),
     status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
     gradeVersion: integer('grade_version').notNull().default(CREATOR_GRADE.limits.initialVersion),
     gradeCode: text('grade_code')
@@ -164,7 +166,8 @@ export const creatorProfiles = ufitSchema.table(
   (table) => ({
     userUnique: uniqueIndex('uidx_creator_profiles_user').on(table.userId),
     applicationUnique: uniqueIndex('uidx_creator_profiles_application').on(table.applicationId),
-    slugUnique: uniqueIndex('uidx_creator_profiles_slug').on(table.slug)
+    slugUnique: uniqueIndex('uidx_creator_profiles_slug').on(table.slug),
+    imageVersion: check('creator_profiles_image_version_check', sql`${table.imageVersion} >= ${PROFILE_IMAGE.limits.initialVersion}`)
   })
 );
 
@@ -239,6 +242,8 @@ export const brandProfiles = ufitSchema.table(
       .notNull()
       .references(() => brandApplications.id),
     brandName: text('brand_name').notNull(),
+    logoUrl: text('logo_url'),
+    imageVersion: integer('image_version').notNull().default(PROFILE_IMAGE.limits.initialVersion),
     slug: text('slug').notNull(),
     websiteUrl: text('website_url'),
     bio: text('bio'),
@@ -249,7 +254,8 @@ export const brandProfiles = ufitSchema.table(
   (table) => ({
     ownerIdx: index('idx_brand_profiles_owner').on(table.ownerUserId),
     applicationUnique: uniqueIndex('uidx_brand_profiles_application').on(table.applicationId),
-    slugUnique: uniqueIndex('uidx_brand_profiles_slug').on(table.slug)
+    slugUnique: uniqueIndex('uidx_brand_profiles_slug').on(table.slug),
+    imageVersion: check('brand_profiles_image_version_check', sql`${table.imageVersion} >= ${PROFILE_IMAGE.limits.initialVersion}`)
   })
 );
 
@@ -835,3 +841,5 @@ export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
 export {creatorGradeRevisions} from './schema.creator-grades';
 
 export * from './schema.notification-push';
+
+export {profileMediaAssets,profileImageChanges} from './schema.profile-media';

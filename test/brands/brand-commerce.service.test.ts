@@ -31,7 +31,7 @@ function setup() {
     createOwnerMember: unsupported, createDefaultSettings: unsupported, findActiveMember: unsupported, updateProfile: unsupported,
     findPublicProfileById: async (brandID: string) => {
       if (brandID !== fixture.brandID) throw new Error(fixture.invalid);
-      return context.brand.status === 'active' ? {...context.brand, slug: 'maison', bio: null, websiteUrl: null, stats: {publishedOutfits: 0, activeProducts: 0}} : undefined;
+      return context.brand.status === 'active' ? {...context.brand, slug: 'maison', bio: null, websiteUrl: null, logoUrl: null, stats: {publishedOutfits: 0, activeProducts: 0}} : undefined;
     },
     transaction: async <T>(operation: (repository: BrandsRepository) => Promise<T>): Promise<T> => {
       const before = structuredClone(settings);

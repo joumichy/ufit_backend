@@ -80,7 +80,6 @@ export class DrizzleIdentityRepository implements IdentityRepository {
       .update(users)
       .set({
         displayName: patch.displayName,
-        avatarUrl: patch.avatarUrl,
         updatedAt: new Date()
       })
       .where(and(eq(users.id, userId),ne(users.status,USER_ADMINISTRATION.status.deleted)))

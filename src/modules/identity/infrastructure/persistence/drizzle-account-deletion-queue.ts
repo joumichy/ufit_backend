@@ -4,7 +4,7 @@ import {and,asc,eq,isNull,lt,lte,ne,or,sql} from 'drizzle-orm';
 import {DatabaseService} from '../../../../shared/infrastructure/database/database.service';
 import type {DatabaseSession} from '../../../../shared/infrastructure/database/database-session';
 import {accountDeletions as requests,accountDeletionMedia as media} from '../../../../shared/infrastructure/database/schema.account-deletions';
-import {outfitMediaAssets,productMediaAssets,notificationDeviceAssociations} from '../../../../shared/infrastructure/database/schema';
+import {outfitMediaAssets,productMediaAssets,profileMediaAssets,notificationDeviceAssociations} from '../../../../shared/infrastructure/database/schema';
 import {ACCOUNT_DELETION as D,deletionIdentifierSchema,deletionProofSchema,deletionReceiptSchema,
   type AccountDeletionLease,type AccountDeletionMediaTarget,type AccountDeletionReceipt,type AccountDeletionRetry} from '../../domain/account-deletion.contract';
 import {DrizzleNotificationInstallationsRepository} from '../../../notifications/infrastructure/drizzle-notification-installations.repository';
@@ -85,7 +85,7 @@ export class DrizzleAccountDeletionQueue {
       const [owned]=await db.select().from(media).where(and(eq(media.requestId,row.id),eq(media.assetId,target.assetId),
         eq(media.kind,target.kind),eq(media.objectPath,target.objectPath))).limit(D.limits.one);
       if(!owned)return false;
-      const assets=owned.kind===D.media.product?productMediaAssets:outfitMediaAssets;
+      const assets={[D.media.product]:productMediaAssets,[D.media.outfit]:outfitMediaAssets,[D.media.profile]:profileMediaAssets}[owned.kind];
       await db.delete(assets).where(and(eq(assets.id,owned.assetId),eq(assets.objectPath,owned.objectPath)));
       await db.delete(media).where(and(eq(media.requestId,row.id),eq(media.kind,owned.kind),eq(media.assetId,owned.assetId)));
       return true;

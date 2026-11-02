@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateMeRequest {
   @IsOptional()
@@ -6,8 +6,4 @@ export class UpdateMeRequest {
   @MaxLength(80)
   displayName?: string | null;
 
-  @IsOptional()
-  @IsUrl({ require_tld: false })
-  @MaxLength(512)
-  avatarUrl?: string | null;
 }

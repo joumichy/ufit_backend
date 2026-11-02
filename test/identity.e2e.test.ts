@@ -100,14 +100,12 @@ describe('Identity endpoints', () => {
       .patch('/me')
       .set('Authorization', 'Bearer test.jwt.token')
       .send({
-        displayName: 'Updated Client',
-        avatarUrl: 'https://example.com/avatar.png'
+        displayName: 'Updated Client'
       })
       .expect(200);
 
     expect(identityService.updateProfile).toHaveBeenCalledWith(currentUser.id, {
-      displayName: 'Updated Client',
-      avatarUrl: 'https://example.com/avatar.png'
+      displayName: 'Updated Client'
     });
     expect(response.body.displayName).toBe('Updated Client');
   });

@@ -1,8 +1,9 @@
+import {PROFILE_IMAGE} from '../../../media/domain/profile-image.contract';
 import {and,eq,exists,inArray,not,or,sql} from 'drizzle-orm';
 import type {DatabaseSession} from '../../../../shared/infrastructure/database/database-session';
 import {users,userRoles,creatorApplications,brandApplications,creatorProfiles,creatorSocialAccounts,brandProfiles,brandMembers,
   outfits,outfitImages,outfitItems,outfitTags,savedOutfits,creatorFollows,carts,cartItems,orders,productMediaAssets,brandSettings,
-  outfitMediaAssets,productImages,orderItems,notifications,notificationPushDeliveries,notificationPreferences} from '../../../../shared/infrastructure/database/schema';
+  outfitMediaAssets,profileMediaAssets,productImages,orderItems,notifications,notificationPushDeliveries,notificationPreferences} from '../../../../shared/infrastructure/database/schema';
 import {accountDeletionMedia} from '../../../../shared/infrastructure/database/schema.account-deletions';
 import {PROFILE_STATUS,PROFILE_EDITING,PROFILE_AUTHOR_ROLES} from '../../../../shared/domain/profile-editing.contract';
 import {OUTFIT_STATUS,OUTFIT_VISIBILITY,OUTFIT_EDITING} from '../../../outfits/domain/outfit-editing.contract';
@@ -29,7 +30,7 @@ export async function anonymizeAccount(database:DatabaseSession,actor:{id:string
         eq(brandMembers.status,PROFILE_EDITING.persistence.memberActive),eq(users.status,U.status.active),
         exists(db.select({id:userRoles.id}).from(userRoles).where(and(eq(userRoles.userId,users.id),eq(userRoles.role,PROFILE_AUTHOR_ROLES.brandOwner))))))
       .orderBy(users.id).limit(D.limits.one);
-    if(!owner)await db.update(brandProfiles).set({status:PROFILE_STATUS.suspended,updatedAt:now}).where(eq(brandProfiles.id,brand.id));
+    if(!owner)await db.update(brandProfiles).set({status:PROFILE_STATUS.suspended,logoUrl:null,updatedAt:now}).where(eq(brandProfiles.id,brand.id));
     else if(brand.ownerUserId===userId)await db.update(brandProfiles).set({ownerUserId:owner.id,updatedAt:now}).where(eq(brandProfiles.id,brand.id));
   }
   await capturePersonalMedia(database,userId,requestId,now);
@@ -70,7 +71,8 @@ export async function anonymizeAccount(database:DatabaseSession,actor:{id:string
 export function affectedBrand(userId:string) {
   return or(eq(brandProfiles.ownerUserId,userId),
     sql`exists(select ${D.limits.one} from ${brandMembers} m where m.brand_profile_id=${brandProfiles.id} and m.user_id=${userId})`,
-    sql`exists(select ${D.limits.one} from ${productMediaAssets} a where a.brand_id=${brandProfiles.id} and a.uploaded_by=${userId})`);
+    sql`exists(select ${D.limits.one} from ${productMediaAssets} a where a.brand_id=${brandProfiles.id} and a.uploaded_by=${userId})`,
+    sql`exists(select ${D.limits.one} from ${profileMediaAssets} a where a.brand_id=${brandProfiles.id} and a.uploaded_by=${userId})`);
 }
 
 async function capturePersonalMedia(database:DatabaseSession,userId:string,requestId:string,now:Date):Promise<void> {
@@ -83,7 +85,22 @@ async function capturePersonalMedia(database:DatabaseSession,userId:string,reque
     select ${requestId}::uuid,a.id,${D.media.product},a.object_path from ${productMediaAssets} a where a.uploaded_by=${userId}
       and not exists(select ${D.limits.one} from ${productImages} i where right(i.url,length(${suffix}))=${suffix})
       and not exists(select ${D.limits.one} from ${orderItems} i where right(i.product_snapshot->>${PRODUCT_MEDIA.snapshotImageKey},length(${suffix}))=${suffix})`);
-  for(const [table,kind] of [[outfitMediaAssets,D.media.outfit],[productMediaAssets,D.media.product]] as const){
+  const profileSuffix=sql`${PROFILE_IMAGE.routes.assetPrefix}||a.id::text||${PROFILE_IMAGE.routes.imageSuffix}`;
+  // Shared brand logos belong to the continuing brand; private/unused uploads
+  // and media of a brand without an active owner are part of account erasure.
+  await db.execute(sql`insert into ${accountDeletionMedia}(request_id,asset_id,kind,object_path)
+    select ${requestId}::uuid,a.id,${D.media.profile},a.object_path from ${profileMediaAssets} a
+    where a.user_id=${userId}
+      or exists(select ${D.limits.one} from ${creatorProfiles} c where c.id=a.creator_id and c.user_id=${userId})
+      or (a.brand_id is not null and (
+        (a.uploaded_by=${userId} and not exists(select ${D.limits.one} from ${brandProfiles} b
+          where b.id=a.brand_id and b.logo_url is not null and right(b.logo_url,length(${profileSuffix}))=${profileSuffix}))
+        or (exists(select ${D.limits.one} from ${brandProfiles} b where b.id=a.brand_id and b.status=${PROFILE_STATUS.suspended})
+          and not exists(select ${D.limits.one} from ${brandMembers} m join ${users} u on u.id=m.user_id
+            join ${userRoles} r on r.user_id=u.id and r.role=${PROFILE_AUTHOR_ROLES.brandOwner}
+            where m.brand_profile_id=a.brand_id and m.role=${D.anonymized.memberOwner} and m.status=${PROFILE_EDITING.persistence.memberActive} and u.status=${U.status.active}))
+      ))`);
+  for(const [table,kind] of [[outfitMediaAssets,D.media.outfit],[productMediaAssets,D.media.product],[profileMediaAssets,D.media.profile]] as const){
     const targets=db.select({id:accountDeletionMedia.assetId}).from(accountDeletionMedia)
       .where(and(eq(accountDeletionMedia.requestId,requestId),eq(accountDeletionMedia.kind,kind)));
     await db.update(table).set({status:MEDIA_ASSET_STATUS.retired,updatedAt:now}).where(inArray(table.id,targets));

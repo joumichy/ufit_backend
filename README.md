@@ -454,3 +454,52 @@ contraintes sur PostgreSQL en rollback, dans le seul profil development 4014 /
 Stripe TEST avec envois désactivés. `--with-migration` précontrôle 0028 en transaction
 annulée avant son application par le migrateur supporté. Aucun fournisseur n'est
 contacté par ce script.
+
+## Images de compte et de profils
+
+Le module `media` possède l'upload privé et la sélection de la photo du compte,
+du portrait créateur et du logo marque. `kind` vaut `account`, `creator` ou
+`brand` ; `ownerId` est l'identité du compte ou du profil correspondant.
+
+- `POST /media/profile-uploads` : multipart `kind`, `ownerId`, `requestId` et
+  `file` JPEG, au plus 8 Mio. Renvoie `{kind, ownerId, id, url, displayUrl}`.
+  La même requête réutilise son objet immuable ; des octets ou un propriétaire
+  différents avec le même `requestId` sont refusés. L'upload ne publie rien.
+- `GET /media/profile-images/:kind/:ownerId` : document propriétaire
+  `{kind, ownerId, version, image}`. `image` est `null` ou `{id, url, displayUrl}`.
+  `id` est explicitement `null` pour un avatar externe initial issu du fournisseur
+  d'identité. `url` est la référence durable ; `displayUrl` sert au rendu immédiat.
+- `PUT /media/profile-images/:kind/:ownerId` :
+  `{requestId, expectedVersion, assetId}` ; `assetId: null` retire la photo.
+  Renvoie uniquement `{requestId, version}`, reçu de la commande acceptée.
+  Relire le document pour afficher la sélection actuelle : un ancien reçu
+  rejoué reste identique, même après une autre sélection. Une version obsolète,
+  une requête réutilisée avec un autre contenu ou un média étranger sont refusés
+  avec409. Les champs omis et représentations par URL sont refusés avec400.
+- `GET /media/profile-assets/:id/private` : lecture propriétaire d'un upload prêt,
+  y compris avant sélection, avec nouvelle URL d'affichage signée.
+- `GET /media/profile-assets/:id/image` : redirection publique seulement pour le
+  portrait ou logo sélectionné d'un profil public actif. Les photos personnelles,
+  médias non sélectionnés et portraits de créateurs dont le compte est suspendu
+  n'ont pas de lecture publique. Une ancienne URL signée expire selon la durée
+  du stockage (60 secondes) ; retirer la référence publique ne révoque pas une
+  URL signée déjà émise.
+
+L'utilisateur actif, son rôle actuel et la propriété créateur ou l'appartenance
+active à la marque sont relus côté serveur. Les profils professionnels actifs
+et en pause sont modifiables ; les profils suspendus ne le sont pas. Les PATCH
+textuels `/me` et `/creators/me` ne permettent plus d'écrire `avatarUrl`.
+Le logo public utilise `logoUrl` dans le profil marque, et `avatarUrl` dans la
+projection générique d'auteur d'une tenue.
+
+Migration additive `0031_profile_images.sql` : registre privé, reçus durables,
+versions des trois propriétaires et logo marque. Le bucket `ufit-profile-media`
+est privé, JPEG uniquement, limité à8Mio. La suppression du compte retire les
+photos personnelles/créateur et les médias des marques sans propriétaire actif ;
+une marque qui continue avec un autre propriétaire conserve son logo sélectionné.
+L'effacement utilise le même marqueur immuable que les autres médias. Les
+identifiants des anciens reçus subsistent après l'effacement de l'objet.
+
+`npx tsx scripts/verify-profile-images.ts` vérifie les contrats et états sur
+PostgreSQL dans une transaction annulée. Cette preuve backend, les tests et le
+build ne qualifient pas la sélection Photos ni les parcours iOS.

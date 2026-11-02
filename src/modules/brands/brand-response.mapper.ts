@@ -8,6 +8,7 @@ export function mapBrandProfile(row: BrandProfileRow): Record<string, unknown> {
     slug: row.slug,
     websiteUrl: row.websiteUrl,
     bio: row.bio,
+    logoUrl: row.logoUrl,
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt

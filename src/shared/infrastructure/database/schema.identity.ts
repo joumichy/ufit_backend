@@ -1,3 +1,4 @@
+import {PROFILE_IMAGE} from '../../../modules/media/domain/profile-image.contract';
 import { sql } from 'drizzle-orm';
 import { boolean, check, index, integer, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { ufitSchema } from './schema-base';
@@ -11,6 +12,7 @@ export const users = ufitSchema.table('users', {
     email: text('email').notNull(),
     displayName: text('display_name'),
     avatarUrl: text('avatar_url'),
+    imageVersion: integer('image_version').notNull().default(PROFILE_IMAGE.limits.initialVersion),
     status: userStatusEnum('status').notNull().default(USER_ADMINISTRATION.status.active),
     accessVersion: integer('access_version').notNull().default(USER_ADMINISTRATION.limits.initialVersion),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -18,7 +20,8 @@ export const users = ufitSchema.table('users', {
 }, (table) => ({
     supabaseUserIdUnique: uniqueIndex('users_supabase_user_id_unique').on(table.supabaseUserId),
     emailIndex: index('users_email_idx').on(table.email),
-    statusIndex: index('users_status_idx').on(table.status)
+    statusIndex: index('users_status_idx').on(table.status),
+    imageVersion: check('users_image_version_check', sql`${table.imageVersion} >= ${PROFILE_IMAGE.limits.initialVersion}`)
 }));
 export const userRoles = ufitSchema.table('user_roles', {
     id: uuid('id').primaryKey().defaultRandom(),

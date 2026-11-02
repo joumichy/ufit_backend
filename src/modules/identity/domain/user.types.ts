@@ -29,5 +29,4 @@ export interface SupabaseJwtClaims {
 
 export interface UserProfilePatch {
   displayName?: string | null;
-  avatarUrl?: string | null;
 }

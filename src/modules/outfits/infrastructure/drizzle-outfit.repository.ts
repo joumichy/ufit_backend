@@ -137,14 +137,14 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     const creators = creatorIDs.length ? await database.db.select({id: creatorProfiles.id, name: creatorProfiles.displayName, avatarUrl: creatorProfiles.avatarUrl, status: creatorProfiles.status, userStatus: users.status})
       .from(creatorProfiles).innerJoin(users, eq(creatorProfiles.userId, users.id))
       .where(inArray(creatorProfiles.id, creatorIDs)) : [];
-    const brands = brandIDs.length ? await database.db.select({id: brandProfiles.id, name: brandProfiles.brandName, status: brandProfiles.status}).from(brandProfiles)
+    const brands = brandIDs.length ? await database.db.select({id: brandProfiles.id, name: brandProfiles.brandName, avatarUrl: brandProfiles.logoUrl, status: brandProfiles.status}).from(brandProfiles)
       .where(inArray(brandProfiles.id, brandIDs)) : [];
     const tagRows = await database.db.select({outfitId: outfitTags.outfitId, id: tags.id, type: tags.type, slug: tags.slug, label: tags.label})
       .from(outfitTags).innerJoin(tags, eq(tags.id, outfitTags.tagId)).where(inArray(outfitTags.outfitId, ids)).orderBy(tags.type, tags.label, tags.id);
     const authorByCreator = new Map<string, OutfitAuthor>(creators.filter(row => row.status === PUBLIC_PROFILE.status && row.userStatus === PUBLIC_PROFILE.userStatus)
       .map(row => [row.id, {id: row.id, name: row.name, avatarUrl: row.avatarUrl, kind: PUBLIC_PROFILE.kind.creator}]));
     const authorByBrand = new Map<string, OutfitAuthor>(brands.filter(row => row.status === PUBLIC_PROFILE.status)
-      .map(row => [row.id, {id: row.id, name: row.name, kind: PUBLIC_PROFILE.kind.brand, avatarUrl: null}]));
+      .map(row => [row.id, {id: row.id, name: row.name, kind: PUBLIC_PROFILE.kind.brand, avatarUrl: row.avatarUrl}]));
     const ownersByCreator = new Map<string, OutfitOwnerInfo>(creators.map(row => [row.id, {id: row.id, name: row.name, status: row.status, kind: PUBLIC_PROFILE.kind.creator}]));
     const ownersByBrand = new Map<string, OutfitOwnerInfo>(brands.map(row => [row.id, {id: row.id, name: row.name, status: row.status, kind: PUBLIC_PROFILE.kind.brand}]));
     return rows.map(outfit => ({outfit, pins: pins.filter(pin => pin.outfitId === outfit.id).map(({outfitId: _, ...pin}) => pin), items: items.filter(row => row.outfitId === outfit.id), images: images.filter(row => row.outfitId === outfit.id),

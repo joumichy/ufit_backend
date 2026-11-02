@@ -4,7 +4,7 @@ export const ACCOUNT_DELETION = {
   token: {processor: 'AccountDeletionProcessor'},
   route: {root: 'account-deletions', id: ':requestId', parameter: 'requestId', proofHeader: 'x-ufit-deletion-key'},
   phase: {purging: 'purging_media', revoking: 'revoking_auth', completed: 'completed'},
-  media: {product: 'product', outfit: 'outfit'},
+  media: {product: 'product', outfit: 'outfit', profile: 'profile'},
   failure: {
     invalid: {code: 'account_deletion_invalid', message: 'Invalid account deletion command'},
     unavailable: {code: 'account_deletion_unavailable', message: 'Account deletion unavailable'},

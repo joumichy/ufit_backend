@@ -1,8 +1,18 @@
 # UFit Backend - Etat des phases
 
-Dernière mise à jour : 2026-11-01
+Dernière mise à jour : 2026-11-02
 
-## Point de passage iOS complète
+## État actif : images de profils
+
+Travail courant mobile/backend sur `charlie`. Le socle des images de compte,
+portrait créateur et logo marque est raccordé au module média : upload privé,
+sélection versionnée/idempotente, diffusion publique limitée et intégration de
+l'effacement du compte. Migration0031 appliquée ;32checksums,65tables. Les preuves
+PostgreSQL/HTTP sont consignées dans le journal Ufit du lot profile-images.
+Le raccordement Photos et sa qualification iOS restent ouverts ; aucune livraison
+globale ni transaction Stripe de production déduite du socle serveur.
+
+## Historique du premier point de passage iOS complète
 
 L’application complète reste en cours de réalisation sur `codex/ios-complete`.
 Les phases ci-dessous décrivent le socle MVP historique ; elles ne prouvent pas

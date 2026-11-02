@@ -71,7 +71,7 @@ export class DrizzleCreatorsRepository implements CreatorsRepository {
 
   async updateProfile(
     profileId: string,
-    input: Partial<Pick<CreatorProfileRow, 'displayName' | 'bio' | 'avatarUrl' | 'status'>> & {socialAccounts?: CreatorSocialAccountInput[]},
+    input: Partial<Pick<CreatorProfileRow, 'displayName' | 'bio' | 'status'>> & {socialAccounts?: CreatorSocialAccountInput[]},
     userId: string
   ): Promise<CreatorProfileRow | undefined> {
     return this.database.db.transaction(async tx => {

@@ -1,3 +1,4 @@
+import {PROFILE_IMAGE} from '../../src/modules/media/domain/profile-image.contract';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { BrandsService } from '../../src/modules/brands/brands.service';
@@ -15,6 +16,8 @@ function brandProfile(overrides: Partial<BrandProfileRow> = {}): BrandProfileRow
     slug: 'north-line-bbbbbbbb',
     websiteUrl: 'https://example.com',
     bio: null,
+    logoUrl: null,
+    imageVersion: PROFILE_IMAGE.limits.initialVersion,
     status: 'active',
     createdAt: now,
     updatedAt: now,

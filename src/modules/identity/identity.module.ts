@@ -1,3 +1,4 @@
+import {PROFILE_IMAGE} from '../media/domain/profile-image.contract';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { IdentityService } from './application/identity.service';
@@ -35,7 +36,7 @@ import {OUTFIT_MEDIA} from '../media/domain/outfit-media.contract';
     {provide:SupabaseAccountDeletion,useFactory:()=>new SupabaseAccountDeletion()},
     {provide:ACCOUNT_DELETION.token.processor,inject:[DrizzleAccountDeletionQueue,SupabaseAccountDeletion],
       useFactory:(queue:DrizzleAccountDeletionQueue,authority:SupabaseAccountDeletion)=>new AccountDeletionProcessor(queue,
-        {[ACCOUNT_DELETION.media.product]:new SupabaseImageStorage(PRODUCT_MEDIA),[ACCOUNT_DELETION.media.outfit]:new SupabaseImageStorage(OUTFIT_MEDIA)},authority)},
+        {[ACCOUNT_DELETION.media.product]:new SupabaseImageStorage(PRODUCT_MEDIA),[ACCOUNT_DELETION.media.outfit]:new SupabaseImageStorage(OUTFIT_MEDIA),[ACCOUNT_DELETION.media.profile]:new SupabaseImageStorage(PROFILE_IMAGE)},authority)},
     {provide: USER_ADMINISTRATION.token.repository, useClass: DrizzleUserAdministrationRepository},
     AuthGuard,
     RoleGuard,

@@ -1,3 +1,7 @@
+import {PROFILE_IMAGE} from './domain/profile-image.contract';
+import {ProfileImageService} from './application/profile-image.service';
+import {DrizzleProfileMediaRepository} from './infrastructure/drizzle-profile-media.repository';
+import {ProfileImageController} from './presentation/profile-image.controller';
 import {OUTFIT_MEDIA} from './domain/outfit-media.contract';
 import {OutfitMediaService} from './application/outfit-media.service';
 import {DrizzleOutfitMediaRepository} from './infrastructure/drizzle-outfit-media.repository';
@@ -15,8 +19,14 @@ import { ProductMediaController } from './presentation/product-media.controller'
 
 @Module({
   imports: [DatabaseModule, IdentityModule],
-  controllers: [ProductMediaController, OutfitMediaController],
-  providers: [ProductMediaService, OutfitMediaService,
+  controllers: [ProductMediaController, OutfitMediaController,ProfileImageController],
+  providers: [ProductMediaService, OutfitMediaService,ProfileImageService,DrizzleProfileMediaRepository,
+    {provide:PROFILE_IMAGE.token.storage,useFactory:()=>new SupabaseImageStorage(PROFILE_IMAGE)},
+    {provide:PROFILE_IMAGE.token.locator,useFactory:()=>new MediaAssetLocator(()=>{
+      const origin=getEnv().MEDIA_PUBLIC_API_ORIGIN;
+      if(!origin)throw new ServiceUnavailableException(PROFILE_IMAGE.failure.configuration);
+      return origin;
+    },PROFILE_IMAGE)},
     {provide: OUTFIT_MEDIA.repository, useClass: DrizzleOutfitMediaRepository},
     {provide: OUTFIT_MEDIA.storage, useFactory: () => new SupabaseImageStorage(OUTFIT_MEDIA)},
     {provide: OUTFIT_MEDIA.reader, useExisting: OutfitMediaService},

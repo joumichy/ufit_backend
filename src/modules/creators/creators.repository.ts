@@ -16,7 +16,7 @@ export interface CreatorsRepository {
   createProfile(input: NewCreatorProfileRow): Promise<CreatorProfileRow>;
   updateProfile(
     profileId: string,
-    input: Partial<Pick<CreatorProfileRow, 'displayName' | 'bio' | 'avatarUrl' | 'status'>> & {socialAccounts?: CreatorSocialAccountInput[]},
+    input: Partial<Pick<CreatorProfileRow, 'displayName' | 'bio' | 'status'>> & {socialAccounts?: CreatorSocialAccountInput[]},
     userId: string
   ): Promise<CreatorProfileRow | undefined>;
   addInitialGradeHistory(profileId: string): Promise<void>;

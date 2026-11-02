@@ -106,11 +106,13 @@ async function verify(){
       const erasures:string[]=[],authSubjects:string[]=[];
       await db.insert(schema.accountDeletions).values({...row,id:processedId,userId:otherClosed.id,authUserId:otherClosed.supabaseUserId,
         requestedAt:clock,updatedAt:clock,nextAttemptAt:clock});
-      const targets=Array.from({length:D.limits.batch+D.limits.one},()=>({requestId:processedId,assetId:randomUUID(),kind:D.media.outfit,objectPath:randomUUID()}));
+      const targets=Array.from({length:D.limits.batch+D.limits.one},(_,index)=>({requestId:processedId,assetId:randomUUID(),kind:index===P.zero?D.media.profile:D.media.outfit,objectPath:randomUUID()}));
       await db.insert(schema.accountDeletionMedia).values(targets);
+      const eraser={eraseOrVerify:async(path:string)=>{if(failStorage)throw new Error(P.copy);erasures.push(path);}};
       const processor=new AccountDeletionProcessor(queue,{
+        profile:eraser,
         product:{eraseOrVerify:async()=>{throw new Error(P.copy);}},
-        outfit:{eraseOrVerify:async path=>{if(failStorage)throw new Error(P.copy);erasures.push(path);}},
+        outfit:eraser,
       },{erase:async subject=>{authSubjects.push(subject);if(failApple)throw new AccountDeletionAuthorityFailure(D.retry.apple);}},()=>clock);
       assert.equal(await processor.runNext(),true);
       let processed=(await db.select().from(schema.accountDeletions).where(eq(schema.accountDeletions.id,processedId)))[P.zero];

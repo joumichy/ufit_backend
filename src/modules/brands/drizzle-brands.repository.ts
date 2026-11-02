@@ -50,7 +50,7 @@ export class DrizzleBrandsRepository implements BrandsRepository {
 
   async findPublicProfileById(id: string): Promise<PublicBrandProfile | undefined> {
     const [profile] = await this.database.db.select({id: brandProfiles.id, brandName: brandProfiles.brandName, slug: brandProfiles.slug,
-      bio: brandProfiles.bio, websiteUrl: brandProfiles.websiteUrl, stats: {
+      bio: brandProfiles.bio, websiteUrl: brandProfiles.websiteUrl, logoUrl: brandProfiles.logoUrl, stats: {
         publishedOutfits: sql<number>`(select count(*)::integer from ${outfits} where ${and(eq(outfits.brandId, brandProfiles.id), isNull(outfits.creatorId),
           eq(outfits.status, PUBLIC_OUTFIT.status), inArray(outfits.visibility, PUBLIC_OUTFIT_VISIBILITIES))})`,
         activeProducts: sql<number>`(select count(*)::integer from ${products} where ${and(eq(products.brandId, brandProfiles.id), eq(products.status, PRODUCT_STATUS.active))})`,

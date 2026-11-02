@@ -14,7 +14,6 @@ export class UpdateCreatorProfileRequest {
   @Length(PROFILE_EDITING.limits.nameMin, PROFILE_EDITING.limits.creatorNameMax) displayName?: string;
   @Transform(trimNullableText) @IsOptional() @IsString()
   @Length(PROFILE_EDITING.limits.bioMin, PROFILE_EDITING.limits.bioMax) bio?: string | null;
-  @Transform(trimNullableText) @IsOptional() @IsUrl(urlOptions) avatarUrl?: string | null;
   @ValidateIf(fieldProvided) @IsIn([...PROFILE_EDITING.writableStatuses]) status?: WritableProfileStatus;
   @ValidateIf(fieldProvided) @IsArray() @ArrayMaxSize(CREATOR_SOCIAL_PLATFORMS.length)
   @ArrayUnique((account: CreatorSocialAccountRequest) => account?.platform)

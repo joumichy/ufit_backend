@@ -22,8 +22,7 @@ export class MeController {
     @Body() request: UpdateMeRequest
   ): Promise<MeResponse> {
     const updatedUser = await this.identityService.updateProfile(currentUser.id, {
-      displayName: request.displayName,
-      avatarUrl: request.avatarUrl
+      displayName: request.displayName
     });
 
     return toMeResponse(updatedUser);

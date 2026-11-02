@@ -1,3 +1,4 @@
+import {PROFILE_IMAGE} from '../../src/modules/media/domain/profile-image.contract';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { CreatorsService } from '../../src/modules/creators/creators.service';
@@ -15,6 +16,7 @@ function profile(overrides: Partial<CreatorProfileRow> = {}): CreatorProfileRow 
     displayName: 'Mira Studio',
     slug: 'mira-studio-aaaaaaaa',
     bio: null,
+    imageVersion: PROFILE_IMAGE.limits.initialVersion,
     avatarUrl: null,
     status: 'active',
     gradeCode: CREATOR_GRADE.initialCode,
