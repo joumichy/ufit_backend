@@ -293,8 +293,15 @@ Les envois vers une adresse changée ou un compte supprimé sont annulés avant
 réservation d’une nouvelle tentative.
 
 Les liens `ufit://notifications/<id>` portent uniquement l’identité du message.
-Le raccordement authentifié de ces liens dans l’application et APNs restent à
-réaliser ; ne pas considérer ce socle comme une livraison complète des notifications.
+`GET /notifications/:id` exige le compte destinataire et résout sa destination
+sur la ressource actuelle : candidature créateur/marque, commande client/marque
+ou retour client/marque. Une expédition ouvre sa vraie commande. Les droits de
+marque sont revérifiés à l’ouverture ; aucun contenu n’est exposé à un autre
+compte. La réponse déclare `Cache-Control: private, no-store` et l’app demande
+une lecture fraîche avant le routage. L’ouverture iOS reprend après connexion
+ou relancement ; les notifications ne dépendent pas de la première page d’une
+liste. APNs, préférences et réception fournisseur restent à compléter avant une
+livraison complète des notifications.
 
 Contrôles backend : `npm run build`, `npx tsc --noEmit`, `npm test -- --maxWorkers=2`.
 Le script `scripts/verify-notification-emails.ts` est réservé à la qualification

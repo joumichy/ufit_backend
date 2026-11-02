@@ -1,3 +1,6 @@
+import {DrizzleNotificationReader} from '../src/modules/notifications/infrastructure/drizzle-notification-reader';
+import {DrizzleNotificationsRepository} from '../src/modules/notifications/infrastructure/drizzle-notifications.repository';
+import {HttpException} from '@nestjs/common';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {and,eq,gt,sql} from 'drizzle-orm';
@@ -116,6 +119,49 @@ export async function verifyNotificationProducers(database:DatabaseSession):Prom
     assert.equal((await messages(cancelled.row.id)).length,4);cases++;
     await cancellationRepository.complete(claim,{outcome:CANCELLATION.outcome.refunded,refundId:FIXTURE.refunded+randomUUID()});
     assert.equal((await messages(cancelled.row.id)).length,4);cases++;
+    const reader=new DrizzleNotificationReader(session);
+    async function readable(resourceId:string,recipientId:string){
+      const [message]=(await messages(resourceId)).filter(row=>row.recipientUserId===recipientId);assert(message);
+      return {message,detail:await reader.read(recipientId,message.id)};
+    }
+    const creatorTarget=await readable(creator.id,applicant.id);
+    assert.deepEqual(creatorTarget.detail.destination,{kind:'creator_application',id:creator.id});cases++;
+    const brandTarget=await readable(brand.id,manager.id);
+    assert.deepEqual(brandTarget.detail.destination,{kind:'brand_application',id:brand.id});cases++;
+    const orderTarget=await readable(paid.row.id,customer.id);
+    assert.deepEqual(orderTarget.detail.destination,{kind:'customer_order',id:paid.row.id});cases++;
+    const shipmentTarget=await readable(shipment.id,customer.id);
+    assert.deepEqual(shipmentTarget.detail.destination,{kind:'customer_order',id:paid.row.id});cases++;
+    const returnTarget=await readable(document.id,customer.id);
+    assert.deepEqual(returnTarget.detail.destination,{kind:'customer_return',id:document.id,orderId:paid.row.id});cases++;
+    const brandOrderTarget=await readable(paid.row.id,manager.id);
+    assert.deepEqual(brandOrderTarget.detail.destination,{kind:'brand_order',id:paid.row.id,brandId:profile.id});cases++;
+    const brandReturnTarget=await readable(document.id,manager.id);
+    assert.deepEqual(brandReturnTarget.detail.destination,{kind:'brand_return',id:document.id,brandId:profile.id});cases++;
+    async function denied(actorId:string,id:string,status:number){
+      await assert.rejects(()=>reader.read(actorId,id),error=>error instanceof HttpException&&error.getStatus()===status);cases++;
+    }
+    await denied(manager.id,orderTarget.message.id,404);
+    await denied(customer.id,brandOrderTarget.message.id,404);
+    await denied(customer.id,randomUUID(),404);
+    await db.update(schema.brandMembers).set({status:'removed'}).where(and(eq(schema.brandMembers.brandProfileId,profile.id),eq(schema.brandMembers.userId,manager.id)));
+    await denied(manager.id,brandOrderTarget.message.id,403);
+    await db.update(schema.brandMembers).set({status:'active'}).where(and(eq(schema.brandMembers.brandProfileId,profile.id),eq(schema.brandMembers.userId,manager.id)));
+    await db.update(schema.brandProfiles).set({status:'paused'}).where(eq(schema.brandProfiles.id,profile.id));
+    assert.deepEqual((await reader.read(manager.id,brandOrderTarget.message.id)).destination,brandOrderTarget.detail.destination);cases++;
+    await db.update(schema.brandProfiles).set({status:'suspended'}).where(eq(schema.brandProfiles.id,profile.id));
+    await denied(manager.id,brandReturnTarget.message.id,403);
+    await db.update(schema.brandProfiles).set({status:'active'}).where(eq(schema.brandProfiles.id,profile.id));
+    await db.update(schema.users).set({status:'suspended'}).where(eq(schema.users.id,customer.id));
+    await denied(customer.id,orderTarget.message.id,403);
+    await db.update(schema.users).set({status:'active'}).where(eq(schema.users.id,customer.id));
+    const writer=new DrizzleNotificationsRepository(session);
+    const wrongResource=await writer.record({eventKey:FIXTURE.prefix+randomUUID(),recipientUserId:roleless.id,
+      resourceType:'order',resourceId:paid.row.id,audience:'customer',brandId:null,subject:FIXTURE.displayName,text:FIXTURE.reason});assert(wrongResource);
+    await denied(roleless.id,wrongResource,404);
+    const missingResource=await writer.record({eventKey:FIXTURE.prefix+randomUUID(),recipientUserId:customer.id,
+      resourceType:'order',resourceId:randomUUID(),audience:'customer',brandId:null,subject:FIXTURE.displayName,text:FIXTURE.reason});assert(missingResource);
+    await denied(customer.id,missingResource,404);
     // Force a storage failure at the actual email insertion boundary. Its decision and provisioning must roll back.
     const beforeEmail=await emailCount(),newApplicant=await user();
     await assert.rejects(()=>db.transaction(async failure=>{
