@@ -300,8 +300,26 @@ marque sont revérifiés à l’ouverture ; aucun contenu n’est exposé à un 
 compte. La réponse déclare `Cache-Control: private, no-store` et l’app demande
 une lecture fraîche avant le routage. L’ouverture iOS reprend après connexion
 ou relancement ; les notifications ne dépendent pas de la première page d’une
-liste. APNs, préférences et réception fournisseur restent à compléter avant une
+liste. APNs et réception fournisseur restent à compléter avant une
 livraison complète des notifications.
+
+`GET /notifications/preferences/:userId` et `PUT` sur la même ressource sont
+réservés au compte métier identifié par le jeton et par le chemin. Un changement
+de compte pendant une requête ne réattribue pas les préférences à son nouveau
+destinataire. `PUT` reçoit exactement `expectedVersion`, `emailEnabled` et
+`pushEnabled`. La réponse porte `userId`, `version`, les deux choix et `updatedAt` ;
+elle déclare aussi `Cache-Control: private, no-store`. Sans ligne enregistrée,
+les canaux sont autorisés par défaut, `version` vaut 0 et `updatedAt` vaut null ;
+`GET` ne crée aucune ligne. Une modification verrouille le compte, compare sa
+version et renvoie 409 si elle a changé. La migration 0025 crée uniquement la table
+de préférences, sans rejouer l’historique.
+
+Désactiver l’e-mail annule les envois en attente ou à retenter de ce destinataire.
+Une nouvelle notification désactivée conserve une enveloppe annulée ; chaque
+réservation relit le choix courant. Les messages déjà en cours peuvent encore
+arriver. Réactiver un canal ne remet pas les anciens messages en file.
+`pushEnabled` est le choix de réception du compte ; il ne constitue ni une
+autorisation iOS, ni un enregistrement d’appareil, ni une preuve de livraison.
 
 Contrôles backend : `npm run build`, `npx tsc --noEmit`, `npm test -- --maxWorkers=2`.
 Le script `scripts/verify-notification-emails.ts` est réservé à la qualification
@@ -311,3 +329,7 @@ empreintes de toutes les tables préexistantes doivent rester identiques. Avant
 application de0024, le lancer avec `--with-migration` pour examiner aussi le DDL
 sans le conserver. Il ne constitue ni une preuve de réception e-mail, ni une
 qualification du parcours iOS.
+
+Après la migration 0025 et un build, `node dist/scripts/verify-notification-preferences.js`
+vérifie les préférences et leur effet sur la file dans une transaction annulée,
+sur le même profil de qualification. Il ne contacte aucun fournisseur.

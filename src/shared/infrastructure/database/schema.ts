@@ -1,3 +1,4 @@
+export {notificationPreferences} from './schema.notification-preferences';
 import {users, userRoles} from './schema.identity';
 export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from './schema.identity';
 export {notifications, notificationEmailDeliveries} from './schema.notifications';
