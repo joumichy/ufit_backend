@@ -1,4 +1,6 @@
 import {PROFILE_IMAGE} from '../media/domain/profile-image.contract';
+import {DrizzleStylePreferencesRepository} from './infrastructure/persistence/drizzle-style-preferences.repository';
+import {StylePreferencesController} from './presentation/controllers/style-preferences.controller';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { IdentityService } from './application/identity.service';
@@ -29,9 +31,9 @@ import {OUTFIT_MEDIA} from '../media/domain/outfit-media.contract';
 
 @Module({
   imports: [DatabaseModule],
-  controllers: [MeController, UserAdministrationController,AccountDeletionsController],
+  controllers: [MeController, UserAdministrationController,AccountDeletionsController,StylePreferencesController],
   providers: [
-    IdentityService, UserAdministrationService,
+    IdentityService, UserAdministrationService,DrizzleStylePreferencesRepository,
     AccountDeletionService,DrizzleAccountDeletionRepository,DrizzleAccountDeletionQueue,AccountDeletionsWorker,
     {provide:SupabaseAccountDeletion,useFactory:()=>new SupabaseAccountDeletion()},
     {provide:ACCOUNT_DELETION.token.processor,inject:[DrizzleAccountDeletionQueue,SupabaseAccountDeletion],

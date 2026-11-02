@@ -1,4 +1,5 @@
 import {PROFILE_IMAGE} from '../../../media/domain/profile-image.contract';
+import {stylePreferences} from '../../../../shared/infrastructure/database/schema.style-preferences';
 import {and,eq,exists,inArray,not,or,sql} from 'drizzle-orm';
 import type {DatabaseSession} from '../../../../shared/infrastructure/database/database-session';
 import {users,userRoles,creatorApplications,brandApplications,creatorProfiles,creatorSocialAccounts,brandProfiles,brandMembers,
@@ -66,6 +67,7 @@ export async function anonymizeAccount(database:DatabaseSession,actor:{id:string
   // Email deliveries cascade from their private notification intent.
   await db.delete(notifications).where(eq(notifications.recipientUserId,userId));
   await db.delete(notificationPreferences).where(eq(notificationPreferences.userId,userId));
+  await db.delete(stylePreferences).where(eq(stylePreferences.userId,userId));
 }
 
 export function affectedBrand(userId:string) {

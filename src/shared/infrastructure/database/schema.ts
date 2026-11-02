@@ -1,3 +1,6 @@
+import {tags} from './schema.tags';
+export {tags,tagTypeEnum} from './schema.tags';
+export {stylePreferences,preferredStyles,stylePreferenceChanges} from './schema.style-preferences';
 export {notificationPreferences} from './schema.notification-preferences';
 export {accountDeletions,accountDeletionMedia} from './schema.account-deletions';
 export {notificationInstallations,notificationDeviceAssociations,notificationInstallationRegistrations,notificationInstallationDetachments} from './schema.notification-installations';
@@ -9,7 +12,7 @@ import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shippi
 import {PROFILE_IMAGE} from '../../../modules/media/domain/profile-image.contract';
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
 import {BRAND_COMMERCE, COMMERCE_POLICY_KEY} from '../../../modules/brands/commerce-policy';
-import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES, OUTFIT_TAG_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
+import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES} from '../../../modules/outfits/domain/outfit-editing.contract';
 import { GENDER_TARGETS } from '../../domain/gender-target';
 import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
 import { PRODUCT_EDITING, PRODUCT_STATUSES, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from '../../../modules/products/domain/product-contract';
@@ -300,7 +303,6 @@ export const productImageKindEnum = ufitSchema.enum('product_image_kind', PRODUC
 export const outfitStatusEnum = ufitSchema.enum('outfit_status', OUTFIT_STATUSES);
 export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', OUTFIT_VISIBILITIES);
 export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', OUTFIT_ITEM_TYPES);
-export const tagTypeEnum = ufitSchema.enum('tag_type', OUTFIT_TAG_TYPES);
 export const editorialCollectionStatusEnum = ufitSchema.enum('editorial_collection_status', [
   'draft',
   'published',
@@ -474,20 +476,6 @@ export const outfitPins = ufitSchema.table('outfit_pins', {
   xRange: check('outfit_pins_x_range', sql`${table.x} between ${OUTFIT_EDITING.limits.integerMin} and ${OUTFIT_EDITING.limits.pinCoordinateMax}`),
   yRange: check('outfit_pins_y_range', sql`${table.y} between ${OUTFIT_EDITING.limits.integerMin} and ${OUTFIT_EDITING.limits.pinCoordinateMax}`)
 }));
-
-export const tags = ufitSchema.table(
-  'tags',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    type: tagTypeEnum('type').notNull(),
-    slug: text('slug').notNull(),
-    label: text('label').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-  },
-  (table) => ({
-    typeSlugUnique: uniqueIndex('tags_type_slug_unique').on(table.type, table.slug)
-  })
-);
 
 export const outfitTags = ufitSchema.table(
   'outfit_tags',

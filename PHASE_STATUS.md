@@ -2,7 +2,21 @@
 
 Dernière mise à jour : 2026-11-02
 
-## État actif : recherche de tenues
+## État actif : préférences de styles
+
+Travail courant mobile/backend sur `charlie`. GET/PUT `me/style-preferences/:userId`
+possèdent le document privé versionné et la commande idempotente ; GET de la
+commande retourne son reçu et le document dans un même snapshot. Sélection vide
+explicite, styles issus du registre relationnel, isolation par compte et effacement
+avec le compte. Migration0032 appliquée :33checksums,68tables. Les tags possèdent
+un propriétaire de schéma indépendant ; la clé composite impose le type style.
+Build/types et548tests backend passent ;14scénarios PostgreSQL avec rollback,
+68tables inchangées, concurrence HTTP200/409 et ancien reçu immuable vérifiés.
+Raccordement natif, stockage invité, parcours réels et limites dans la
+[checklist Ufit](../../docs/ufit_ios_complete_checklist.md) et son journal styles.
+Aucune personnalisation automatique du feed ni livraison globale déduite de ce lot.
+
+## Socle recherche de tenues — preuves du lot précédent
 
 Travail courant mobile/backend sur `charlie`. GET `outfits` recherche et filtre
 avant pagination UUID : `q`, `scope`, `styleId`, `occasionId`, `itemType`.
