@@ -9,8 +9,10 @@ portrait créateur et logo marque est raccordé au module média : upload privé
 sélection versionnée/idempotente, diffusion publique limitée et intégration de
 l'effacement du compte. Migration0031 appliquée ;32checksums,65tables. Les preuves
 PostgreSQL/HTTP sont consignées dans le journal Ufit du lot profile-images.
-Le raccordement Photos et sa qualification iOS restent ouverts ; aucune livraison
-globale ni transaction Stripe de production déduite du socle serveur.
+Le suivi du raccordement Photos et de sa qualification iOS est possédé par la
+[checklist Ufit](../../docs/ufit_ios_complete_checklist.md) et son journal natif.
+Aucune livraison globale ni transaction Stripe de production n’est déduite du
+socle serveur.
 
 ## Historique du premier point de passage iOS complète
 
