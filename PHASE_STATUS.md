@@ -2,7 +2,22 @@
 
 Dernière mise à jour : 2026-11-02
 
-## État actif : préférences de styles
+## État actif : socle des collections éditoriales
+
+Travail mobile/backend sur `charlie`. Le propriétaire Editorial possède désormais
+création/édition atomiques, publication, archivage et restauration, contrôle de
+version et reçus immuables par commande. GET publics des collections/détails et
+références paginées filtrent la visibilité avant pagination ; les références de
+tenues et de produits sont conservées. Le curseur de publication garde les
+microsecondes PostgreSQL. Une édition publiée redevient un brouillon.
+Migration0033 appliquée :34checksums,69tables. Build/types,567tests backend,
+22scénarios PostgreSQL avec rollback (69tables inchangées) et14casHTTP réels
+qualifiés. Deux collections de qualification restent archivées, aucune collection
+publique ajoutée durablement. Le raccordement client/admin et la qualification
+native restent à faire ; aucune livraison de l'application complète déduite.
+Voir la [checklist Ufit](../../docs/ufit_ios_complete_checklist.md) et sa note éditoriale.
+
+## Préférences de styles — lot précédent
 
 Travail courant mobile/backend sur `charlie`. GET/PUT `me/style-preferences/:userId`
 possèdent le document privé versionné et la commande idempotente ; GET de la

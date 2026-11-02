@@ -12,44 +12,9 @@ import { ProductsService } from '../src/modules/products/application/products.se
 import type { Product, ProductDetail, ProductImage, ProductRepository, ProductStatus, ProductVariant } from '../src/modules/products/domain/product.types';
 import { OutfitsService } from '../src/modules/outfits/application/outfits.service';
 import type { Outfit, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility } from '../src/modules/outfits/domain/outfit.types';
-import { EditorialService } from '../src/modules/editorial/application/editorial.service';
-import type { EditorialCollection, EditorialCollectionDetail, EditorialCollectionItem, EditorialRepository } from '../src/modules/editorial/domain/editorial.types';
 
 const publicProfileFixture = {title: 'Tenue publique de profil', description: 'Une silhouette de qualification', image: 'https://cdn.test/profile-outfit.jpg', inspiration: 'Pièce personnelle', itemType: 'top', position: 0, pageSize: 1, empty: 0, nextRow: 1} as const;
 
-class MemoryEditorialRepository implements EditorialRepository {
-  collection: EditorialCollection = {
-    id: id('collection'),
-    title: 'Public Edit',
-    subtitle: null,
-    description: 'Published collection',
-    coverImageUrl: null,
-    status: 'published',
-    createdBy: id('admin'),
-    publishedAt: new Date('2026-05-20T00:00:00.000Z')
-  };
-  items: EditorialCollectionItem[] = [];
-
-  async createCollection(input: Parameters<EditorialRepository['createCollection']>[0]): Promise<EditorialCollection> {
-    this.collection = { id: id('collection'), status: 'draft', publishedAt: null, ...input };
-    return this.collection;
-  }
-
-  async addItems(collectionId: string, items: Parameters<EditorialRepository['addItems']>[1]): Promise<EditorialCollectionItem[]> {
-    const rows = items.map((item, index) => ({ id: id(`editor${index}`), collectionId, ...item }));
-    this.items.push(...rows);
-    return rows;
-  }
-
-  async publishCollection(): Promise<EditorialCollection> {
-    this.collection = { ...this.collection, status: 'published', publishedAt: new Date('2026-05-20T00:00:00.000Z') };
-    return this.collection;
-  }
-
-  async findPublishedCollections(): Promise<EditorialCollectionDetail[]> {
-    return [{ collection: this.collection, items: this.items }];
-  }
-}
 
 function services() {
   const productRepository = new MemoryProductRepository();
@@ -203,61 +168,4 @@ describe('Products and outfits services', () => {
     });
   });
 
-  it('filters editorial public collection items to published outfits and active products', async () => {
-    const { productsService, productRepository, outfitsService, outfitRepository } = services();
-    const editorialRepository = new MemoryEditorialRepository();
-    const editorialService = new EditorialService(editorialRepository, outfitRepository, productRepository);
-
-    const activeProduct = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency, variants: [{sku: productFixture.skuPrefix + randomUUID(), stockQuantity: productFixture.stock}], images: [productFixture.image],
-      brandId: productFixture.brandID,
-      name: 'Active Belt',
-      description: 'Clean belt',
-      category: 'accessory',
-      basePrice: 9000
-    });
-    await productsService.submitProduct(productFixture.actor, activeProduct.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, activeProduct.product.id)).product.version});
-    await productsService.reviewProduct(activeProduct.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, activeProduct.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
-
-    const draftProduct = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency, variants: [{sku: productFixture.skuPrefix + randomUUID(), stockQuantity: productFixture.stock}], images: [productFixture.image],
-      brandId: productFixture.brandID,
-      name: 'Draft Belt',
-      description: 'Hidden belt',
-      category: 'accessory',
-      basePrice: 8000
-    });
-
-    const publishedOutfit = await outfitsService.createOutfit(outfitFixture.actor, {requestId: randomUUID(), tagIds: [],
-      creatorId: id('creator'),
-      title: 'Editorial Fit',
-      description: 'Visible outfit',
-      images: [{url: 'https://cdn.test/editorial.jpg', position: OUTFIT_EDITING.limits.first}],
-      items: [{ productId: activeProduct.product.id, itemType: 'accessory', position: 0, isRequired: true, isShoppable: true }]
-    });
-    await outfitsService.submitOutfit(outfitFixture.actor, publishedOutfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, publishedOutfit.id)).version});
-    await outfitsService.reviewOutfit(outfitFixture.admin, publishedOutfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, publishedOutfit.id)).version, decision: 'published' });
-
-    const draftOutfit = await outfitsService.createOutfit(outfitFixture.actor, {requestId: randomUUID(), tagIds: [],
-      creatorId: id('creator'),
-      title: 'Hidden Fit',
-      description: 'Hidden outfit',
-      images: [{url: 'https://cdn.test/hidden.jpg', position: OUTFIT_EDITING.limits.first}],
-      items: [{ productId: activeProduct.product.id, itemType: 'accessory', position: 0, isRequired: true, isShoppable: true }]
-    });
-
-    editorialRepository.items = [
-      { id: id('e1'), collectionId: editorialRepository.collection.id, itemType: 'outfit', outfitId: publishedOutfit.id, productId: null, position: 0 },
-      { id: id('e2'), collectionId: editorialRepository.collection.id, itemType: 'outfit', outfitId: draftOutfit.id, productId: null, position: 1 },
-      { id: id('e3'), collectionId: editorialRepository.collection.id, itemType: 'product', outfitId: null, productId: activeProduct.product.id, position: 2 },
-      { id: id('e4'), collectionId: editorialRepository.collection.id, itemType: 'product', outfitId: null, productId: draftProduct.product.id, position: 3 }
-    ];
-
-    await expect(editorialService.getPublicCollections()).resolves.toEqual([
-      expect.objectContaining({
-        items: [
-          expect.objectContaining({ outfitId: publishedOutfit.id }),
-          expect.objectContaining({ productId: activeProduct.product.id })
-        ]
-      })
-    ]);
-  });
 });

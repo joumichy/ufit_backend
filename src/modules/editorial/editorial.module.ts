@@ -1,14 +1,13 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
-import { OutfitsModule } from '../outfits/outfits.module';
-import { ProductsModule } from '../products/products.module';
+import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
 import { EditorialService } from './application/editorial.service';
 import { EDITORIAL_REPOSITORY } from './domain/editorial.types';
 import { DrizzleEditorialRepository } from './infrastructure/drizzle-editorial.repository';
 import { EditorialController } from './presentation/editorial.controller';
 
 @Module({
-  imports: [IdentityModule, ProductsModule, OutfitsModule],
+  imports: [IdentityModule, DatabaseModule],
   controllers: [EditorialController],
   providers: [
     EditorialService,

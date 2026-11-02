@@ -1,3 +1,4 @@
+import {EDITORIAL, EDITORIAL_COMMANDS, EDITORIAL_STATUSES, EDITORIAL_ITEM_TYPES} from '../../../modules/editorial/domain/editorial.contract';
 import {tags} from './schema.tags';
 export {tags,tagTypeEnum} from './schema.tags';
 export {stylePreferences,preferredStyles,stylePreferenceChanges} from './schema.style-preferences';
@@ -303,12 +304,8 @@ export const productImageKindEnum = ufitSchema.enum('product_image_kind', PRODUC
 export const outfitStatusEnum = ufitSchema.enum('outfit_status', OUTFIT_STATUSES);
 export const outfitVisibilityEnum = ufitSchema.enum('outfit_visibility', OUTFIT_VISIBILITIES);
 export const outfitItemTypeEnum = ufitSchema.enum('outfit_item_type', OUTFIT_ITEM_TYPES);
-export const editorialCollectionStatusEnum = ufitSchema.enum('editorial_collection_status', [
-  'draft',
-  'published',
-  'archived'
-]);
-export const editorialItemTypeEnum = ufitSchema.enum('editorial_item_type', ['outfit', 'product']);
+export const editorialCollectionStatusEnum = ufitSchema.enum('editorial_collection_status', EDITORIAL_STATUSES);
+export const editorialItemTypeEnum = ufitSchema.enum('editorial_item_type', EDITORIAL_ITEM_TYPES);
 export const featuredSlotSurfaceEnum = ufitSchema.enum('featured_slot_surface', ['home', 'feed', 'collection']);
 export const featuredSlotContentTypeEnum = ufitSchema.enum('featured_slot_content_type', ['outfit', 'product', 'collection']);
 
@@ -498,11 +495,12 @@ export const editorialCollections = ufitSchema.table('editorial_collections', {
   subtitle: text('subtitle'),
   description: text('description').notNull(),
   coverImageUrl: text('cover_image_url'),
-  status: editorialCollectionStatusEnum('status').notNull().default('draft'),
-  createdBy: uuid('created_by').notNull(),
+  status: editorialCollectionStatusEnum('status').notNull().default(EDITORIAL.status.draft),
+  createdBy: uuid('created_by').notNull().references(() => users.id, {onDelete: 'restrict'}),
+  version: integer('version').notNull().default(EDITORIAL.limits.one),
   publishedAt: timestamp('published_at', { withTimezone: true }),
   ...timestamps
-});
+}, table => ({version: check('editorial_collections_version_positive', sql`${table.version}>=${EDITORIAL.limits.one} and ${table.version}<=${EDITORIAL.limits.versionMax}`)}));
 
 export const editorialCollectionItems = ufitSchema.table(
   'editorial_collection_items',
@@ -518,9 +516,25 @@ export const editorialCollectionItems = ufitSchema.table(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (table) => ({
-    collectionPositionIndex: index('editorial_collection_items_collection_position_idx').on(table.collectionId, table.position)
+    collectionPositionIndex: index('editorial_collection_items_collection_position_idx').on(table.collectionId, table.position),
+    positionUnique: uniqueIndex('editorial_collection_items_position_unique').on(table.collectionId, table.position),
+    outfitUnique: uniqueIndex('editorial_collection_items_outfit_unique').on(table.collectionId, table.outfitId),
+    productUnique: uniqueIndex('editorial_collection_items_product_unique').on(table.collectionId, table.productId),
+    position: check('editorial_collection_items_position_valid', sql`${table.position}>=${EDITORIAL.limits.zero} and ${table.position}<${EDITORIAL.limits.itemsMax}`),
+    reference: check('editorial_collection_items_reference_valid', sql`(${table.itemType}=${EDITORIAL.item.outfit} and ${table.outfitId} is not null and ${table.productId} is null) or (${table.itemType}=${EDITORIAL.item.product} and ${table.productId} is not null and ${table.outfitId} is null)`)
   })
 );
+
+export const editorialCollectionChanges = ufitSchema.table('editorial_collection_changes', {
+  requestId: uuid('request_id').primaryKey(), collectionId: uuid('collection_id').notNull().references(() => editorialCollections.id),
+  actorId: uuid('actor_id').notNull().references(() => users.id), kind: text('kind').notNull(), fingerprint: text('fingerprint').notNull(),
+  expectedVersion: integer('expected_version').notNull(), version: integer('version').notNull(),
+  status: editorialCollectionStatusEnum('status').notNull(), createdAt: timestamp('created_at', {withTimezone: true}).notNull(),
+}, table => ({
+  version: check('editorial_collection_changes_version_valid', sql`${table.expectedVersion}>=${EDITORIAL.limits.zero} and ${table.expectedVersion}<${EDITORIAL.limits.versionMax} and ${table.version}=${table.expectedVersion}+${EDITORIAL.limits.one}`),
+  kind: check('editorial_collection_changes_kind_valid', sql`${table.kind} in (${sql.join(EDITORIAL_COMMANDS.map(value => sql`${value}`), sql`, `)})`),
+  fingerprint: check('editorial_collection_changes_fingerprint_valid', sql`${table.fingerprint}~${EDITORIAL.digest.pattern}`),
+}));
 
 export const featuredSlots = ufitSchema.table(
   'featured_slots',

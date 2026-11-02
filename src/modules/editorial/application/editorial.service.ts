@@ -1,78 +1,35 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { OUTFIT_REPOSITORY, type OutfitRepository } from '../../outfits/domain/outfit.types';
-import { PRODUCT_REPOSITORY, type ProductRepository } from '../../products/domain/product.types';
-import { EDITORIAL_REPOSITORY, type EditorialCollectionDetail, type EditorialRepository } from '../domain/editorial.types';
-import { CreateEditorialCollectionDto } from './dto/editorial.dto';
-
-type CreateEditorialCollectionInput = CreateEditorialCollectionDto & { createdBy: string };
-
+import {BadRequestException, Inject, Injectable} from '@nestjs/common';
+import {z} from 'zod';
+import {EDITORIAL as E, EDITORIAL_TRANSITIONS, editorialItemsPageSchema, editorialManagedPageSchema, editorialPageSchema,
+  editorialTransitionSchema, editorialWriteSchema} from '../domain/editorial.contract';
+import {EDITORIAL_REPOSITORY, type EditorialRepository} from '../domain/editorial.types';
 @Injectable()
 export class EditorialService {
-  constructor(
-    @Inject(EDITORIAL_REPOSITORY) private readonly editorial: EditorialRepository,
-    @Inject(OUTFIT_REPOSITORY) private readonly outfits: OutfitRepository,
-    @Inject(PRODUCT_REPOSITORY) private readonly products: ProductRepository
-  ) {}
-
-  async createCollection(input: CreateEditorialCollectionInput): Promise<EditorialCollectionDetail> {
-    this.assertItems(input.items ?? []);
-    const collection = await this.editorial.createCollection({
-      title: input.title,
-      subtitle: input.subtitle ?? null,
-      description: input.description,
-      coverImageUrl: input.coverImageUrl ?? null,
-      createdBy: input.createdBy
-    });
-    const items = input.items?.length
-      ? await this.editorial.addItems(
-          collection.id,
-          input.items.map((item) => ({
-            itemType: item.itemType,
-            outfitId: item.outfitId ?? null,
-            productId: item.productId ?? null,
-            position: item.position
-          }))
-        )
-      : [];
-    return { collection, items };
+  constructor(@Inject(EDITORIAL_REPOSITORY) private readonly editorial: EditorialRepository) {}
+  createCollection(actorId: string, raw: unknown) {
+    const input = parse(editorialWriteSchema, raw, E.failure.input);
+    if (input.expectedVersion !== E.limits.zero) throw new BadRequestException(E.failure.input);
+    return this.editorial.write({...input, actorId, collectionId: null, kind: E.command.create});
   }
-
-  publishCollection(collectionId: string): Promise<unknown> {
-    return this.editorial.publishCollection(collectionId);
+  editCollection(actorId: string, collectionId: string, raw: unknown) {
+    const input = parse(editorialWriteSchema, raw, E.failure.input);
+    if (input.expectedVersion === E.limits.zero) throw new BadRequestException(E.failure.input);
+    return this.editorial.write({...input, actorId, collectionId, kind: E.command.edit});
   }
-
-  async getPublicCollections(limit = 10): Promise<EditorialCollectionDetail[]> {
-    const collections = await this.editorial.findPublishedCollections(Math.min(Math.max(limit, 1), 50));
-    return Promise.all(
-      collections.map(async (detail) => ({
-        collection: detail.collection,
-        items: (
-          await Promise.all(
-            detail.items.map(async (item) => {
-              if (item.itemType === 'outfit' && item.outfitId) {
-                const outfit = await this.outfits.findById(item.outfitId);
-                return outfit?.outfit.status === 'published' ? item : null;
-              }
-              if (item.itemType === 'product' && item.productId) {
-                const product = await this.products.findById(item.productId);
-                return product?.product.status === 'active' ? item : null;
-              }
-              return null;
-            })
-          )
-        ).filter((item) => item !== null)
-      }))
-    );
+  transition(actorId: string, collectionId: string, action: unknown, raw: unknown) {
+    const input = parse(editorialTransitionSchema, raw, E.failure.input);
+    const kind = parse(z.enum(EDITORIAL_TRANSITIONS), action, E.failure.input);
+    return this.editorial.write({...input, actorId, collectionId, kind});
   }
-
-  private assertItems(items: Array<{ itemType: 'outfit' | 'product'; outfitId?: string; productId?: string }>): void {
-    for (const item of items) {
-      if (item.itemType === 'outfit' && (!item.outfitId || item.productId)) {
-        throw new BadRequestException('Editorial outfit items require only outfitId');
-      }
-      if (item.itemType === 'product' && (!item.productId || item.outfitId)) {
-        throw new BadRequestException('Editorial product items require only productId');
-      }
-    }
-  }
+  change(actorId: string, requestId: string) { return this.editorial.change(actorId, requestId); }
+  managed(actorId: string, collectionId: string) { return this.editorial.managed(actorId, collectionId); }
+  managedPage(actorId: string, raw: unknown) { return this.editorial.managedPage(actorId, parse(editorialManagedPageSchema, raw, E.failure.page)); }
+  getPublicCollections(raw: unknown) { return this.editorial.publicPage(parse(editorialPageSchema, raw, E.failure.page)); }
+  getPublicDetail(collectionId: string) { return this.editorial.publicDetail(collectionId); }
+  getPublicItems(collectionId: string, raw: unknown) { return this.editorial.publicItems(collectionId, parse(editorialItemsPageSchema, raw, E.failure.page)); }
+}
+function parse<T extends z.ZodType>(schema: T, raw: unknown, failure: string): z.infer<T> {
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) throw new BadRequestException(failure);
+  return parsed.data;
 }
