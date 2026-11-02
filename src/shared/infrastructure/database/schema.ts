@@ -1,4 +1,5 @@
 export {notificationPreferences} from './schema.notification-preferences';
+export {accountDeletions,accountDeletionMedia} from './schema.account-deletions';
 export {notificationInstallations,notificationDeviceAssociations,notificationInstallationRegistrations,notificationInstallationDetachments} from './schema.notification-installations';
 import {users, userRoles} from './schema.identity';
 export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from './schema.identity';
