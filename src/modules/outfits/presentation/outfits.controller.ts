@@ -10,7 +10,7 @@ import { CreateOutfitDto, ReviewOutfitDto, UpdateOutfitDto, OutfitVersionDto } f
 import { OutfitsService } from '../application/outfits.service';
 
 const outfitRoutes = {root: 'outfits', id: 'id', requestId: 'requestId', managed: 'managed', metadata: 'metadata', private: ':id/private',
-  creation: 'creation-requests/:requestId', outfit: ':id', submit: ':id/submit', review: ':id/review', archive: ':id/archive', restore: ':id/restore'} as const;
+  discovery: 'discovery', creation: 'creation-requests/:requestId', outfit: ':id', submit: ':id/submit', review: ':id/review', archive: ':id/archive', restore: ':id/restore'} as const;
 
 @Controller(outfitRoutes.root)
 export class OutfitsController {
@@ -55,6 +55,9 @@ export class OutfitsController {
   @UseGuards(AuthGuard, RoleGuard)
   @Roles(...OUTFIT_WRITE_ROLES)
   getMetadata() { return this.outfitsService.getMetadata(); }
+
+  @Get(outfitRoutes.discovery)
+  getDiscoveryOptions() { return this.outfitsService.getDiscoveryOptions(); }
 
   @Get(outfitRoutes.managed)
   @UseGuards(AuthGuard, RoleGuard)

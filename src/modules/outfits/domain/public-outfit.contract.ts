@@ -1,3 +1,4 @@
+import type {OutfitItemType} from './outfit.types';
 import {OUTFIT_STATUS, OUTFIT_VISIBILITY} from './outfit-editing.contract';
 export const PUBLIC_OUTFIT = {
   status: OUTFIT_STATUS.published,
@@ -6,4 +7,14 @@ export const PUBLIC_OUTFIT = {
   failure: {page: 'Invalid public outfit page', missing: 'Public outfit not found'},
 } as const;
 export const PUBLIC_OUTFIT_VISIBILITIES = [PUBLIC_OUTFIT.visibility.public, PUBLIC_OUTFIT.visibility.featured];
-export interface PublicOutfitPage {limit: number; cursor?: string; creatorId?: string; brandId?: string;}
+export const OUTFIT_DISCOVERY = {
+  scope: {all: 'all', creators: 'creators', pieces: 'pieces'},
+  tag: {style: 'style', occasion: 'occasion'},
+  queryMax: 120, matchMinimum: 0,
+} as const;
+export const OUTFIT_SEARCH_SCOPES = [OUTFIT_DISCOVERY.scope.all, OUTFIT_DISCOVERY.scope.creators, OUTFIT_DISCOVERY.scope.pieces] as const;
+export interface PublicOutfitPage {
+  limit: number; cursor?: string; creatorId?: string; brandId?: string;
+  q?: string; scope?: (typeof OUTFIT_SEARCH_SCOPES)[number]; styleId?: string; occasionId?: string;
+  itemType?: OutfitItemType;
+}

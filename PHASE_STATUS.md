@@ -2,7 +2,19 @@
 
 Dernière mise à jour : 2026-11-02
 
-## État actif : images de profils
+## État actif : recherche de tenues
+
+Travail courant mobile/backend sur `charlie`. GET `outfits` recherche et filtre
+avant pagination UUID : `q`, `scope`, `styleId`, `occasionId`, `itemType`.
+GET `outfits/discovery` expose les styles/occasions du registre et les types de
+pièce canoniques. Les auteurs et articles non publics ne servent pas de résultat
+indirect. Aucun changement de schéma :32migrations/checksums et65tables.
+Build/types et531tests backend passent ;23scénarios PostgreSQL avec rollback
+et13cas HTTP réels qualifient les contrats. Parcours natifs et limites dans la
+[checklist Ufit](../../docs/ufit_ios_complete_checklist.md) et le journal découverte.
+Aucune livraison globale ni qualification Stripe de production déduite de ce lot.
+
+## Socle images de profils
 
 Travail courant mobile/backend sur `charlie`. Le socle des images de compte,
 portrait créateur et logo marque est raccordé au module média : upload privé,

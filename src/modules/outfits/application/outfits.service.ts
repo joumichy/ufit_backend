@@ -8,10 +8,13 @@ import { PRODUCT_REPOSITORY, type ProductDetail, type ProductRepository } from '
 import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository, type OutfitActor, type OutfitOwner, type OutfitContentUpdate } from '../domain/outfit.types';
 import { CreateOutfitDto, ReviewOutfitDto, UpdateOutfitDto, OutfitVersionDto, EditOutfitItemDto, EditOutfitImageDto } from './dto/outfit.dto';
 import {z} from 'zod';
-import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES} from '../domain/public-outfit.contract';
+import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, OUTFIT_DISCOVERY, OUTFIT_SEARCH_SCOPES} from '../domain/public-outfit.contract';
 
 const publicPage = z.object({limit: z.coerce.number().int().min(PUBLIC_OUTFIT.limits.minimum).max(PUBLIC_OUTFIT.limits.maximum).default(PUBLIC_OUTFIT.limits.default),
-  cursor: z.uuid().optional(), creatorId: z.uuid().optional(), brandId: z.uuid().optional()}).strict().refine(value => !(value.creatorId && value.brandId));
+  cursor: z.uuid().optional(), creatorId: z.uuid().optional(), brandId: z.uuid().optional(),
+  q: z.string().trim().max(OUTFIT_DISCOVERY.queryMax).optional(), scope: z.enum(OUTFIT_SEARCH_SCOPES).optional(),
+  styleId: z.uuid().optional(), occasionId: z.uuid().optional(), itemType: z.enum(OUTFIT_ITEM_TYPES).optional(),
+}).strict().refine(value => !(value.creatorId && value.brandId));
 
 const managedOwner = z.object({creatorId: z.uuid().optional(), brandId: z.uuid().optional()}).strict();
 const managedPage = managedOwner.extend({limit: z.coerce.number().int().min(OUTFIT_EDITING.limits.pageMin).max(OUTFIT_EDITING.limits.pageMax).default(OUTFIT_EDITING.limits.pageDefault),
@@ -160,6 +163,11 @@ export class OutfitsService {
     return {items: await this.projectManaged(page.items), nextCursor: page.nextCursor};
   }
   async getMetadata() { return {tags: await this.outfits.listTags(), itemTypes: OUTFIT_ITEM_TYPES, tagTypes: OUTFIT_TAG_TYPES, statuses: OUTFIT_STATUSES}; }
+
+  async getDiscoveryOptions() {
+    const tags = (await this.outfits.listTags()).filter(tag => tag.type === OUTFIT_DISCOVERY.tag.style || tag.type === OUTFIT_DISCOVERY.tag.occasion);
+    return {tags, itemTypes: OUTFIT_ITEM_TYPES};
+  }
 
   private owner(input: {creatorId?: string | null; brandId?: string | null}): OutfitOwner {
     const creatorId = input.creatorId?.toLowerCase() ?? null, brandId = input.brandId?.toLowerCase() ?? null;

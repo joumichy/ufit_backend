@@ -8,6 +8,7 @@ import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructur
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
 import type {PublicOutfitPage} from '../domain/public-outfit.contract';
 import {publicOutfitVisibility} from './public-outfit-visibility';
+import {publicOutfitDiscovery} from './public-outfit-discovery';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfitPins, outfits, users, products, tags, outfitTags, outfitMediaAssets } from '../../../shared/infrastructure/database/schema';
 import type { Outfit, OutfitAuthor, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility, OutfitOwner, OutfitOwnerInfo, OutfitManagedQuery, OutfitManagedPage, OutfitContentUpdate, OutfitTag } from '../domain/outfit.types';
@@ -188,7 +189,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
 
   async findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]> {
     return this.database.db.transaction(async tx => {
-      const rows = await tx.select().from(outfits).where(and(publicOutfitVisibility({db: tx}),
+      const rows = await tx.select().from(outfits).where(and(publicOutfitVisibility({db: tx}), publicOutfitDiscovery({db: tx}, input),
         input.creatorId ? eq(outfits.creatorId, input.creatorId) : undefined, input.brandId ? eq(outfits.brandId, input.brandId) : undefined,
         input.cursor ? lt(outfits.id, input.cursor) : undefined)).orderBy(desc(outfits.id)).limit(input.limit);
       return this.loadDetails(rows, {db: tx});
