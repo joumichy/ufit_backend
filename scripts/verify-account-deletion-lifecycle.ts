@@ -11,8 +11,9 @@ import {HttpException} from '@nestjs/common';
 import {getEnv} from '../src/config/env';
 import {buildPgSslConfig} from '../src/shared/infrastructure/database/pg-ssl';
 import * as schema from '../src/shared/infrastructure/database/schema';
-import {ACCOUNT_DELETION as D} from '../src/modules/identity/domain/account-deletion.contract';
+import {ACCOUNT_DELETION as D,AccountDeletionAuthorityFailure} from '../src/modules/identity/domain/account-deletion.contract';
 import {DrizzleAccountDeletionQueue,deletionCredentialHash} from '../src/modules/identity/infrastructure/persistence/drizzle-account-deletion-queue';
+import {AccountDeletionProcessor} from '../src/modules/identity/application/account-deletion-processor';
 import {CREATOR_GRADE} from '../src/modules/creators/grades/creator-grade.contract';
 import {OUTFIT_MEDIA} from '../src/modules/media/domain/outfit-media.contract';
 
@@ -99,6 +100,33 @@ async function verify(){
       await rejectStorage(()=>db.update(schema.accountDeletions).set({phase:D.phase.revoking,completedAt:null}).where(eq(schema.accountDeletions.id,requestId)));cases.push('completed_request_cannot_reopen');
       await rejectStorage(()=>db.update(schema.accountDeletions).set({updatedAt:new Date(due.getTime()+D.limits.one)}).where(eq(schema.accountDeletions.id,requestId)));cases.push('completed_receipt_cannot_change');
       await rejectStorage(()=>db.delete(schema.accountDeletions).where(eq(schema.accountDeletions.id,requestId)));cases.push('completed_receipt_cannot_be_forgotten');
+      const processedId=randomUUID();let clock=new Date(due.getTime()+D.limits.one),failStorage=true,failApple=true;
+      const erasures:string[]=[],authSubjects:string[]=[];
+      await db.insert(schema.accountDeletions).values({...row,id:processedId,userId:otherClosed.id,authUserId:otherClosed.supabaseUserId,
+        requestedAt:clock,updatedAt:clock,nextAttemptAt:clock});
+      const targets=Array.from({length:D.limits.batch+D.limits.one},()=>({requestId:processedId,assetId:randomUUID(),kind:D.media.outfit,objectPath:randomUUID()}));
+      await db.insert(schema.accountDeletionMedia).values(targets);
+      const processor=new AccountDeletionProcessor(queue,{
+        product:{eraseOrVerify:async()=>{throw new Error(P.copy);}},
+        outfit:{eraseOrVerify:async path=>{if(failStorage)throw new Error(P.copy);erasures.push(path);}},
+      },{erase:async subject=>{authSubjects.push(subject);if(failApple)throw new AccountDeletionAuthorityFailure(D.retry.apple);}},()=>clock);
+      assert.equal(await processor.runNext(),true);
+      let processed=(await db.select().from(schema.accountDeletions).where(eq(schema.accountDeletions.id,processedId)))[P.zero];
+      assert.equal(processed.phase,D.phase.purging);assert.equal(processed.lastFailure,D.retry.storage);assert.equal(authSubjects.length,P.zero);
+      assert.equal(await processor.runNext(),false);cases.push('processor_defers_storage_failure_without_auth_deletion');
+      failStorage=false;clock=new Date(clock.getTime()+D.limits.retryMs);assert.equal(await processor.runNext(),true);
+      processed=(await db.select().from(schema.accountDeletions).where(eq(schema.accountDeletions.id,processedId)))[P.zero];
+      assert.equal(processed.phase,D.phase.purging);assert.equal(processed.leaseToken,null);assert.equal(erasures.length,D.limits.batch);
+      assert.equal(authSubjects.length,P.zero);cases.push('processor_releases_full_batch_before_next_reservation');
+      assert.equal(await processor.runNext(),true);assert.equal(erasures.length,targets.length);assert.equal(new Set(erasures).size,targets.length);
+      assert.equal(authSubjects.length,P.zero);assert.equal((await queue.lookup(processedId,key))?.phase,D.phase.revoking);cases.push('processor_erases_all_targets_before_auth_phase');
+      assert.equal(await processor.runNext(),true);processed=(await db.select().from(schema.accountDeletions).where(eq(schema.accountDeletions.id,processedId)))[P.zero];
+      assert.equal(processed.phase,D.phase.revoking);assert.equal(processed.lastFailure,D.retry.apple);assert.equal(processed.completedAt,null);
+      assert.deepEqual(authSubjects,[otherClosed.supabaseUserId]);cases.push('processor_keeps_unrevoked_apple_authority_pending');
+      failApple=false;clock=new Date(clock.getTime()+D.limits.retryMs);assert.equal(await processor.runNext(),true);
+      assert.equal((await queue.lookup(processedId,key))?.phase,D.phase.completed);assert.deepEqual(authSubjects,[otherClosed.supabaseUserId,otherClosed.supabaseUserId]);
+      cases.push('processor_completion_requires_authority_acknowledgement');
+      assert.equal(await processor.runNext(),false);cases.push('processor_does_not_repeat_completed_work');
       throw new Rollback();
     });}catch(error){if(!(error instanceof Rollback))throw error;}
     for(const table of tables)assert.equal(await fingerprint(table),before.get(table),'Original table unchanged: '+table);

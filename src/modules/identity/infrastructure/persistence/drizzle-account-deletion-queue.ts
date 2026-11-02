@@ -116,6 +116,15 @@ export class DrizzleAccountDeletionQueue {
       return true;
     });
   }
+  async release(lease:AccountDeletionLease,now=new Date()):Promise<boolean> {
+    validTime(now);
+    return this.database.db.transaction(async db=>{
+      const row=await lockedLease({db},lease,now);
+      if(!row)return false;
+      await db.update(requests).set({updatedAt:now,nextAttemptAt:now,leaseToken:null,leaseUntil:null}).where(eq(requests.id,row.id));
+      return true;
+    });
+  }
 }
 
 function validTime(now:Date):void {if(!Number.isFinite(now.getTime()))throw new BadRequestException(D.failure.invalid);}

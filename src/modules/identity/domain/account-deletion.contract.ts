@@ -17,6 +17,7 @@ export const ACCOUNT_DELETION = {
   limits: {zero: 0, one: 1, batch: 100, maximumAttempts: 2_147_483_647, leaseMs: 60_000, retryMs: 60_000},
   persistence: {lock: 'update', administratorFence: 'ufit:account-deletion:administrators', lockSeed: 0},
   validation: {customIssue: 'custom'},
+  auth: {appleProvider: 'apple', missingUserCode: 'user_not_found', missingUserStatus: 404, softDelete: false},
 } as const;
 
 export const deletionIdentifierSchema = z.uuid().transform(value => value.toLowerCase());
@@ -49,3 +50,7 @@ export interface AccountDeletionLease {
   expiresAt: Date;
 }
 export interface AccountDeletionMediaTarget {assetId: string; kind: AccountDeletionMediaKind; objectPath: string;}
+export interface AccountDeletionAuthority {erase(authUserId: string): Promise<void>;}
+export class AccountDeletionAuthorityFailure extends Error {
+  constructor(readonly reason: AccountDeletionRetry) {super(ACCOUNT_DELETION.failure.authority.message);}
+}
