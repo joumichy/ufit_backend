@@ -333,3 +333,25 @@ qualification du parcours iOS.
 Après la migration 0025 et un build, `node dist/scripts/verify-notification-preferences.js`
 vérifie les préférences et leur effet sur la file dans une transaction annulée,
 sur le même profil de qualification. Il ne contacte aucun fournisseur.
+
+Le transport `ApnsPushTransport` utilise HTTP/2, une clé ES256/P-256 et le topic
+fixe `com.stellark.ufit`. Chaque instance est liée à un seul environnement et à
+sa propre configuration Apple ; aucune clé de repli n’est sélectionnée. Les
+connexions et le JWT sont réutilisés. Le payload contient une alerte Ufit générique
+et le seul `notificationId`, destiné au lecteur privé existant après ouverture.
+Le transport attend les réglages HTTP/2 du serveur ; une fenêtre sans flux ne
+crée aucune requête. Un refus explicite avant traitement reste retentable, tandis
+qu’un flux potentiellement traité conserve son résultat inconnu.
+
+Une réponse APNs 200 vide avec l’identifiant exact signifie accepté, sans prouver
+la réception. Une réponse perdue après soumission reste inconnue, sans second POST
+automatique : `apns-id` assure la corrélation. Les 5xx explicites attendent au moins
+15 minutes avant reprise ; les 410 conservent le timestamp fournisseur en
+millisecondes pour le futur contrôle d’une inscription plus récente. Les tokens
+ont une longueur variable. La fermeture libère aussi une connexion en préparation.
+
+Ce transport est qualifié avec un serveur HTTP/2 local et des clés éphémères de
+test ; les connexions TLS/h2 aux deux hôtes Apple ont été vérifiées sans POST.
+Le registre d’installations, l’outbox/worker push, la configuration d’activation
+et l’adaptateur iOS restent à raccorder. Aucun envoi APNs n’est activé par la seule
+présence de cette classe, et aucune réception réelle n’est encore qualifiée.
