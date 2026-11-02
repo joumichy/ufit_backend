@@ -7,6 +7,7 @@ import type { DatabaseSession } from "../../shared/infrastructure/database/datab
 import { applicationReviews, brandApplications, creatorApplications, creatorProfiles } from "../../shared/infrastructure/database/schema";
 import { APPLICATION, APPLICATION_ACTIVE_STATUSES, type ApplicationKind } from "./types/application-contract";
 import { mapBrandApplication, mapCreatorApplication } from "./application-response.mapper";
+import {availableApplicant} from './application-visibility';
 const READ = {snapshot: {isolationLevel: "repeatable read", accessMode: "read only"}, column: {type: "type", name: "name", orderAt: "order_at"}, timestamp: {zone: "UTC", format: 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'}} as const;
 const pageSchema = z.object({limit: z.coerce.number().int().min(APPLICATION.page.minimumLimit).max(APPLICATION.page.maximumLimit).default(APPLICATION.page.defaultLimit),
   cursor: z.string().optional(), type: z.enum([APPLICATION.kind.creator, APPLICATION.kind.brand]).optional(),
@@ -15,7 +16,7 @@ const cursorSchema = z.object({id: z.uuid(), type: z.enum([APPLICATION.kind.crea
 type Executor = DatabaseSession["db"];
 @Injectable()
 export class DrizzleApplicationReader {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
   current(userId: string) {
     return this.database.db.transaction(async tx => {
       const [[creator], [brand], profiles] = await Promise.all([
@@ -34,11 +35,11 @@ export class DrizzleApplicationReader {
   private detail(kind: ApplicationKind, id: string, userId?: string) {
     return this.database.db.transaction(async tx => {
       if (kind === APPLICATION.kind.creator) {
-        const [row] = await tx.select().from(creatorApplications).where(and(eq(creatorApplications.id, id), userId ? eq(creatorApplications.userId, userId) : undefined)).limit(APPLICATION.limits.row);
+        const [row] = await tx.select().from(creatorApplications).where(and(eq(creatorApplications.id, id),availableApplicant(creatorApplications.userId), userId ? eq(creatorApplications.userId, userId) : undefined)).limit(APPLICATION.limits.row);
         if (!row) throw new NotFoundException(APPLICATION.failure.notFound);
         return mapCreatorApplication(row, await this.review(tx, kind, id));
       }
-      const [row] = await tx.select().from(brandApplications).where(and(eq(brandApplications.id, id), userId ? eq(brandApplications.userId, userId) : undefined)).limit(APPLICATION.limits.row);
+      const [row] = await tx.select().from(brandApplications).where(and(eq(brandApplications.id, id),availableApplicant(brandApplications.userId), userId ? eq(brandApplications.userId, userId) : undefined)).limit(APPLICATION.limits.row);
       if (!row) throw new NotFoundException(APPLICATION.failure.notFound);
       return mapBrandApplication(row, await this.review(tx, kind, id));
     }, READ.snapshot);
@@ -61,10 +62,10 @@ export class DrizzleApplicationReader {
     const candidates = unionAll(
       db.select({id: creatorApplications.id, type: sql<ApplicationKind>`${APPLICATION.kind.creator}`.as(READ.column.type), name: sql<string>`${creatorApplications.displayName}`.as(READ.column.name),
         status: creatorApplications.status, version: creatorApplications.version, submittedAt: creatorApplications.submittedAt, updatedAt: creatorApplications.updatedAt,
-        orderAt: sql<string>`to_char(${creatorApplications.submittedAt} at time zone ${READ.timestamp.zone}, ${READ.timestamp.format})`.as(READ.column.orderAt)}).from(creatorApplications),
+        orderAt: sql<string>`to_char(${creatorApplications.submittedAt} at time zone ${READ.timestamp.zone}, ${READ.timestamp.format})`.as(READ.column.orderAt)}).from(creatorApplications).where(availableApplicant(creatorApplications.userId)),
       db.select({id: brandApplications.id, type: sql<ApplicationKind>`${APPLICATION.kind.brand}`.as(READ.column.type), name: sql<string>`${brandApplications.brandName}`.as(READ.column.name),
         status: brandApplications.status, version: brandApplications.version, submittedAt: brandApplications.submittedAt, updatedAt: brandApplications.updatedAt,
-        orderAt: sql<string>`to_char(${brandApplications.submittedAt} at time zone ${READ.timestamp.zone}, ${READ.timestamp.format})`.as(READ.column.orderAt)}).from(brandApplications),
+        orderAt: sql<string>`to_char(${brandApplications.submittedAt} at time zone ${READ.timestamp.zone}, ${READ.timestamp.format})`.as(READ.column.orderAt)}).from(brandApplications).where(availableApplicant(brandApplications.userId)),
     ).as(APPLICATION.page.alias);
     const rows = await db.select().from(candidates).where(and(
       input.type ? eq(candidates.type, input.type) : undefined,

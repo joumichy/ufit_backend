@@ -811,7 +811,7 @@ export const productMediaAssets = ufitSchema.table('product_media_assets', {
   sizeCheck: check('product_media_size_valid', sql`${table.byteSize} > 0 and ${table.byteSize} <= ${sql.raw(String(PRODUCT_MEDIA.maxBytes))}`),
   typeCheck: check('product_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + PRODUCT_MEDIA.mime + "'")}`),
   hashCheck: check('product_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + PRODUCT_MEDIA.hash.pattern + "'")}`),
-  statusCheck: check('product_media_status_valid', sql`${table.status} in (${sql.raw("'" + PRODUCT_MEDIA.status.pending + "', '" + PRODUCT_MEDIA.status.ready + "'")})`),
+  statusCheck: check('product_media_status_valid', sql`${table.status} in (${sql.raw(PRODUCT_MEDIA.statuses.map(value=>`'${value}'`).join(', '))})`),
 }));
 
 export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
@@ -829,7 +829,7 @@ export const outfitMediaAssets = ufitSchema.table('outfit_media_assets', {
   sizeCheck: check('outfit_media_size_valid', sql`${table.byteSize} > 0 and ${table.byteSize} <= ${sql.raw(String(OUTFIT_MEDIA.maxBytes))}`),
   typeCheck: check('outfit_media_mime_valid', sql`${table.contentType} = ${sql.raw("'" + OUTFIT_MEDIA.mime + "'")}`),
   hashCheck: check('outfit_media_fingerprint_valid', sql`${table.fingerprint} ~ ${sql.raw("'" + OUTFIT_MEDIA.hash.pattern + "'")}`),
-  statusCheck: check('outfit_media_status_valid', sql`${table.status} in (${sql.raw("'" + OUTFIT_MEDIA.status.pending + "', '" + OUTFIT_MEDIA.status.ready + "'")})`),
+  statusCheck: check('outfit_media_status_valid', sql`${table.status} in (${sql.raw(OUTFIT_MEDIA.statuses.map(value=>`'${value}'`).join(', '))})`),
 }));
 
 export {creatorGradeRevisions} from './schema.creator-grades';

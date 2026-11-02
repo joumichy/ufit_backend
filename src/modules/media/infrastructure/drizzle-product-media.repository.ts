@@ -1,21 +1,25 @@
 import { ConflictException, ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, exists, inArray, ne, or, sql } from 'drizzle-orm';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
+import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import { brandMembers, brandProfiles, productImages, products, productMediaAssets, orderItems, orders, orderStatusHistory } from '../../../shared/infrastructure/database/schema';
 import { PROFILE_EDITING, PROFILE_STATUS } from '../../../shared/domain/profile-editing.contract';
+import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
+import {users} from '../../../shared/infrastructure/database/schema.identity';
 import { PRODUCT_STATUS } from '../../products/domain/product-contract';
 import { ORDER_STATUS } from '../../orders/domain/order-lifecycle';
 import { PRODUCT_MEDIA } from '../domain/product-media.contract';
 import type { ProductMediaAsset, ProductMediaRepository } from '../domain/product-media.types';
 
-type Transaction = Parameters<Parameters<DatabaseService['db']['transaction']>[0]>[0];
+type Transaction = Parameters<Parameters<DatabaseSession['db']['transaction']>[0]>[0];
 const persistence = {lock: 'update', firstIndex: 0} as const;
 @Injectable()
 export class DrizzleProductMediaRepository implements ProductMediaRepository {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
   private async lockMembership(tx: Transaction, brandId: string, userId: string): Promise<void> {
     const rows = await tx.select({id: brandProfiles.id}).from(brandProfiles)
       .innerJoin(brandMembers, and(eq(brandMembers.brandProfileId, brandProfiles.id), eq(brandMembers.userId, userId), eq(brandMembers.status, PROFILE_EDITING.persistence.memberActive)))
+      .innerJoin(users,and(eq(users.id,brandMembers.userId),eq(users.status,PUBLIC_PROFILE.userStatus)))
       .where(and(eq(brandProfiles.id, brandId), ne(brandProfiles.status, PROFILE_STATUS.suspended))).for(persistence.lock);
     if (!rows.length) throw new ForbiddenException(PRODUCT_MEDIA.failure.access);
   }
@@ -25,6 +29,7 @@ export class DrizzleProductMediaRepository implements ProductMediaRepository {
       const [existing] = await tx.select().from(productMediaAssets)
         .where(and(eq(productMediaAssets.brandId, input.brandId), eq(productMediaAssets.requestId, input.requestId))).for(persistence.lock);
       if (existing) {
+        if (existing.status===PRODUCT_MEDIA.status.retired) throw new ConflictException(PRODUCT_MEDIA.failure.ownership);
         if (existing.fingerprint !== input.fingerprint || existing.byteSize !== input.byteSize || existing.contentType !== input.contentType) throw new ConflictException(PRODUCT_MEDIA.failure.request);
         return existing;
       }
@@ -36,7 +41,7 @@ export class DrizzleProductMediaRepository implements ProductMediaRepository {
     return this.database.db.transaction(async tx => {
       await this.lockMembership(tx, asset.brandId, userId);
       const [row] = await tx.update(productMediaAssets).set({status: PRODUCT_MEDIA.status.ready, updatedAt: new Date()})
-        .where(and(eq(productMediaAssets.id, asset.id), eq(productMediaAssets.brandId, asset.brandId), eq(productMediaAssets.fingerprint, asset.fingerprint))).returning();
+        .where(and(eq(productMediaAssets.id, asset.id), eq(productMediaAssets.brandId, asset.brandId), eq(productMediaAssets.fingerprint, asset.fingerprint),ne(productMediaAssets.status,PRODUCT_MEDIA.status.retired))).returning();
       if (!row) throw new ConflictException(PRODUCT_MEDIA.failure.request);
       return row;
     });

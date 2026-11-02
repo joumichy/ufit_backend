@@ -40,6 +40,13 @@ function fixture(){return {calls:[] as WireCall[],exists:true,didDelete:false,de
   user:{id:F.userId,aud:'authenticated',created_at:F.date,app_metadata:{},user_metadata:{},
     identities:[{id:F.identity,user_id:F.userId,provider:F.provider}]} as Record<string,unknown>};}
 describe('Supabase account deletion through the installed SDK and HTTP',()=>{
+  it('checks authority and identities before the local account is closed',()=>withWire(async(subject,state)=>{
+    await subject.prepare(F.userId);expect(state.calls.map(x=>x.method)).toEqual([F.get]);expect(state.exists).toBe(true);
+  }));
+  it('does not close an Apple account before its revocation authority is available',()=>withWire(async(subject,state)=>{
+    state.user.identities=[{id:F.identity,user_id:F.userId,provider:D.auth.appleProvider}];
+    await expect(subject.prepare(F.userId)).rejects.toMatchObject({reason:D.retry.apple});expect(state.calls.map(x=>x.method)).toEqual([F.get]);
+  }));
   it('uses the exact hard-delete body and confirms absence, including replay',()=>withWire(async(subject,state)=>{
     await subject.erase(F.userId.toUpperCase());
     expect(state.calls.map(x=>x.method)).toEqual([F.get,F.delete,F.get]);

@@ -1,7 +1,8 @@
 import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
-import { count, desc, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import {availableApplicant} from '../../applications/application-visibility';
 import {ADMIN_ACTIVITY, type AdminActivity} from '../domain/admin-activity.contract';
-import {READ_SNAPSHOT} from '../../../shared/infrastructure/database/database-session';
+import {READ_SNAPSHOT,type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
   brandApplications,
@@ -21,14 +22,14 @@ const commissionStatuses = ['pending', 'estimated'] as const;
 
 @Injectable()
 export class DrizzleAdminRepository implements AdminRepository {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
 
   async countReviewQueues(): Promise<AdminActivity> {
     return this.database.db.transaction(async tx => {
       const [creators] = await tx.select({value: count()}).from(creatorApplications)
-        .where(inArray(creatorApplications.status, ADMIN_ACTIVITY.applicationStatuses));
+        .where(and(inArray(creatorApplications.status, ADMIN_ACTIVITY.applicationStatuses),availableApplicant(creatorApplications.userId)));
       const [brands] = await tx.select({value: count()}).from(brandApplications)
-        .where(inArray(brandApplications.status, ADMIN_ACTIVITY.applicationStatuses));
+        .where(and(inArray(brandApplications.status, ADMIN_ACTIVITY.applicationStatuses),availableApplicant(brandApplications.userId)));
       const [product] = await tx.select({value: count()}).from(products).where(eq(products.status, ADMIN_ACTIVITY.productStatus));
       const [outfit] = await tx.select({value: count()}).from(outfits).where(eq(outfits.status, ADMIN_ACTIVITY.outfitStatus));
       if (!creators || !brands || !product || !outfit) throw new InternalServerErrorException(ADMIN_ACTIVITY.invalid);
@@ -79,13 +80,13 @@ export class DrizzleAdminRepository implements AdminRepository {
       this.database.db
         .select()
         .from(creatorApplications)
-        .where(inArray(creatorApplications.status, applicationStatuses))
+        .where(and(inArray(creatorApplications.status, applicationStatuses),availableApplicant(creatorApplications.userId)))
         .orderBy(desc(creatorApplications.submittedAt))
         .limit(page.limit + page.offset),
       this.database.db
         .select()
         .from(brandApplications)
-        .where(inArray(brandApplications.status, applicationStatuses))
+        .where(and(inArray(brandApplications.status, applicationStatuses),availableApplicant(brandApplications.userId)))
         .orderBy(desc(brandApplications.submittedAt))
         .limit(page.limit + page.offset),
       this.countCreatorApplications().then(async (creatorTotal) => creatorTotal + (await this.countBrandApplications()))
@@ -231,7 +232,7 @@ export class DrizzleAdminRepository implements AdminRepository {
     const [row] = await this.database.db
       .select({ value: count() })
       .from(creatorApplications)
-      .where(inArray(creatorApplications.status, applicationStatuses));
+      .where(and(inArray(creatorApplications.status, applicationStatuses),availableApplicant(creatorApplications.userId)));
     return row?.value ?? 0;
   }
 
@@ -239,7 +240,7 @@ export class DrizzleAdminRepository implements AdminRepository {
     const [row] = await this.database.db
       .select({ value: count() })
       .from(brandApplications)
-      .where(inArray(brandApplications.status, applicationStatuses));
+      .where(and(inArray(brandApplications.status, applicationStatuses),availableApplicant(brandApplications.userId)));
     return row?.value ?? 0;
   }
 

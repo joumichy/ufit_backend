@@ -1,10 +1,11 @@
 import type { DatabaseSession } from "../../../../shared/infrastructure/database/database-session";
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { DatabaseService } from '../../../../shared/infrastructure/database/database.service';
 import { userRoles, users, type UserRoleRow, type UserRow } from '../../../../shared/infrastructure/database/schema';
 import type { IdentityRepository } from '../../domain/identity.repository';
 import type { AuthenticatedUser, SupabaseJwtClaims, UserProfilePatch, UserRole } from '../../domain/user.types';
+import {USER_ADMINISTRATION} from '../../domain/user-administration.contract';
 
 @Injectable()
 export class DrizzleIdentityRepository implements IdentityRepository {
@@ -82,7 +83,7 @@ export class DrizzleIdentityRepository implements IdentityRepository {
         avatarUrl: patch.avatarUrl,
         updatedAt: new Date()
       })
-      .where(eq(users.id, userId))
+      .where(and(eq(users.id, userId),ne(users.status,USER_ADMINISTRATION.status.deleted)))
       .returning();
 
     const user = rows[0];

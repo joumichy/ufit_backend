@@ -4,9 +4,10 @@ import {and,asc,eq,isNull,lt,lte,ne,or,sql} from 'drizzle-orm';
 import {DatabaseService} from '../../../../shared/infrastructure/database/database.service';
 import type {DatabaseSession} from '../../../../shared/infrastructure/database/database-session';
 import {accountDeletions as requests,accountDeletionMedia as media} from '../../../../shared/infrastructure/database/schema.account-deletions';
-import {outfitMediaAssets,productMediaAssets} from '../../../../shared/infrastructure/database/schema';
+import {outfitMediaAssets,productMediaAssets,notificationDeviceAssociations} from '../../../../shared/infrastructure/database/schema';
 import {ACCOUNT_DELETION as D,deletionIdentifierSchema,deletionProofSchema,deletionReceiptSchema,
   type AccountDeletionLease,type AccountDeletionMediaTarget,type AccountDeletionReceipt,type AccountDeletionRetry} from '../../domain/account-deletion.contract';
+import {DrizzleNotificationInstallationsRepository} from '../../../notifications/infrastructure/drizzle-notification-installations.repository';
 
 type DeletionRow=typeof requests.$inferSelect;
 
@@ -66,6 +67,15 @@ export class DrizzleAccountDeletionQueue {
         .where(eq(media.requestId,row.id)).orderBy(asc(media.kind),asc(media.assetId)).limit(D.limits.batch);
     });
   }
+  async detachDevices(lease:AccountDeletionLease,now=new Date()):Promise<boolean> {
+    validTime(now);
+    return this.database.db.transaction(async db=>{
+      const row=await lockedLease({db},lease,now);
+      if(!row || row.phase!==D.phase.purging)return false;
+      await new DrizzleNotificationInstallationsRepository({db}).detachDeletedAccount(row.userId,now);
+      return true;
+    });
+  }
 
   async acknowledgeMedia(lease:AccountDeletionLease,target:AccountDeletionMediaTarget,now=new Date()):Promise<boolean> {
     validTime(now);
@@ -89,6 +99,9 @@ export class DrizzleAccountDeletionQueue {
       if(!row || row.phase!==D.phase.purging)return false;
       const [remaining]=await db.select({id:media.assetId}).from(media).where(eq(media.requestId,row.id)).limit(D.limits.one);
       if(remaining)return false;
+      const [device]=await db.select({id:notificationDeviceAssociations.id}).from(notificationDeviceAssociations)
+        .where(and(eq(notificationDeviceAssociations.userId,row.userId),isNull(notificationDeviceAssociations.closedAt))).limit(D.limits.one);
+      if(device)return false;
       await db.update(requests).set({phase:D.phase.revoking,updatedAt:now,nextAttemptAt:now,
         leaseToken:null,leaseUntil:null,lastFailure:null}).where(eq(requests.id,row.id));
       return true;

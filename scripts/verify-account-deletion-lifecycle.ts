@@ -31,10 +31,10 @@ async function verify(){
   const pool=new Pool({connectionString:env.SUPABASE_DIRECT_CONNECTION_DB_URL,ssl:buildPgSslConfig(env),max:P.one});
   const client=await pool.connect(),database=drizzle(client,{schema}),withMigration=process.argv.includes(P.withMigration);
   const tables=(await client.query<{table_name:string}>(P.tablesQuery)).rows.map(row=>row.table_name),cases:string[]=[];
-  assert.equal(tables.includes(P.table),!withMigration);assert.equal(tables.includes(P.mediaTable),!withMigration);
   async function fingerprint(table:string){assert(/^[a-z_]+$/.test(table));return (await client.query("select md5(coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text)::text,'[]')) digest from ufit."+table+' t')).rows[P.zero].digest;}
   const before=new Map<string,string>();
   try{
+    assert.equal(tables.includes(P.table),!withMigration);assert.equal(tables.includes(P.mediaTable),!withMigration);
     for(const table of tables)before.set(table,await fingerprint(table));
     try{await database.transaction(async db=>{
       if(withMigration)await db.execute(sql.raw(await readFile(resolve(__dirname,P.migration),P.encoding)));
@@ -46,10 +46,17 @@ async function verify(){
       cases.push('drizzle_and_sql_check_names_match');
       const queue=new DrizzleAccountDeletionQueue({db}),now=new Date(),later=new Date(now.getTime()+D.limits.one),
         key=randomBytes(P.secretBytes).toString(D.crypto.encoding),wrong=randomBytes(P.secretBytes).toString(D.crypto.encoding);
-      const [actor]=await db.insert(schema.users).values({supabaseUserId:randomUUID(),email:randomUUID()+P.domain,status:P.deleted}).returning();assert(actor);
+      const [actor]=await db.insert(schema.users).values({supabaseUserId:randomUUID(),email:randomUUID()+P.domain,status:P.active}).returning();assert(actor);
       const requestId=randomUUID(),row={id:requestId,userId:actor.id,authUserId:actor.supabaseUserId,proofHash:deletionCredentialHash(key),
         phase:D.phase.purging,requestedAt:now,updatedAt:now,nextAttemptAt:now};
       assert.equal(await queue.lookup(requestId,key),null);cases.push('absent_receipt_does_not_create_deletion');
+      // Prepare owned resources while the account is open, as real writers must.
+      const mediaTarget={assetId:randomUUID(),kind:D.media.outfit,objectPath:randomUUID()};
+      const [application]=await db.insert(schema.creatorApplications).values({userId:actor.id,email:actor.email,displayName:P.copy,motivation:P.copy}).returning();assert(application);
+      const [creator]=await db.insert(schema.creatorProfiles).values({userId:actor.id,applicationId:application.id,displayName:P.copy,slug:randomUUID(),gradeCode:CREATOR_GRADE.initialCode}).returning();assert(creator);
+      await db.insert(schema.outfitMediaAssets).values({id:mediaTarget.assetId,creatorId:creator.id,uploadedBy:actor.id,requestId:randomUUID(),
+        fingerprint:deletionCredentialHash(key),byteSize:P.one,contentType:OUTFIT_MEDIA.mime,objectPath:mediaTarget.objectPath,status:OUTFIT_MEDIA.status.ready});
+      await db.update(schema.users).set({status:P.deleted}).where(eq(schema.users.id,actor.id));
       await db.insert(schema.accountDeletions).values(row);
       const receipt=await queue.lookup(requestId,key);assert(receipt);assert.deepEqual(Object.keys(receipt).sort(),['completedAt','phase','requestId','requestedAt']);
       assert.equal(receipt.phase,D.phase.purging);cases.push('canonical_receipt_has_no_account_or_capability_fields');
@@ -58,11 +65,6 @@ async function verify(){
       assert.equal(await queue.complete(lease,later),false);cases.push('media_phase_cannot_complete_auth_deletion');
       assert.equal(await queue.retry({...lease,userId:randomUUID()},D.retry.auth,later),false);cases.push('forged_actor_cannot_acknowledge');
       assert.equal(await queue.retry({...lease,token:randomUUID()},D.retry.auth,later),false);cases.push('foreign_lease_cannot_acknowledge');
-      const mediaTarget={assetId:randomUUID(),kind:D.media.outfit,objectPath:randomUUID()};
-      const [application]=await db.insert(schema.creatorApplications).values({userId:actor.id,email:actor.email,displayName:P.copy,motivation:P.copy}).returning();assert(application);
-      const [creator]=await db.insert(schema.creatorProfiles).values({userId:actor.id,applicationId:application.id,displayName:P.copy,slug:randomUUID(),gradeCode:CREATOR_GRADE.initialCode}).returning();assert(creator);
-      await db.insert(schema.outfitMediaAssets).values({id:mediaTarget.assetId,creatorId:creator.id,uploadedBy:actor.id,requestId:randomUUID(),
-        fingerprint:deletionCredentialHash(key),byteSize:P.one,contentType:OUTFIT_MEDIA.mime,objectPath:mediaTarget.objectPath,status:OUTFIT_MEDIA.status.ready});
       await db.insert(schema.accountDeletionMedia).values({requestId,...mediaTarget});
       assert.deepEqual(await queue.targets(lease,later),[mediaTarget]);cases.push('only_owned_media_targets_returned');
       assert.equal(await queue.advanceToAuth(lease,later),false);cases.push('remaining_media_prevents_auth_phase');

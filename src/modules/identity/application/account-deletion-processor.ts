@@ -15,6 +15,7 @@ export class AccountDeletionProcessor {
     if(!lease)return false;
     try {
       if(lease.phase===D.phase.purging){
+        if(!await this.queue.detachDevices(lease,this.now()))return true;
         for(const target of await this.queue.targets(lease,this.now())){
           await this.media[target.kind].eraseOrVerify(target.objectPath);
           if(!await this.queue.acknowledgeMedia(lease,target,this.now()))return true;

@@ -1,5 +1,5 @@
-export const MEDIA_ASSET_STATUS = {pending: 'pending', ready: 'ready'} as const;
-export const MEDIA_ASSET_STATUSES = [MEDIA_ASSET_STATUS.pending, MEDIA_ASSET_STATUS.ready] as const;
+export const MEDIA_ASSET_STATUS = {pending: 'pending', ready: 'ready', retired: 'retired'} as const;
+export const MEDIA_ASSET_STATUSES = [MEDIA_ASSET_STATUS.pending, MEDIA_ASSET_STATUS.ready, MEDIA_ASSET_STATUS.retired] as const;
 export const IMAGE_UPLOAD = {
   mime: 'image/jpeg', extension: '.jpg', maxBytes: 8 * 1024 * 1024,
   hash: {algorithm: 'sha256', encoding: 'hex', pattern: '^[a-f0-9]{64}$'},

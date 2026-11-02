@@ -1,5 +1,5 @@
 import {ConflictException, ForbiddenException, Inject, Injectable, ServiceUnavailableException} from '@nestjs/common';
-import {and, eq, exists, inArray, isNull, or} from 'drizzle-orm';
+import {and, eq, exists, inArray, isNull, ne, or} from 'drizzle-orm';
 import type {ProfileOwner} from '../../../shared/domain/profile-editing.contract';
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
@@ -28,6 +28,7 @@ export class DrizzleOutfitMediaRepository implements OutfitMediaRepository {
       if (!await findAuthoringProfile({db: tx}, input, input.uploadedBy, ProfileAccessMode.Lock)) throw new ForbiddenException(OUTFIT_MEDIA.failure.access);
       const [existing] = await tx.select().from(outfitMediaAssets).where(and(this.ownerCondition(input), eq(outfitMediaAssets.requestId, input.requestId)));
       if (existing) {
+        if (existing.status===OUTFIT_MEDIA.status.retired) throw new ConflictException(OUTFIT_MEDIA.failure.ownership);
         if (existing.fingerprint !== input.fingerprint || existing.byteSize !== input.byteSize || existing.contentType !== input.contentType) throw new ConflictException(OUTFIT_MEDIA.failure.request);
         return this.asset(existing);
       }
@@ -38,7 +39,7 @@ export class DrizzleOutfitMediaRepository implements OutfitMediaRepository {
     return this.database.db.transaction(async tx => {
       if (!await findAuthoringProfile({db: tx}, asset, userId, ProfileAccessMode.Lock)) throw new ForbiddenException(OUTFIT_MEDIA.failure.access);
       const [row] = await tx.update(outfitMediaAssets).set({status: OUTFIT_MEDIA.status.ready, updatedAt: new Date()})
-        .where(and(eq(outfitMediaAssets.id, asset.id), this.ownerCondition(asset), eq(outfitMediaAssets.fingerprint, asset.fingerprint))).returning();
+        .where(and(eq(outfitMediaAssets.id, asset.id), this.ownerCondition(asset), eq(outfitMediaAssets.fingerprint, asset.fingerprint),ne(outfitMediaAssets.status,OUTFIT_MEDIA.status.retired))).returning();
       if (!row) throw new ConflictException(OUTFIT_MEDIA.failure.request);
       return this.asset(row);
     });

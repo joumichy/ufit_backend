@@ -1,11 +1,11 @@
 import {BadRequestException,ConflictException,ForbiddenException,Inject,Injectable,InternalServerErrorException,UnauthorizedException} from '@nestjs/common';
 import {createHash,timingSafeEqual} from 'node:crypto';
-import {DrizzleQueryError,and,eq,sql} from 'drizzle-orm';
+import {DrizzleQueryError,and,eq,isNull,sql} from 'drizzle-orm';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
 import {READ_SNAPSHOT,type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {notificationInstallations as installations,notificationDeviceAssociations as associations,notificationInstallationRegistrations as registrations,notificationInstallationDetachments as detachments} from '../../../shared/infrastructure/database/schema.notification-installations';
 import {users} from '../../../shared/infrastructure/database/schema.identity';
-import {notificationIdentifierSchema} from '../domain/notification.contract';
+import {NOTIFICATION,notificationIdentifierSchema} from '../domain/notification.contract';
 import {NOTIFICATION_READING} from '../domain/notification-reading';
 import {INSTALLATION as I,installationProofSchema,installationRegistrationSchema,installationDetachSchema,installationDocumentSchema,
   installationDetachedSchema,installationTargetSchema,type InstallationDocument,type InstallationDetached,type InstallationTarget} from '../domain/notification-installation';
@@ -108,6 +108,26 @@ export class DrizzleNotificationInstallationsRepository {
       if(invalidatedAt!==null&&invalidatedAt.getTime()<row.registeredAt.getTime())return false;
       await db.update(installations).set({version:row.version+I.revision.step,state:I.state.invalidated,invalidatedAt,updatedAt:now}).where(eq(installations.id,row.id));
       return true;
+    });
+  }
+  async detachDeletedAccount(rawUserId:string,now=new Date()):Promise<void> {
+    const userId=identifier(rawUserId);
+    if(!Number.isFinite(now.getTime()))throw new BadRequestException(I.failure.invalid);
+    const targets=await this.database.db.select({id:associations.id,installationId:associations.installationId}).from(associations)
+      .where(and(eq(associations.userId,userId),isNull(associations.closedAt))).orderBy(associations.installationId);
+    for(const target of targets)await this.database.db.transaction(async db=>{
+      await lockNotificationInstallation({db},target.installationId);
+      const [account]=await db.select({status:users.status}).from(users).where(eq(users.id,userId)).limit(I.storage.one).for(NOTIFICATION.recipientLock);
+      if(account?.status!==NOTIFICATION.account.deleted)throw new ForbiddenException(I.failure.inactive);
+      const association=await findAssociation({db},target.id);
+      if(!association || association.userId!==userId || association.closedAt!==null)return;
+      const row=await current({db},target.installationId);
+      if(!row || row.currentAssociationId!==target.id)throw invalid();
+      if(row.version>=I.revision.maximum)throw new ConflictException(I.failure.changed);
+      await db.insert(detachments).values({installationId:target.installationId,associationId:target.id}).onConflictDoNothing();
+      await db.update(associations).set({closedAt:now}).where(eq(associations.id,target.id));
+      await db.update(installations).set({version:row.version+I.revision.step,state:I.state.detached,currentAssociationId:null,registrationId:null,
+        deviceToken:null,environment:null,registeredAt:null,invalidatedAt:null,updatedAt:now}).where(eq(installations.id,target.installationId));
     });
   }
 }

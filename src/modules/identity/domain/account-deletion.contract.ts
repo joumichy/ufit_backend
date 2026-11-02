@@ -1,6 +1,7 @@
 import {z} from 'zod';
 
 export const ACCOUNT_DELETION = {
+  token: {processor: 'AccountDeletionProcessor'},
   route: {root: 'account-deletions', id: ':requestId', parameter: 'requestId', proofHeader: 'x-ufit-deletion-key'},
   phase: {purging: 'purging_media', revoking: 'revoking_auth', completed: 'completed'},
   media: {product: 'product', outfit: 'outfit'},
@@ -15,14 +16,22 @@ export const ACCOUNT_DELETION = {
   retry: {storage: 'storage_unavailable', auth: 'auth_unavailable', apple: 'apple_revocation_required'},
   crypto: {proofSource: '^[0-9a-f]{64}$', algorithm: 'sha256', encoding: 'hex'},
   limits: {zero: 0, one: 1, batch: 100, maximumAttempts: 2_147_483_647, leaseMs: 60_000, retryMs: 60_000},
-  persistence: {lock: 'update', administratorFence: 'ufit:account-deletion:administrators', lockSeed: 0},
-  validation: {customIssue: 'custom'},
+  persistence: {lock: 'update', administratorFence: 'ufit:account-deletion:administrators', lockSeed: 0, maximumRevision: 2_147_483_647},
+  validation: {customIssue: 'custom', stringType: 'string'},
+  http: {accepted: 202, authorizationHeader: 'authorization', bearer: 'Bearer ', cacheHeader: 'Cache-Control', cacheValue: 'private, no-store'},
+  worker: {pollMs: 2_000, maximumSteps: 10},
   auth: {appleProvider: 'apple', missingUserCode: 'user_not_found', missingUserStatus: 404, softDelete: false},
+  anonymized: {emailPrefix: 'deleted+', emailDomain: '@account.invalid', name: 'Compte supprimé',
+    application: 'Informations supprimées', brand: 'Marque retirée', website: 'https://account.invalid/closed',
+    outfit: 'Tenue supprimée', slugPrefix: 'closed-', empty: '', memberRemoved: 'removed', memberOwner: 'owner', cartActive: 'active', cartAbandoned: 'abandoned'},
 } as const;
 
 export const deletionIdentifierSchema = z.uuid().transform(value => value.toLowerCase());
 export const deletionProofSchema = z.string().regex(new RegExp(ACCOUNT_DELETION.crypto.proofSource));
 export const deletionInputSchema = z.object({confirmed: z.literal(true)}).strict();
+export const deletionBearerSchema = z.string().startsWith(ACCOUNT_DELETION.http.bearer)
+  .min(ACCOUNT_DELETION.http.bearer.length+ACCOUNT_DELETION.limits.one)
+  .transform(value=>value.slice(ACCOUNT_DELETION.http.bearer.length));
 export const deletionPhaseSchema = z.enum(Object.values(ACCOUNT_DELETION.phase));
 export const deletionMediaKindSchema = z.enum(Object.values(ACCOUNT_DELETION.media));
 export const deletionReceiptSchema = z.object({
