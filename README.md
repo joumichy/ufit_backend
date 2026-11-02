@@ -368,8 +368,9 @@ reçoivent cette preuve via `x-ufit-installation-key` :
   `registrationId`, `deviceToken`, `environment`. Le token est de longueur variable.
 - `DELETE /notifications/installations/:installationId/associations/:associationId`,
   corps exact `{}`, sans JWT : la preuve privée permet de finir ce détachement
-  après expiration de la session. Une ancienne cible est acquittée sans modifier
-  une association plus récente.
+  après expiration de la session. La cible est consommée même si son PUT n'est
+  pas encore arrivé ; il sera refusé ensuite. Une ancienne cible est acquittée
+  sans modifier une association plus récente.
 
 Ces réponses sont privées et non mises en cache. Elles ne retournent ni preuve,
 ni hash, ni token, ni identité d’un autre compte. Une association fermée ne peut
@@ -430,3 +431,26 @@ réservations en concurrence, puis deux démarrages disputent la même réservat
 Il utilise le registre privé du propriétaire courant ; ses nouveaux messages de
 qualification sont conservés, leurs envois annulés et son installation détachée.
 Ces contrôles ne prouvent ni enregistrement OS d'un appareil ni réception APNs.
+
+
+### Détachement avant une inscription en vol
+
+`0028_notification_installation_detachments.sql` consomme les cibles de session
+sous le verrou d'installation, même si un DELETE arrive avant leur PUT. Une
+cible consommée ne peut plus être inscrite avec une version relue ou une nouvelle
+opération ; une nouvelle session utilise une autre association. Deux UUID par
+cible sont conservés, sans token ni identité de compte. Les contraintes SQL
+interdisent leur réouverture et exigent la fermeture d'une association existante.
+
+Pour une installation encore absente, le DELETE établit son identité privée en
+`detached`, version 1, puis consomme la cible. Ce changement ne signifie pas qu'un
+appareil s'est enregistré auprès d'APNs. GET reste sans écriture : son état
+virtuel 0 n'existe que tant qu'aucune opération n'a créé l'installation. Le replay
+d'un détachement ne change ni sa version ni celle d'une session suivante ; un
+ancien DELETE n'empêche pas une autre association de continuer normalement.
+
+`node dist/scripts/verify-notification-detachments.js` vérifie ces ordres et les
+contraintes sur PostgreSQL en rollback, dans le seul profil development 4014 /
+Stripe TEST avec envois désactivés. `--with-migration` précontrôle 0028 en transaction
+annulée avant son application par le migrateur supporté. Aucun fournisseur n'est
+contacté par ce script.

@@ -3,7 +3,7 @@ import {createHash,timingSafeEqual} from 'node:crypto';
 import {DrizzleQueryError,and,eq,sql} from 'drizzle-orm';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
 import {READ_SNAPSHOT,type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
-import {notificationInstallations as installations,notificationDeviceAssociations as associations,notificationInstallationRegistrations as registrations} from '../../../shared/infrastructure/database/schema.notification-installations';
+import {notificationInstallations as installations,notificationDeviceAssociations as associations,notificationInstallationRegistrations as registrations,notificationInstallationDetachments as detachments} from '../../../shared/infrastructure/database/schema.notification-installations';
 import {users} from '../../../shared/infrastructure/database/schema.identity';
 import {notificationIdentifierSchema} from '../domain/notification.contract';
 import {NOTIFICATION_READING} from '../domain/notification-reading';
@@ -36,6 +36,9 @@ export class DrizzleNotificationInstallationsRepository {
         await lockNotificationInstallation({db},id);await requireAccount({db},actorId,true);
         const previous=await current({db},id);
         if(previous)requireCredential(previous,credential);
+        const [detached]=await db.select({installationId:detachments.installationId}).from(detachments)
+          .where(and(eq(detachments.installationId,id),eq(detachments.associationId,input.associationId))).limit(I.storage.one);
+        if(detached)throw new ConflictException(I.failure.association);
         let association=await findAssociation({db},input.associationId);
         const [receipt]=await db.select().from(registrations).where(eq(registrations.id,input.registrationId)).limit(I.storage.one);
         if(receipt){
@@ -76,15 +79,19 @@ export class DrizzleNotificationInstallationsRepository {
     if(!installationDetachSchema.safeParse(raw).success||!Number.isFinite(now.getTime()))throw new BadRequestException(I.failure.invalid);
     return this.database.db.transaction(async db=>{
       await lockNotificationInstallation({db},id);
-      const row=await current({db},id);
-      if(row){
-        requireCredential(row,credential);
-        if(row.currentAssociationId===target){
-          if(row.version>=I.revision.maximum)throw new ConflictException(I.failure.changed);
-          await db.update(associations).set({closedAt:now}).where(and(eq(associations.id,target),eq(associations.installationId,id)));
-          await db.update(installations).set({version:row.version+I.revision.step,state:I.state.detached,currentAssociationId:null,registrationId:null,
-            deviceToken:null,environment:null,registeredAt:null,invalidatedAt:null,updatedAt:now}).where(eq(installations.id,id));
-        }
+      let row=await current({db},id);
+      if(row)requireCredential(row,credential);
+      else {
+        const [created]=await db.insert(installations).values({id,credentialHash:credential,version:I.revision.initial,
+          state:I.state.detached,createdAt:now,updatedAt:now}).returning();
+        if(!created)throw invalid();row=created;
+      }
+      await db.insert(detachments).values({installationId:id,associationId:target}).onConflictDoNothing();
+      if(row.currentAssociationId===target){
+        if(row.version>=I.revision.maximum)throw new ConflictException(I.failure.changed);
+        await db.update(associations).set({closedAt:now}).where(and(eq(associations.id,target),eq(associations.installationId,id)));
+        await db.update(installations).set({version:row.version+I.revision.step,state:I.state.detached,currentAssociationId:null,registrationId:null,
+          deviceToken:null,environment:null,registeredAt:null,invalidatedAt:null,updatedAt:now}).where(eq(installations.id,id));
       }
       return installationDetachedSchema.parse({installationId:id,associationId:target,detached:true});
     });

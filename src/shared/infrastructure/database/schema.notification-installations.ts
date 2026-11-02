@@ -1,4 +1,4 @@
-import {check,foreignKey,index,integer,text,timestamp,uniqueIndex,uuid,type AnyPgColumn} from 'drizzle-orm/pg-core';
+import {check,foreignKey,index,integer,primaryKey,text,timestamp,uniqueIndex,uuid,type AnyPgColumn} from 'drizzle-orm/pg-core';
 import {sql} from 'drizzle-orm';
 import {ufitSchema} from './schema-base';
 import {users} from './schema.identity';
@@ -42,4 +42,12 @@ export const notificationInstallations=ufitSchema.table('notification_installati
   tokenFormat:check('notification_installation_token_valid',sql`${table.deviceToken} is null or ${table.deviceToken}~'^([0-9a-f]{2})+$'`),
   environment:check('notification_installation_environment_valid',sql`${table.environment} is null or ${table.environment} in (${environments})`),
   chronology:check('notification_installation_chronology',sql`${table.updatedAt}>=${table.createdAt} and (${table.registeredAt} is null or ${table.registeredAt}>=${table.createdAt})`),
+}));
+
+// Session targets remain consumed even when DELETE arrives before their registration.
+export const notificationInstallationDetachments=ufitSchema.table('notification_installation_detachments',{
+  installationId:uuid('installation_id').notNull(),associationId:uuid('association_id').notNull(),
+},table=>({
+  identity:primaryKey({name:'notification_installation_detachment_identity',columns:[table.installationId,table.associationId]}),
+  installation:foreignKey({name:'notification_installation_detachment_installation_fk',columns:[table.installationId],foreignColumns:[notificationInstallations.id]}),
 }));
