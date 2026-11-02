@@ -352,6 +352,35 @@ ont une longueur variable. La fermeture libère aussi une connexion en préparat
 
 Ce transport est qualifié avec un serveur HTTP/2 local et des clés éphémères de
 test ; les connexions TLS/h2 aux deux hôtes Apple ont été vérifiées sans POST.
-Le registre d’installations, l’outbox/worker push, la configuration d’activation
+L’outbox/worker push, la configuration d’activation
 et l’adaptateur iOS restent à raccorder. Aucun envoi APNs n’est activé par la seule
 présence de cette classe, et aucune réception réelle n’est encore qualifiée.
+
+La migration 0026 ajoute le registre des installations, leurs associations de
+session et les identifiants d’enregistrement consommés. Le serveur conserve
+uniquement le SHA-256 de la preuve privée d’installation. Les routes suivantes
+reçoivent cette preuve via `x-ufit-installation-key` :
+
+- `GET /notifications/installations/:installationId`, authentifié : état privé,
+  version et association courante ; absence virtuelle en version 0 sans écriture.
+- `PUT /notifications/installations/:installationId/accounts/:userId`, authentifié
+  par ce même compte métier : corps exact `expectedVersion`, `associationId`,
+  `registrationId`, `deviceToken`, `environment`. Le token est de longueur variable.
+- `DELETE /notifications/installations/:installationId/associations/:associationId`,
+  corps exact `{}`, sans JWT : la preuve privée permet de finir ce détachement
+  après expiration de la session. Une ancienne cible est acquittée sans modifier
+  une association plus récente.
+
+Ces réponses sont privées et non mises en cache. Elles ne retournent ni preuve,
+ni hash, ni token, ni identité d’un autre compte. Une association fermée ne peut
+pas être rouverte ; une nouvelle session utilise un nouvel identifiant. Une
+opération d’enregistrement déjà consommée ne peut pas changer de corps. Son replay
+exact est sans effet tant qu’elle reste le dernier enregistrement actif. Une
+collision d’endpoint APNs actif avec une autre installation renvoie un conflit.
+
+L’invalidation interne utilise l’association et l’enregistrement réservés ; une
+ancienne réponse APNs ne désactive pas un token réinscrit depuis. Le registre
+serveur n’atteste pas l’autorisation iOS ni la réception. L’adaptateur iOS et la
+file push restent à raccorder. Après un build, `node dist/scripts/verify-notification-installations.js`
+qualifie le contrat et les contraintes dans une transaction annulée sur le seul
+profil de développement 4014/Stripe TEST, sans envoi fournisseur.
