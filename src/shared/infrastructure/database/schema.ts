@@ -1,5 +1,6 @@
 import {users, userRoles} from './schema.identity';
 export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from './schema.identity';
+export {notifications, notificationEmailDeliveries} from './schema.notifications';
 import {CREATOR_GRADE} from '../../../modules/creators/grades/creator-grade.contract';
 import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';

@@ -1,3 +1,6 @@
+import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
+import {DrizzleOrderNotifications} from '../../orders/infrastructure/drizzle-order-notifications';
+import {paidOrderNotification} from '../../orders/domain/order-notification';
 import {calculateCommissionAmount, parseStoredRate} from '../../commissions/domain/commission-rule.contract';
 import {
   BadRequestException,
@@ -54,7 +57,7 @@ class PaidOrderStockUnavailable extends Error {}
 @Injectable()
 export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
   constructor(
-    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(DatabaseService) private readonly database: DatabaseSession,
   ) {}
 
   async confirm(input: StripePaidPayment): Promise<StripePaymentFinalization> {
@@ -302,6 +305,7 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
               .where(eq(carts.id, cart.id));
         }
       }
+      await new DrizzleOrderNotifications({db: tx}).record(paidOrderNotification(order.id), true);
       return { duplicate: !event, reversalRequired: false };
     });
   }

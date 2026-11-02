@@ -52,3 +52,15 @@ describe('parseEnv', () => {
     expect(env.SUPABASE_DB_CA_CERT).toBeUndefined();
   });
 });
+
+describe('Notification email environment',()=>{
+  it('keeps email delivery disabled by default and treats a blank optional sender as absent',()=>{
+    const env=parseEnv({...requiredEnv,RESEND_FROM_ADDRESS:'',RESEND_API_KEY:'',RESEND_FROM_NAME:'Ufit',NOTIFICATION_EMAIL_ENABLED:'false'});
+    expect(env.NOTIFICATION_EMAIL_ENABLED).toBe(false);expect(env.RESEND_FROM_ADDRESS).toBeUndefined();expect(env.RESEND_API_KEY).toBeUndefined();
+  });
+  it('parses explicit activation without accepting an invalid address or an excessive timeout',()=>{
+    expect(parseEnv({...requiredEnv,NOTIFICATION_EMAIL_ENABLED:'true'}).NOTIFICATION_EMAIL_ENABLED).toBe(true);
+    expect(()=>parseEnv({...requiredEnv,RESEND_FROM_ADDRESS:'invalid'})).toThrow(/RESEND_FROM_ADDRESS/);
+    expect(()=>parseEnv({...requiredEnv,RESEND_TIMEOUT_MS:'15001'})).toThrow(/RESEND_TIMEOUT_MS/);
+  });
+});

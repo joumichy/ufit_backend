@@ -1,3 +1,6 @@
+import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
+import {DrizzleOrderNotifications} from './drizzle-order-notifications';
+import {cancelledOrderNotification} from '../domain/order-notification';
 import { SHIPPING, SHIPMENT_STATUS } from '../../shipping/domain/shipping.contract';
 import {
   ConflictException,
@@ -38,7 +41,7 @@ export class DrizzleOrderCancellationRepository
   implements OrderCancellationRepository
 {
   constructor(
-    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(DatabaseService) private readonly database: DatabaseSession,
   ) {}
   async claim(customerId: string, orderId: string): Promise<CancellationClaim> {
     return this.database.db.transaction(async (tx) => {
@@ -287,6 +290,7 @@ export class DrizzleOrderCancellationRepository
           updatedAt: new Date(),
         })
         .where(eq(orderCancellations.id, claim.id));
+      await new DrizzleOrderNotifications({db: tx}).record(cancelledOrderNotification(order.id, settlement.outcome === CANCELLATION.outcome.refunded), true);
     });
   }
 }

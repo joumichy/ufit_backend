@@ -1,3 +1,4 @@
+import {EMAIL_DELIVERY} from '../modules/notifications/domain/email-delivery';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import dotenv from 'dotenv';
@@ -32,6 +33,7 @@ const optionalNonEmptyString = z.preprocess(
   z.string().min(1).optional()
 );
 
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().positive().max(65535).default(4000),
@@ -50,6 +52,13 @@ const envSchema = z.object({
   SUPABASE_DB_SSL: booleanFromEnv.default(true),
   SUPABASE_DB_TLS_REJECT_UNAUTHORIZED: booleanFromEnv.default(false),
   SUPABASE_DB_CA_CERT: optionalNonEmptyString,
+  NOTIFICATION_EMAIL_ENABLED: booleanFromEnv.default(false),
+  RESEND_API_KEY: optionalNonEmptyString,
+  RESEND_BASE_URL: z.string().url().optional(),
+  RESEND_SEND_PATH: optionalNonEmptyString,
+  RESEND_FROM_NAME: optionalNonEmptyString,
+  RESEND_FROM_ADDRESS: optionalNonEmptyString.pipe(z.email().optional()),
+  RESEND_TIMEOUT_MS: z.coerce.number().int().positive().max(EMAIL_DELIVERY.limits.maximumTimeoutMs).default(EMAIL_DELIVERY.limits.defaultTimeoutMs),
   STRIPE_SECRET_KEY: optionalNonEmptyString,
   STRIPE_WEBHOOK_SECRET: optionalNonEmptyString,
   STRIPE_CHECKOUT_SUCCESS_URL: optionalNonEmptyString,

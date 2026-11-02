@@ -1,3 +1,4 @@
+import type {NotificationsWriter} from "../../notifications/domain/notification.contract";
 import type { UserRole } from "../../identity/domain/user.types";
 import type { BrandApplicationDossier, CreatorApplicationDossier, ApplicationKind } from "./application-contract";
 import type {
@@ -65,6 +66,7 @@ export interface ProfileProvisioningPort {
 
 export const APPLICATIONS_REPOSITORY = Symbol('APPLICATIONS_REPOSITORY');
 export interface ApplicationWorkflowContext {
+  notifications: NotificationsWriter;
   applications: ApplicationsRepository;
   provisioning: ProfileProvisioningPort;
   identity: { ensureRole(userId: string, role: UserRole): Promise<void> };

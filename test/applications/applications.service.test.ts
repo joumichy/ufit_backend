@@ -77,8 +77,9 @@ function buildService(repositoryOverrides: Partial<ApplicationsRepository> = {})
   };
 
   const identity = { ensureRole: vi.fn().mockResolvedValue(undefined) };
-  const workflow: ApplicationWorkflow = {run: operation => operation({applications: repository, provisioning, identity})};
-  return { service: new ApplicationsService(repository, workflow), repository, provisioning, identity };
+  const notifications = {record: vi.fn().mockResolvedValue("8de392a4-9161-4000-a927-57b826ce9d9a")};
+  const workflow: ApplicationWorkflow = {run: operation => operation({applications: repository, provisioning, identity, notifications})};
+  return { service: new ApplicationsService(repository, workflow), repository, provisioning, identity, notifications };
 }
 
 describe('ApplicationsService', () => {
@@ -167,5 +168,39 @@ describe('ApplicationsService', () => {
         decision: 'reject'
       })
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('Application transactional notification intents', () => {
+  it('records the account recipient, exact application and revision after submission', async () => {
+    const {service,notifications}=buildService();
+    const input=creatorApplication();
+    const application=await service.submitCreatorApplication({userId:input.userId,displayName:input.displayName,email:input.email,motivation:input.motivation,dossier:creatorDossier});
+    expect(notifications.record).toHaveBeenCalledOnce();
+    expect(notifications.record).toHaveBeenCalledWith(expect.objectContaining({
+      eventKey:'application/creator/'+application.id+'/1',recipientUserId:application.userId,
+      resourceType:'creator_application',resourceId:application.id,audience:'applicant',brandId:null,
+    }));
+  });
+  it('records the actual decision and required explanation with the new revision', async () => {
+    const application=brandApplication({status:'needs_more_info',version:2});
+    const {service,notifications}=buildService({updateBrandApplicationStatus:vi.fn().mockResolvedValue(application)});
+    const notes='Précisez votre politique de retour.';
+    await service.reviewApplication({applicationType:'brand',applicationId:application.id,reviewerUserId:application.userId,
+      decision:'needs_more_info',expectedVersion:1,notes});
+    expect(notifications.record).toHaveBeenCalledWith(expect.objectContaining({eventKey:'application/brand/'+application.id+'/2',
+      resourceType:'brand_application',recipientUserId:application.userId,text:expect.stringContaining(notes)}));
+  });
+  it('does not invent another message when repairing an already accepted application', async () => {
+    const application=creatorApplication({status:'accepted',version:2});
+    const {service,notifications}=buildService({lockCreatorApplication:vi.fn().mockResolvedValue(application)});
+    await service.reviewApplication({applicationType:'creator',applicationId:application.id,reviewerUserId:application.userId,decision:'accept',expectedVersion:2});
+    expect(notifications.record).not.toHaveBeenCalled();
+  });
+  it('propagates an outbox failure to the transaction owner instead of accepting a partial decision', async () => {
+    const {service,notifications}=buildService();
+    const failure=new Error('Outbox storage unavailable');notifications.record.mockRejectedValueOnce(failure);
+    await expect(service.reviewApplication({applicationType:'creator',applicationId:creatorApplication().id,
+      reviewerUserId:creatorApplication().userId,decision:'accept',expectedVersion:1})).rejects.toBe(failure);
   });
 });

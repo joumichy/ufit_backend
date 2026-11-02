@@ -270,3 +270,37 @@ tenue publiée et publique référence la photo sous le même propriétaire acti
 Les fichiers restent dans le bucket privé `ufit-outfit-media`, JPEG seulement,
 limite8MiB. La migration0015 ajoute cette famille et son index de références ;
 les données/objets produit restent dans leur famille existante.
+
+## Notifications transactionnelles
+
+Les nouveaux événements de candidature, paiement confirmé, expédition, annulation
+et retour enregistrent un message et son envoi e-mail dans la transaction métier.
+La migration `0024_notification_email_outbox.sql` ne crée aucun message historique.
+L’expéditeur, le destinataire et le contenu d’une tentative sont conservés pour
+réutiliser la même clé Resend après une réponse perdue. Les réservations expirées
+sont reprises ; un accusé d’une ancienne réservation est ignoré. Un résultat
+`accepted` signifie accepté par Resend, pas reçu dans une boîte destinataire.
+
+`NOTIFICATION_EMAIL_ENABLED` vaut `false` par défaut. L’activer seulement avec
+une clé Resend et une adresse sur un domaine associé à Ufit et vérifié chez le
+fournisseur, `RESEND_FROM_NAME=Ufit`, l’origine officielle et le chemin `/emails`.
+Le profil sélectionné reste propriétaire de ces valeurs ; aucun autre profil ni
+domaine d’un autre projet ne doit être utilisé pour compléter sa configuration.
+Le worker envoie au plus deux messages à la fois, avec un délai HTTP plafonné à
+15 secondes. Après expiration de la fenêtre d’idempotence du fournisseur, une
+réponse inconnue reste `uncertain` et ne provoque pas un nouvel envoi automatique.
+Les envois vers une adresse changée ou un compte supprimé sont annulés avant
+réservation d’une nouvelle tentative.
+
+Les liens `ufit://notifications/<id>` portent uniquement l’identité du message.
+Le raccordement authentifié de ces liens dans l’application et APNs restent à
+réaliser ; ne pas considérer ce socle comme une livraison complète des notifications.
+
+Contrôles backend : `npm run build`, `npx tsc --noEmit`, `npm test -- --maxWorkers=2`.
+Le script `scripts/verify-notification-emails.ts` est réservé à la qualification
+sur le profil de développement port4014/Stripe TEST. Il vérifie les contrats SQL
+et producteurs dans une transaction annulée, sans appel au fournisseur ; les
+empreintes de toutes les tables préexistantes doivent rester identiques. Avant
+application de0024, le lancer avec `--with-migration` pour examiner aussi le DDL
+sans le conserver. Il ne constitue ni une preuve de réception e-mail, ni une
+qualification du parcours iOS.

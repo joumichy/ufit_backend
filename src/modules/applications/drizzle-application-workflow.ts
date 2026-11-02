@@ -1,3 +1,4 @@
+import {DrizzleNotificationsRepository} from "../notifications/infrastructure/drizzle-notifications.repository";
 import { Inject, Injectable } from "@nestjs/common";
 import { DatabaseService } from "../../shared/infrastructure/database/database.service";
 import type { DatabaseSession } from "../../shared/infrastructure/database/database-session";
@@ -11,13 +12,13 @@ import type { ApplicationWorkflow, ApplicationWorkflowContext } from "./types/ap
 
 @Injectable()
 export class DrizzleApplicationWorkflow implements ApplicationWorkflow {
-  constructor(@Inject(DatabaseService) private readonly database: DatabaseService) {}
+  constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
   run<T>(operation: (context: ApplicationWorkflowContext) => Promise<T>): Promise<T> {
     return this.database.db.transaction(async tx => {
       const session: DatabaseSession = {db: tx};
       const creators = new CreatorsService(new DrizzleCreatorsRepository(session));
       const brands = new BrandsService(new DrizzleBrandsRepository(session));
-      return operation({applications: new DrizzleApplicationsRepository(session),
+      return operation({notifications: new DrizzleNotificationsRepository(session), applications: new DrizzleApplicationsRepository(session),
         identity: new DrizzleIdentityRepository(session),
         provisioning: {provisionCreatorFromApplication: application => creators.provisionFromApplication(application),
           provisionBrandFromApplication: application => brands.provisionFromApplication(application)}});

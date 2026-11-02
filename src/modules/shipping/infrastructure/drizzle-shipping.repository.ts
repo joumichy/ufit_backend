@@ -1,3 +1,5 @@
+import {DrizzleOrderNotifications} from '../../orders/infrastructure/drizzle-order-notifications';
+import {shipmentNotification} from '../domain/shipment-notification';
 import {ConflictException, Inject, Injectable} from '@nestjs/common';
 import {and, eq} from 'drizzle-orm';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
@@ -59,5 +61,6 @@ export class DrizzleShipmentRepository implements ShipmentRepository {
       await this.database.db.insert(orderStatusHistory).values({orderId: shipment.orderId, fromStatus: change.previousOrderStatus,
         toStatus: change.orderStatus, reason: SHIPPING.persistence.historyReason});
     }
+    await new DrizzleOrderNotifications(this.database).record(shipmentNotification(change), false);
   }
 }

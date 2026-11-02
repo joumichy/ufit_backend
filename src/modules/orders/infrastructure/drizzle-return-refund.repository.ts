@@ -1,3 +1,5 @@
+import {DrizzleOrderNotifications} from './drizzle-order-notifications';
+import {returnRefundNotification} from '../domain/return-notification';
 import {ConflictException, Inject, Injectable} from '@nestjs/common';
 import {and, asc, eq, inArray, lte, sql} from 'drizzle-orm';
 import {alias} from 'drizzle-orm/pg-core';
@@ -60,6 +62,10 @@ export class DrizzleReturnRefundRepository implements ReturnRefundRepository {
         // Commands are closed at the revision ceiling; provider facts must still be reconciled.
         version: Math.min(stored.document.version + ORDER_RETURN.revision.step, ORDER_RETURN.revision.maximum), updatedAt: now,
         refundedAt: result.state === RETURN_REFUND.state.succeeded ? now : null}).where(eq(orderReturns.id, claim.returnId));
+      if (changed && (result.state === RETURN_REFUND.state.succeeded || result.state === RETURN_REFUND.state.failed)) {
+        const status = result.state === RETURN_REFUND.state.succeeded ? RETURN_STATUS.refunded : RETURN_STATUS.refundFailed;
+        await new DrizzleOrderNotifications(database).record(returnRefundNotification(order.id, claim.returnId, claim.attemptId, status), true);
+      }
     });
   }
   private async adjustCommissions(database: DatabaseSession, order: ReturnOrderContext, document: OrderReturn, previous: Map<string, number>, now: Date): Promise<void> {

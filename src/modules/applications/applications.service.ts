@@ -1,3 +1,4 @@
+import {applicationNotification} from "./application-notifications";
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { BrandApplicationRow, CreatorApplicationRow } from "../../shared/infrastructure/database/schema";
 import { APPLICATION, APPLICATION_ACTIVE_STATUSES, APPLICATION_CORRECTABLE_STATUSES } from "./types/application-contract";
@@ -24,14 +25,18 @@ export class ApplicationsService {
       assertApplicant(await tx.applications.lockApplicant(input.userId, APPLICATION.kind.creator));
       if (await tx.applications.hasCreatorProfile(input.userId)) throw new ConflictException(APPLICATION.failure.creatorExists);
       if (await tx.applications.findActiveCreatorApplication(input.userId)) throw new ConflictException(APPLICATION.failure.active);
-      return tx.applications.createCreatorApplication(input);
+      const application = await tx.applications.createCreatorApplication(input);
+      await tx.notifications.record(applicationNotification(APPLICATION.kind.creator, application));
+      return application;
     });
   }
   submitBrandApplication(input: SubmitBrandApplicationInput): Promise<BrandApplicationRow> {
     return this.workflow.run(async tx => {
       assertApplicant(await tx.applications.lockApplicant(input.userId, APPLICATION.kind.brand));
       if (await tx.applications.findActiveBrandApplication(input.userId)) throw new ConflictException(APPLICATION.failure.active);
-      return tx.applications.createBrandApplication(input);
+      const application = await tx.applications.createBrandApplication(input);
+      await tx.notifications.record(applicationNotification(APPLICATION.kind.brand, application));
+      return application;
     });
   }
   resubmitCreatorApplication(id: string, input: SubmitCreatorApplicationInput, expectedVersion: number): Promise<CreatorApplicationRow> {
@@ -44,7 +49,9 @@ export class ApplicationsService {
       if (await tx.applications.hasCreatorProfile(input.userId)) throw new ConflictException(APPLICATION.failure.creatorExists);
       const active = await tx.applications.findActiveCreatorApplication(input.userId);
       if (active && active.id !== id) throw new ConflictException(APPLICATION.failure.active);
-      return tx.applications.updateCreatorApplication(id, input);
+      const application = await tx.applications.updateCreatorApplication(id, input);
+      await tx.notifications.record(applicationNotification(APPLICATION.kind.creator, application));
+      return application;
     });
   }
   resubmitBrandApplication(id: string, input: SubmitBrandApplicationInput, expectedVersion: number): Promise<BrandApplicationRow> {
@@ -56,7 +63,9 @@ export class ApplicationsService {
       if (!(APPLICATION_CORRECTABLE_STATUSES as readonly string[]).includes(row.status)) throw new ConflictException(APPLICATION.failure.correction);
       const active = await tx.applications.findActiveBrandApplication(input.userId);
       if (active && active.id !== id) throw new ConflictException(APPLICATION.failure.active);
-      return tx.applications.updateBrandApplication(id, input);
+      const application = await tx.applications.updateBrandApplication(id, input);
+      await tx.notifications.record(applicationNotification(APPLICATION.kind.brand, application));
+      return application;
     });
   }
   async reviewApplication(input: ReviewApplicationInput): Promise<{application: CreatorApplicationRow | BrandApplicationRow}> {
@@ -87,6 +96,7 @@ export class ApplicationsService {
           await tx.provisioning.provisionCreatorFromApplication(updated);
           await tx.identity.ensureRole(updated.userId, APPLICATION.role.creator);
         }
+        await tx.notifications.record(applicationNotification(APPLICATION.kind.creator, updated, input.notes));
         return {application: updated};
       }
       const updated = await tx.applications.updateBrandApplicationStatus(input.applicationId, status);
@@ -94,6 +104,7 @@ export class ApplicationsService {
         await tx.provisioning.provisionBrandFromApplication(updated);
         await tx.identity.ensureRole(updated.userId, APPLICATION.role.brand);
       }
+      await tx.notifications.record(applicationNotification(APPLICATION.kind.brand, updated, input.notes));
       return {application: updated};
     });
   }

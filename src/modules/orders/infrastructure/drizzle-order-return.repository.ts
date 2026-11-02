@@ -1,3 +1,5 @@
+import {DrizzleOrderNotifications} from './drizzle-order-notifications';
+import {returnNotification} from '../domain/return-notification';
 import {BadRequestException, ConflictException, Inject, Injectable} from '@nestjs/common';
 import {and, asc, desc, eq, inArray, lte, lt, notInArray, or, sql, type SQL} from 'drizzle-orm';
 import {z} from 'zod';
@@ -111,6 +113,7 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
       shippingAmount: document.amounts.shippingAmount, totalAmount: document.amounts.totalAmount, completesOrder: document.amounts.completesOrder,
       createdAt: new Date(document.requestedAt), updatedAt: new Date(document.updatedAt)});
     await this.database.db.insert(orderReturnItems).values(document.items.map(item => ({returnId: document.id, orderId: document.orderId, ...item})));
+    await new DrizzleOrderNotifications(this.database).record(returnNotification(document.orderId, document.id, document.version, document.status), true);
   }
   async save(document: OrderReturn, expectedVersion: number): Promise<void> {
     const [row] = await this.database.db.update(orderReturns).set({status: document.status, version: document.version, updatedAt: new Date(document.updatedAt),
@@ -128,6 +131,7 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
         .where(and(eq(orderReturnItems.returnId, document.id), eq(orderReturnItems.orderItemId, item.orderItemId))).returning({id: orderReturnItems.id});
       if (!saved) throw new ConflictException(ORDER_RETURN.failure.persisted);
     }
+    await new DrizzleOrderNotifications(this.database).record(returnNotification(document.orderId, document.id, document.version, document.status), true);
   }
   async restock(document: OrderReturn, order: ReturnOrderContext): Promise<void> {
     if (!document.reception) throw new ConflictException(ORDER_RETURN.failure.persisted);

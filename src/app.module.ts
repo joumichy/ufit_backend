@@ -1,3 +1,4 @@
+import {NotificationsModule} from './modules/notifications/notifications.module';
 import { Module } from '@nestjs/common';
 import { AdminModule } from './modules/admin/admin.module';
 import { AdminAuditModule } from './modules/admin-audit/admin-audit.module';
@@ -21,6 +22,7 @@ import { DatabaseModule } from './shared/infrastructure/database/database.module
 @Module({
   imports: [
     DatabaseModule,
+    NotificationsModule,
     HealthModule,
     IdentityModule,
     ProductsModule,
