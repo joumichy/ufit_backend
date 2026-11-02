@@ -1,5 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {PUBLIC_CREATOR} from '../../creators/public-creator.contract';
+import {SAVED_OUTFITS, savedOutfitCursor, savedOutfitIdentities, savedOutfitQuery, savedOutfitReferenceSchema,
+  type SavedOutfitPage, type SavedOutfitQuery, type SavedOutfitReference} from '../domain/saved-outfits.contract';
 
 export interface SavedRepository {
   saveOutfit(userId: string, outfitId: string): Promise<void>;
@@ -7,18 +9,13 @@ export interface SavedRepository {
   followCreator(userId: string, creatorId: string): Promise<void>;
   unfollowCreator(userId: string, creatorId: string): Promise<void>;
   findCreatorFollow(userId: string, creatorId: string): Promise<boolean | null>;
-  findSavedOutfits(userId: string, input: { limit: number }): Promise<SavedOutfit[]>;
+  findSavedOutfits(userId: string, input: SavedOutfitQuery): Promise<SavedOutfitReference[]>;
+  findSavedOutfitIDs(userId: string, ids: string[]): Promise<string[]>;
 }
-
-export interface SavedOutfit {
-  id: string;
-  savedAt: Date;
-}
-export interface SavedOutfitResponse { id: string; savedAt: string }
 
 @Injectable()
 export class SavedService {
-  constructor(@Inject('SavedRepository') private readonly saved: SavedRepository) {}
+  constructor(@Inject(SAVED_OUTFITS.repository) private readonly saved: SavedRepository) {}
 
   async getCreatorFollow(userId: string, creatorId: string): Promise<{following: boolean}> {
     const following = await this.saved.findCreatorFollow(userId, creatorId);
@@ -27,12 +24,12 @@ export class SavedService {
   }
 
   async saveOutfit(userId: string, outfitId: string): Promise<{ saved: true }> {
-    await this.saved.saveOutfit(userId, outfitId);
+    await this.saved.saveOutfit(userId, outfitId.toLowerCase());
     return { saved: true };
   }
 
   async unsaveOutfit(userId: string, outfitId: string): Promise<{ saved: false }> {
-    await this.saved.unsaveOutfit(userId, outfitId);
+    await this.saved.unsaveOutfit(userId, outfitId.toLowerCase());
     return { saved: false };
   }
 
@@ -46,12 +43,14 @@ export class SavedService {
     return { following: false };
   }
 
-  async listSavedOutfits(userId: string, input: { limit?: number }): Promise<{ items: SavedOutfitResponse[] }> {
-    const limit = Math.min(Math.max(input.limit ?? 20, 1), 50);
-    const items = await this.saved.findSavedOutfits(userId, { limit });
-
-    return {
-      items: items.map(item => ({ id: item.id, savedAt: item.savedAt.toISOString() }))
-    };
+  async listSavedOutfits(userId: string, input: unknown): Promise<SavedOutfitPage> {
+    const query = savedOutfitQuery(input);
+    const rows = await this.saved.findSavedOutfits(userId, {...query, limit: query.limit + SAVED_OUTFITS.page.overflow});
+    const items = rows.slice(SAVED_OUTFITS.page.first, query.limit).map(row => savedOutfitReferenceSchema.parse(row));
+    return {items, nextCursor: rows.length > query.limit ? savedOutfitCursor(items.at(SAVED_OUTFITS.page.last)!) : null};
+  }
+  async savedOutfitStates(userId: string, input: unknown): Promise<{items: Array<{id: string; saved: boolean}>}> {
+    const ids = savedOutfitIdentities(input), savedIDs = new Set(await this.saved.findSavedOutfitIDs(userId, ids));
+    return {items: ids.map(id => ({id, saved: savedIDs.has(id)}))};
   }
 }

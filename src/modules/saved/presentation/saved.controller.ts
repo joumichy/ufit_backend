@@ -3,6 +3,7 @@ import { CurrentUser } from '../../../shared/presentation/decorators/current-use
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { SavedService } from '../application/saved.service';
+import {SAVED_OUTFITS} from '../domain/saved-outfits.contract';
 
 const creatorFollowRoute = {path: 'creator-follows/:creatorId', id: 'creatorId'} as const;
 
@@ -11,20 +12,21 @@ const creatorFollowRoute = {path: 'creator-follows/:creatorId', id: 'creatorId'}
 export class SavedController {
   constructor(@Inject(SavedService) private readonly savedService: SavedService) {}
 
-  @Put('saved-outfits/:outfitId')
-  saveOutfit(@CurrentUser() user: AuthenticatedUser, @Param('outfitId') outfitId: string) {
+  @Put(SAVED_OUTFITS.routes.outfit)
+  saveOutfit(@CurrentUser() user: AuthenticatedUser, @Param(SAVED_OUTFITS.routes.id, ParseUUIDPipe) outfitId: string) {
     return this.savedService.saveOutfit(user.id, outfitId);
   }
 
-  @Get('saved-outfits')
-  listSavedOutfits(@CurrentUser() user: AuthenticatedUser, @Query('limit') limit?: string) {
-    return this.savedService.listSavedOutfits(user.id, {
-      limit: limit ? Number(limit) : undefined
-    });
+  @Get(SAVED_OUTFITS.routes.collection)
+  listSavedOutfits(@CurrentUser() user: AuthenticatedUser, @Query() query: Record<string, unknown>) {
+    return this.savedService.listSavedOutfits(user.id, query);
   }
-
-  @Delete('saved-outfits/:outfitId')
-  unsaveOutfit(@CurrentUser() user: AuthenticatedUser, @Param('outfitId') outfitId: string) {
+  @Get(SAVED_OUTFITS.routes.states)
+  savedOutfitStates(@CurrentUser() user: AuthenticatedUser, @Query() query: Record<string, unknown>) {
+    return this.savedService.savedOutfitStates(user.id, query);
+  }
+  @Delete(SAVED_OUTFITS.routes.outfit)
+  unsaveOutfit(@CurrentUser() user: AuthenticatedUser, @Param(SAVED_OUTFITS.routes.id, ParseUUIDPipe) outfitId: string) {
     return this.savedService.unsaveOutfit(user.id, outfitId);
   }
 

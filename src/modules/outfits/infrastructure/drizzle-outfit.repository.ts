@@ -1,12 +1,13 @@
 import {OUTFIT_MEDIA} from '../../media/domain/outfit-media.contract';
 import {findAuthoringProfile, ProfileAccessMode} from '../../../shared/infrastructure/database/profile-authoring-access';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, lt, inArray, isNull, isNotNull, or, exists, notInArray, gt, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, inArray, isNull, notInArray, gt, sql } from 'drizzle-orm';
 import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_VISIBILITY} from '../domain/outfit-editing.contract';
 import {PRODUCT_STATUS} from '../../products/domain/product-contract';
 import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
-import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '../domain/public-outfit.contract';
+import type {PublicOutfitPage} from '../domain/public-outfit.contract';
+import {publicOutfitVisibility} from './public-outfit-visibility';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import { brandProfiles, creatorProfiles, outfitImages, outfitItems, outfitPins, outfits, users, products, tags, outfitTags, outfitMediaAssets } from '../../../shared/infrastructure/database/schema';
 import type { Outfit, OutfitAuthor, OutfitDetail, OutfitImage, OutfitItem, OutfitRepository, OutfitStatus, OutfitVisibility, OutfitOwner, OutfitOwnerInfo, OutfitManagedQuery, OutfitManagedPage, OutfitContentUpdate, OutfitTag } from '../domain/outfit.types';
@@ -187,13 +188,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
 
   async findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]> {
     return this.database.db.transaction(async tx => {
-      const creator = tx.select({id: creatorProfiles.id}).from(creatorProfiles).innerJoin(users, eq(users.id, creatorProfiles.userId))
-        .where(and(eq(creatorProfiles.id, outfits.creatorId), eq(creatorProfiles.status, PUBLIC_PROFILE.status), eq(users.status, PUBLIC_PROFILE.userStatus)));
-      const brand = tx.select({id: brandProfiles.id}).from(brandProfiles).where(and(eq(brandProfiles.id, outfits.brandId), eq(brandProfiles.status, PUBLIC_PROFILE.status)));
-      const visibleOwner = or(and(isNull(outfits.creatorId), isNull(outfits.brandId)),
-        and(isNotNull(outfits.creatorId), isNull(outfits.brandId), exists(creator)),
-        and(isNull(outfits.creatorId), isNotNull(outfits.brandId), exists(brand)));
-      const rows = await tx.select().from(outfits).where(and(eq(outfits.status, PUBLIC_OUTFIT.status), inArray(outfits.visibility, PUBLIC_OUTFIT_VISIBILITIES), visibleOwner,
+      const rows = await tx.select().from(outfits).where(and(publicOutfitVisibility({db: tx}),
         input.creatorId ? eq(outfits.creatorId, input.creatorId) : undefined, input.brandId ? eq(outfits.brandId, input.brandId) : undefined,
         input.cursor ? lt(outfits.id, input.cursor) : undefined)).orderBy(desc(outfits.id)).limit(input.limit);
       return this.loadDetails(rows, {db: tx});
