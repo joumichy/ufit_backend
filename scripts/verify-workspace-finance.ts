@@ -70,7 +70,7 @@ async function verify(): Promise<void> {
       const scopes = {brand: {kind: WORKSPACE_FINANCE.scope.brand, profileId: source.brandId}, creator: {kind: WORKSPACE_FINANCE.scope.creator, profileId: creatorId}};
       const baseline = {brand: await reader.sales(scopes.brand), creator: await reader.sales(scopes.creator)};
       const commissionBaseline = await reader.creatorCommissions(creatorId);
-      const pick = (value: WorkspaceSales, currency: string) => value.currencies.find(row => row.currency === currency);
+      const pick = (value: WorkspaceSales, currency: string) => value.currencies.find(row => row.currency === currency && row.liveMode === null);
       async function assertDelta(currency: string, expected: {captured: number; refunded: number; pending: number}, creatorExpected: {captured: number; refunded: number; pending: number}) {
         for (const kind of ['brand', 'creator'] as const) {
           const current = pick(await reader.sales(scopes[kind]), currency)!, old = pick(baseline[kind], currency), delta = kind === 'brand' ? expected : creatorExpected;
@@ -128,8 +128,8 @@ async function verify(): Promise<void> {
       const pendingId = await returned('refund_failed', ['failed', 'failed']);
       await assertDelta('CHF', {captured: 505, refunded: 108, pending: 108}, {captured: 300, refunded: 100, pending: 100}); passed++;
       await tx.update(commissions).set({status: 'paid'}).where(eq(commissions.id, chf.commissionId));
-      const currentCommission = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'CHF')!;
-      const originalCommission = commissionBaseline.find(row => row.currency === 'CHF');
+      const currentCommission = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'CHF' && row.liveMode === null)!;
+      const originalCommission = commissionBaseline.find(row => row.currency === 'CHF' && row.liveMode === null);
       assert.equal(currentCommission.originalAmount - (originalCommission?.originalAmount ?? fixture.zero), fixture.commission);
       assert.equal(currentCommission.paidAmount - (originalCommission?.paidAmount ?? fixture.zero), fixture.commission);
       assert.equal(currentCommission.paidAdjustmentAmount - (originalCommission?.paidAdjustmentAmount ?? fixture.zero), fixture.adjustment + fixture.adjustment);
@@ -143,8 +143,8 @@ async function verify(): Promise<void> {
       await tx.update(commissions).set({status: 'cancelled'}).where(eq(commissions.id, jpy.commissionId));
       await assertDelta('JPY', {captured: 505, refunded: 505, pending: 0}, {captured: 300, refunded: 300, pending: 0});
       await assertDelta('BHD', {captured: 505, refunded: 0, pending: 505}, {captured: 300, refunded: 0, pending: 300});
-      const cancelled = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'JPY')!;
-      const priorCancelled = commissionBaseline.find(row => row.currency === 'JPY');
+      const cancelled = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'JPY' && row.liveMode === null)!;
+      const priorCancelled = commissionBaseline.find(row => row.currency === 'JPY' && row.liveMode === null);
       assert.equal(cancelled.adjustedAmount - (priorCancelled?.adjustedAmount ?? fixture.zero), fixture.commission);
       assert.equal(cancelled.netAmount, priorCancelled?.netAmount ?? fixture.zero); passed++;
 
@@ -178,13 +178,13 @@ async function verify(): Promise<void> {
       }
       assert.equal(pagedIds.size, paginated.totalCount); passed++;
       await tx.update(commissions).set({status: 'validated'}).where(eq(commissions.id, bhd.commissionId));
-      const validated = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'BHD')!;
-      const oldBhd = commissionBaseline.find(row => row.currency === 'BHD');
+      const validated = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'BHD' && row.liveMode === null)!;
+      const oldBhd = commissionBaseline.find(row => row.currency === 'BHD' && row.liveMode === null);
       // A cached validation cannot release a commission during cancellation.
       assert.equal(validated.validatedAmount - (oldBhd?.validatedAmount ?? fixture.zero), fixture.zero);
       assert.equal(validated.pendingAmount - (oldBhd?.pendingAmount ?? fixture.zero), fixture.commission);
       await tx.update(commissions).set({status: 'estimated'}).where(eq(commissions.id, bhd.commissionId));
-      const estimated = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'BHD')!;
+      const estimated = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'BHD' && row.liveMode === null)!;
       assert.equal(estimated.estimatedAmount - (oldBhd?.estimatedAmount ?? fixture.zero), fixture.commission); passed++;
       await tx.update(commissions).set({commissionAmount: fixture.one}).where(eq(commissions.id, chf.commissionId));
       await denied(() => reader.creatorCommissions(creatorId), fixture.conflict);

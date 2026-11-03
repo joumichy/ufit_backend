@@ -35,13 +35,14 @@ async function verify() {
       for (const document of [creator, brandRevenue]) {
         workspaceRevenueSchema.parse(document); checks++;
         // Independent captured-order aggregate: no revenue-reader SQL or client fixtures.
-        const source = await database.query<{currency:string;captured:string}>(`
-          select o.currency,sum(${document.kind === 'creator' ? `(select coalesce(sum(oi.total_price),0) from ufit.order_items oi where oi.order_id=o.id and oi.source_creator_id=$1)` : 'o.total_amount'})::text as captured
+        const source = await database.query<{currency:string;liveMode:boolean|null;captured:string}>(`
+          select o.currency,s.live_mode as "liveMode",sum(${document.kind === 'creator' ? `(select coalesce(sum(oi.total_price),0) from ufit.order_items oi where oi.order_id=o.id and oi.source_creator_id=$1)` : 'o.total_amount'})::text as captured
           from ufit.orders o join ufit.payments p on p.order_id=o.id and p.provider='stripe' and p.provider_payment_intent_id=o.stripe_payment_intent_id and p.status in ('succeeded','refunded')
+          left join ufit.payment_settlements s on s.payment_id=p.id
           where o.payment_provider='stripe' and o.created_at >= $2::date at time zone 'UTC' and o.created_at <= $3::timestamptz
             and ${document.kind === 'creator' ? 'exists(select 1 from ufit.order_items oi where oi.order_id=o.id and oi.source_creator_id=$1)' : 'o.brand_id=$1'}
-          group by o.currency`,[document.profileId,document.start,document.asOf]);
-        for (const row of source.rows) assert.equal(document.currencies.find(value=>value.currency===row.currency)?.points.reduce((sum,value)=>sum+BigInt(value.captured),0n),BigInt(row.captured));
+          group by o.currency,s.live_mode`,[document.profileId,document.start,document.asOf]);
+        for (const row of source.rows) assert.equal(document.currencies.find(value=>value.currency===row.currency&&value.liveMode===row.liveMode)?.points.reduce((sum,value)=>sum+BigInt(value.captured),0n),BigInt(row.captured));
         checks++;
       }
     }

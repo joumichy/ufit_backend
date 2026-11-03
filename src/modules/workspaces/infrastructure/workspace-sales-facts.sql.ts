@@ -4,6 +4,7 @@ import {sql} from 'drizzle-orm';
 import {orderCancellations, orderItems, orders, payments, orderReturns, orderReturnItems} from '../../../shared/infrastructure/database/schema';
 import {CANCELLATION, ORDER_PAYMENT} from '../../orders/domain/order-lifecycle';
 import {RETURN_STATUS} from '../../orders/domain/order-return.contract';
+import {paymentSettlements} from '../../../shared/infrastructure/database/schema.payment-settlements';
 import {WORKSPACE_FINANCE as FINANCE, type WorkspaceFinanceScope} from '../domain/workspace-finance';
 
 const cancelledRefundOutcomes=[CANCELLATION.outcome.refunded,CANCELLATION.outcome.refundedExternally];
@@ -20,12 +21,14 @@ export function workspaceSalesFacts(scope: WorkspaceFinanceScope) {
     const returning = creator ? sql`r.pending_merchandise` : sql`r.pending_amount`;
     return sql`
       with captures as (
-        select o.id, o.currency, o.created_at, o.total_amount as amount, o.subtotal_amount,
+        select o.id, o.currency, o.created_at, o.total_amount as amount, o.subtotal_amount, s.live_mode,
           p.status as payment_status,
-          (p.amount <> o.total_amount or p.currency <> o.currency or o.total_amount < ${FINANCE.zero}) as invalid
+          (p.amount <> o.total_amount or p.currency <> o.currency or o.total_amount < ${FINANCE.zero}
+            or (s.payment_id is not null and (s.charge_amount<>p.amount or s.charge_currency<>p.currency))) as invalid
         from ${orders} o join ${payments} p on p.order_id = o.id
           and p.provider = ${ORDER_PAYMENT.provider} and p.provider_payment_intent_id = o.stripe_payment_intent_id
           and p.status in (${ORDER_PAYMENT.status.succeeded}, ${ORDER_PAYMENT.status.refunded})
+        left join ${paymentSettlements} s on s.payment_id=p.id
         where o.payment_provider = ${ORDER_PAYMENT.provider} and ${owner}
       ), attributed as (
         select oi.order_id, coalesce(sum(oi.total_price) filter (where ${attributedOwner}), ${FINANCE.zero}) as amount,
@@ -51,7 +54,7 @@ export function workspaceSalesFacts(scope: WorkspaceFinanceScope) {
           coalesce(rn.amount, ${FINANCE.zero}) as pending_amount, coalesce(rp.pending_merchandise, ${FINANCE.zero}) as pending_merchandise
         from captures c left join return_money rm on rm.order_id = c.id left join return_pieces rp on rp.order_id = c.id left join return_pending rn on rn.order_id = c.id
       ), facts as (
-        select c.currency, c.created_at, ${captured} as captured,
+        select c.currency, c.live_mode, c.created_at, ${captured} as captured,
           ${returned} + case when oc.status = ${CANCELLATION.status.succeeded} and oc.payment_outcome in (${sql.join(cancelledRefundOutcomes.map(value=>sql`${value}`),sql`, `)}) then ${captured} else ${FINANCE.zero} end as refunded,
           ${returning} + case when oc.status = ${CANCELLATION.status.requested} then ${captured} else ${FINANCE.zero} end as pending,
           c.invalid or r.invalid or r.amount + r.pending_amount > c.amount or a.amount is null or a.amount < ${FINANCE.zero} or a.invalid_count > ${FINANCE.zero} or a.full_amount <> c.subtotal_amount

@@ -22,20 +22,29 @@ describe('workspace revenue cohorts', () => {
   const zero = {orders:0,captured:0,refunded:0,refundPending:0,salesNet:0,original:0,adjusted:0,commissionNet:0,estimated:0,pending:0,available:0,paid:0,paidAdjustment:0};
   const points = window.dates.map(date => ({date,...zero}));
   const document = {profileId:'11111111-1111-4111-8111-111111111111',kind:'creator',basis:'attributed_merchandise',period:window.period,
-    granularity:window.granularity,start:window.start,end:window.end,asOf:window.asOf,currencies:[{currency:'CHF',points}]};
+    granularity:window.granularity,start:window.start,end:window.end,asOf:window.asOf,currencies:[{currency:'CHF',liveMode:false,points}]};
   it('retains explicit empty periods and independent currencies', () => {
     expect(workspaceRevenueSchema.parse({...document,currencies:[]}).currencies).toEqual([]);
-    expect(workspaceRevenueSchema.parse({...document,currencies:['CHF','JPY','BHD'].map(currency=>({currency,points}))}).currencies).toHaveLength(3);
+    expect(workspaceRevenueSchema.parse({...document,currencies:['CHF','JPY','BHD'].map(currency=>({currency,liveMode:false,points}))}).currencies).toHaveLength(3);
+  });
+  it('requires an explicit mode and groups all three mode states independently', () => {
+    const currencies = [true, false, null].map(liveMode => ({...document.currencies[0], liveMode}));
+    expect(workspaceRevenueSchema.parse({...document, currencies}).currencies).toEqual(currencies);
+    const {liveMode: omitted, ...missing} = document.currencies[0];
+    for (const row of [missing, {...missing, liveMode: 'test'}, {...missing, liveMode: 1}]) {
+      expect(workspaceRevenueSchema.safeParse({...document, currencies: [row]}).success).toBe(false);
+    }
+    expect(workspaceRevenueSchema.safeParse({...document, currencies: [currencies[2], currencies[2]]}).success).toBe(false);
   });
   it('rejects missing/duplicated/out-of-order buckets, invented net amounts and duplicate currencies', () => {
     for (const rows of [points.slice(1),[...points,points[0]],[...points].reverse(),points.map((row,i)=>i===0?{...row,captured:100,salesNet:99}:row)]) {
-      expect(workspaceRevenueSchema.safeParse({...document,currencies:[{currency:'CHF',points:rows}]}).success).toBe(false);
+      expect(workspaceRevenueSchema.safeParse({...document,currencies:[{currency:'CHF',liveMode:false,points:rows}]}).success).toBe(false);
     }
     expect(workspaceRevenueSchema.safeParse({...document,currencies:[document.currencies[0],document.currencies[0]]}).success).toBe(false);
   });
   it('separates available from paid and keeps paid adjustments visible', () => {
     const row = {...points[0],original:100,adjusted:30,commissionNet:70,pending:20,available:0,paid:80,paidAdjustment:30};
-    expect(workspaceRevenueSchema.safeParse({...document,currencies:[{currency:'CHF',points:[row,...points.slice(1)]}]}).success).toBe(true);
-    expect(workspaceRevenueSchema.safeParse({...document,currencies:[{currency:'CHF',points:[{...row,available:80},...points.slice(1)]}]}).success).toBe(false);
+    expect(workspaceRevenueSchema.safeParse({...document,currencies:[{currency:'CHF',liveMode:false,points:[row,...points.slice(1)]}]}).success).toBe(true);
+    expect(workspaceRevenueSchema.safeParse({...document,currencies:[{currency:'CHF',liveMode:false,points:[{...row,available:80},...points.slice(1)]}]}).success).toBe(false);
   });
 });

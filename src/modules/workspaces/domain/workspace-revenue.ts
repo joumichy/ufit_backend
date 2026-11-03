@@ -1,7 +1,7 @@
 import {BadRequestException} from '@nestjs/common';
 import {z} from 'zod';
 import {CURRENCY_CODES} from '../../../shared/domain/currencies';
-import {WORKSPACE_FINANCE} from './workspace-finance';
+import {WORKSPACE_FINANCE, workspaceFinancialModeSchema, workspaceFinancialGroup} from './workspace-finance';
 
 const periods = {month: '30d', quarter: '90d', year: '12m'} as const;
 const granularity = {day: 'day', week: 'week', month: 'month'} as const;
@@ -62,11 +62,11 @@ export const workspaceRevenueSchema = z.object({
   basis: z.enum([WORKSPACE_FINANCE.basis.orderTotal, WORKSPACE_FINANCE.basis.attributedMerchandise]),
   period: z.enum(WORKSPACE_REVENUE.periods), granularity: z.enum([granularity.day, granularity.week, granularity.month]),
   start: date, end: date, asOf: z.iso.datetime(),
-  currencies: z.array(z.object({currency: z.string().refine(value => CURRENCY_CODES.includes(value)), points: z.array(point)}).strict()),
+  currencies: z.array(z.object({currency: z.string().refine(value => CURRENCY_CODES.includes(value)), liveMode: workspaceFinancialModeSchema, points: z.array(point)}).strict()),
 }).strict().superRefine((value, context) => {
   const expected = revenueWindow(value.period, new Date(value.asOf));
   if (value.start !== expected.start || value.end !== expected.end || value.granularity !== expected.granularity
-    || new Set(value.currencies.map(row => row.currency)).size !== value.currencies.length
+    || new Set(value.currencies.map(row => workspaceFinancialGroup(row.currency, row.liveMode))).size !== value.currencies.length
     || value.basis !== (value.kind === WORKSPACE_FINANCE.scope.creator ? WORKSPACE_FINANCE.basis.attributedMerchandise : WORKSPACE_FINANCE.basis.orderTotal)) context.addIssue({code: 'custom', message: 'Invalid revenue window'});
   for (const currency of value.currencies) {
     if (currency.points.length !== expected.dates.length || currency.points.some((row, i) => row.date !== expected.dates[i])) context.addIssue({code: 'custom', message: 'Invalid revenue buckets'});

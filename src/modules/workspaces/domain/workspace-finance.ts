@@ -21,11 +21,17 @@ export const WORKSPACE_FINANCE = {
 export const WORKSPACE_COMMISSION_FIELDS = ['originalAmount', 'adjustedAmount', 'netAmount', 'estimatedAmount', 'pendingAmount', 'validatedAmount', 'paidAmount', 'paidAdjustmentAmount',
   'estimatedCount', 'pendingCount', 'validatedCount', 'paidCount', 'cancelledCount'] as const;
 export type WorkspaceFinanceScope = {kind: (typeof PROFILE_KIND)[keyof typeof PROFILE_KIND]; profileId: string};
+export const workspaceFinancialModeSchema = z.boolean().nullable();
+/** Null is an unclassified capture, never an inferred production or test sale. */
+export function workspaceFinancialGroup(currency: string, liveMode: boolean | null): string {
+  return JSON.stringify([currency, liveMode]);
+}
 const integer = z.number().int().min(WORKSPACE_FINANCE.zero).max(WORKSPACE_FINANCE.maximum);
 const currency = z.string().refine(value => CURRENCY_CODES.includes(value));
 const sum = (values: number[]) => values.reduce((total, value) => total + BigInt(value), BigInt(WORKSPACE_FINANCE.zero));
 export const workspaceSalesCurrencySchema = z.object({
   currency,
+  liveMode: workspaceFinancialModeSchema,
   capturedOrderCount: integer.min(WORKSPACE_FINANCE.single),
   capturedAmount: integer,
   refundedAmount: integer,
@@ -36,12 +42,13 @@ export const workspaceSalesCurrencySchema = z.object({
 export const workspaceSalesSchema = z.object({
   basis: z.enum([WORKSPACE_FINANCE.basis.orderTotal, WORKSPACE_FINANCE.basis.attributedMerchandise]),
   currencies: z.array(workspaceSalesCurrencySchema),
-}).strict().refine(value => new Set(value.currencies.map(row => row.currency)).size === value.currencies.length);
+}).strict().refine(value => new Set(value.currencies.map(row => workspaceFinancialGroup(row.currency, row.liveMode))).size === value.currencies.length);
 export type WorkspaceSalesCurrency = z.infer<typeof workspaceSalesCurrencySchema>;
 export type WorkspaceSales = z.infer<typeof workspaceSalesSchema>;
 
 export const workspaceCommissionCurrencySchema = z.object({
   currency,
+  liveMode: workspaceFinancialModeSchema,
   originalAmount: integer,
   adjustedAmount: integer,
   netAmount: integer,

@@ -39,11 +39,11 @@ const creatorMetrics: CreatorWorkspaceMetrics = {
     published: 1,
     archived: 0
   },
-  commissions: [{currency: 'CHF', originalAmount: 2000, adjustedAmount: 300, netAmount: 1700,
+  commissions: [{currency: 'CHF', liveMode: false, originalAmount: 2000, adjustedAmount: 300, netAmount: 1700,
     estimatedAmount: 0, pendingAmount: 1000, validatedAmount: 400, paidAmount: 300, paidAdjustmentAmount: 0,
     estimatedCount: 0, pendingCount: 2, validatedCount: 1, paidCount: 1, cancelledCount: 0}],
   sales: {basis: WORKSPACE_FINANCE.basis.attributedMerchandise,
-    currencies: [{currency: 'CHF', capturedOrderCount: 4, capturedAmount: 20000, refundedAmount: 3000, refundInProgressAmount: 500, netAmount: 17000}]}
+    currencies: [{currency: 'CHF', liveMode: false, capturedOrderCount: 4, capturedAmount: 20000, refundedAmount: 3000, refundInProgressAmount: 500, netAmount: 17000}]}
 };
 
 const brandProfile: BrandWorkspaceProfile = {
@@ -70,7 +70,7 @@ const brandMetrics: BrandWorkspaceMetrics = {
     refunded: 0
   },
   sales: {basis: WORKSPACE_FINANCE.basis.orderTotal,
-    currencies: [{currency: 'CHF', capturedOrderCount: 4, capturedAmount: 42000, refundedAmount: 2000, refundInProgressAmount: 0, netAmount: 40000}]},
+    currencies: [{currency: 'CHF', liveMode: false, capturedOrderCount: 4, capturedAmount: 42000, refundedAmount: 2000, refundInProgressAmount: 0, netAmount: 40000}]},
   stock: {
     lowStockVariants: 2
   }
