@@ -15,7 +15,7 @@ let restart = Promise.resolve();
 let pending = String();
 
 function stop(child) {
-  if (!child || child.exitCode !== null) return Promise.resolve();
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise(resolve => { child.once('exit', resolve); child.kill(signal); });
 }
 compiler.stdout.on('data', chunk => {
