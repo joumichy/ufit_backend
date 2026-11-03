@@ -34,10 +34,11 @@ describe('workspace financial contracts', () => {
     const row = {id: 'aab605b4-f111-4abb-8fa9-bdbeeb308aa1', orderItemId: '771d6390-c24d-4686-8af8-ceb354e12b39',
       brandId: '5af33e92-3d45-47cf-930a-4489c5ca3450', sourceOutfitId: 'b9596f35-969d-459b-aefc-a8656f191c1c',
       status: 'paid', currency: 'BHD', baseAmount: 300, rateBps: 833, originalAmount: 25, adjustedAmount: 16, netAmount: 9,
-      paidAdjustmentAmount: 16, createdAt: '2026-11-01T00:00:00.000Z'};
+      paidAdjustmentAmount: 16, release: {state: 'paid', availableAt: null}, createdAt: '2026-11-01T00:00:00.000Z'};
     expect(workspaceCommissionSchema.parse(row)).toEqual(row);
     for (const invalid of [{...row, commissionAmount: 25}, {...row, rateBps: 0.0833}, {...row, createdAt: null},
-      {...row, paidAdjustmentAmount: 15}, {...row, status: 'pending', paidAdjustmentAmount: 16}, {...row, netAmount: 25}]) {
+      {...row, paidAdjustmentAmount: 15}, {...row, status: 'pending', paidAdjustmentAmount: 16}, {...row, netAmount: 25},
+      {...row, release: undefined}, {...row, release: {state: 'payable', availableAt: '2026-11-01T00:00:00.000Z'}}]) {
       expect(workspaceCommissionSchema.safeParse(invalid).success).toBe(false);
     }
     const {currency: removedCurrency, ...missingCurrency} = row;

@@ -2,6 +2,7 @@ import {ConflictException} from '@nestjs/common';
 import {z} from 'zod';
 import {CURRENCY_CODES} from '../../../shared/domain/currencies';
 import {PROFILE_KIND} from '../../../shared/domain/profile-editing.contract';
+import {commissionReleaseSchema, commissionReleaseStatus} from '../../commissions/domain/commission-release';
 import {ORDER_COMMISSION} from '../../orders/domain/order-lifecycle';
 
 export const WORKSPACE_FINANCE = {
@@ -65,8 +66,9 @@ export const workspaceCommissionSchema = z.object({
   status: z.enum(Object.values(ORDER_COMMISSION.status)), currency,
   baseAmount: integer, rateBps: integer.max(WORKSPACE_FINANCE.basisPoints),
   originalAmount: integer, adjustedAmount: integer, netAmount: integer, paidAdjustmentAmount: integer,
-  createdAt: z.iso.datetime(),
-}).strict().refine(value => BigInt(value.originalAmount) - BigInt(value.adjustedAmount) === BigInt(value.netAmount)
+  release: commissionReleaseSchema, createdAt: z.iso.datetime(),
+}).strict().refine(value => value.status === commissionReleaseStatus(value.release)
+  && BigInt(value.originalAmount) - BigInt(value.adjustedAmount) === BigInt(value.netAmount)
   && (value.status === ORDER_COMMISSION.status.paid ? value.paidAdjustmentAmount === value.adjustedAmount : value.paidAdjustmentAmount === WORKSPACE_FINANCE.zero));
 export type WorkspaceCommission = z.infer<typeof workspaceCommissionSchema>;
 

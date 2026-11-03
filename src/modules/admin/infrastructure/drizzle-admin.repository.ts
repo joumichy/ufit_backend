@@ -1,12 +1,15 @@
-import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
-import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { ConflictException, Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { and, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import {commissionFinancialFacts} from '../../commissions/infrastructure/commission-financial-facts.sql';
+import {COMMISSION_RELEASE} from '../../commissions/domain/commission-release';
+import {ORDER_COMMISSION} from '../../orders/domain/order-lifecycle';
+import {WORKSPACE_FINANCE,workspaceInteger} from '../../workspaces/domain/workspace-finance';
 import {availableApplicant} from '../../applications/application-visibility';
 import {ADMIN_ACTIVITY, type AdminActivity} from '../domain/admin-activity.contract';
 import {READ_SNAPSHOT,type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
   brandApplications,
-  commissions,
   creatorApplications,
   orders,
   outfits,
@@ -18,7 +21,11 @@ const applicationStatuses = ['submitted', 'under_review', 'waitlisted', 'needs_m
 const productStatuses = ['under_review'] as const;
 const outfitStatuses = ['under_review', 'submitted'] as const;
 const orderStatuses = ['paid', 'preparing'] as const;
-const commissionStatuses = ['pending', 'estimated'] as const;
+const commissionStatuses = [ORDER_COMMISSION.status.pending, ORDER_COMMISSION.status.estimated] as const;
+const commissionQueueType = 'commission';
+const commissionTimestamp = {zone:'UTC',format:'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'};
+const commissionQueueCondition = sql`status in (${sql.join(commissionStatuses.map(value=>sql`${value}`),sql`, `)})`;
+const administrationCommissionFacts = commissionFinancialFacts({kind:COMMISSION_RELEASE.scope.administration});
 
 @Injectable()
 export class DrizzleAdminRepository implements AdminRepository {
@@ -201,31 +208,15 @@ export class DrizzleAdminRepository implements AdminRepository {
   }
 
   private async listCommissions(page: { limit: number; offset: number }): Promise<AdminPage<AdminQueueItem>> {
-    const [rows, total] = await Promise.all([
-      this.database.db
-        .select()
-        .from(commissions)
-        .where(inArray(commissions.status, commissionStatuses))
-        .orderBy(desc(commissions.createdAt))
-        .limit(page.limit)
-        .offset(page.offset),
-      this.countCommissions()
-    ]);
-
-    return this.toPage(
-      rows.map((row) => ({
-        id: row.id,
-        type: 'commission',
-        status: row.status,
-        ownerId: row.creatorId,
-        title: row.orderItemId,
-        amount: row.commissionAmount,
-        currency: null,
-        submittedAt: row.createdAt?.toISOString() ?? null
-      })),
-      page,
-      total
-    );
+    return this.database.db.transaction(async tx=>{
+      const reader=new DrizzleAdminRepository({db:tx}),total=await reader.countCommissions();
+      const result=await tx.execute(sql`${administrationCommissionFacts}
+        select id,status,creator_id as "ownerId",order_number as title,(original-adjusted)::text as amount,currency,
+          to_char(created_at at time zone ${commissionTimestamp.zone},${commissionTimestamp.format}) as "submittedAt"
+        from facts where ${commissionQueueCondition} order by created_at desc,id desc limit ${page.limit} offset ${page.offset}`);
+      return this.toPage(result.rows.map(row=>({id:row.id as string,type:commissionQueueType,status:row.status as string,
+        ownerId:row.ownerId as string,title:row.title as string,amount:workspaceInteger(row.amount),currency:row.currency as string,submittedAt:row.submittedAt as string})),page,total);
+    },READ_SNAPSHOT);
   }
 
   private async countCreatorApplications(): Promise<number> {
@@ -260,8 +251,11 @@ export class DrizzleAdminRepository implements AdminRepository {
   }
 
   private async countCommissions(): Promise<number> {
-    const [row] = await this.database.db.select({ value: count() }).from(commissions).where(inArray(commissions.status, commissionStatuses));
-    return row?.value ?? 0;
+    const result=await this.database.db.execute(sql`${administrationCommissionFacts} select count(*) filter(where ${commissionQueueCondition})::text as total,
+      count(*) filter(where invalid)::text as invalid from facts`);
+    const row=result.rows[WORKSPACE_FINANCE.zero];
+    if(workspaceInteger(row.invalid)!==WORKSPACE_FINANCE.zero)throw new ConflictException(WORKSPACE_FINANCE.failure.persisted);
+    return workspaceInteger(row.total);
   }
 
   private toPage<T>(items: T[], page: { limit: number; offset: number }, total: number): AdminPage<T> {

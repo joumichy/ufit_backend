@@ -4,14 +4,15 @@ import type {WorkspacePage, WorkspacePageInput} from '../application/workspaces.
 import {ConflictException} from '@nestjs/common';
 import {sql} from 'drizzle-orm';
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
-import {commissions, orderCancellations, orderItems, orders, payments, orderReturns, orderReturnItems, orderReturnRefunds, returnCommissionAdjustments} from '../../../shared/infrastructure/database/schema';
+import {orderCancellations, orderItems, orders, payments, orderReturns, orderReturnItems} from '../../../shared/infrastructure/database/schema';
 import {CANCELLATION, ORDER_COMMISSION, ORDER_PAYMENT} from '../../orders/domain/order-lifecycle';
 import {RETURN_STATUS} from '../../orders/domain/order-return.contract';
 import {RETURN_REFUND_ATTEMPT} from '../../orders/domain/return-refund';
+import {commissionFinancialFacts} from '../../commissions/infrastructure/commission-financial-facts.sql';
+import {COMMISSION_RELEASE} from '../../commissions/domain/commission-release';
 import {WORKSPACE_FINANCE as FINANCE, WORKSPACE_COMMISSION_FIELDS, requireWorkspaceProjection, workspaceInteger, workspaceSalesSchema, workspaceCommissionCurrencySchema, workspaceCommissionSchema,
   type WorkspaceFinanceScope, type WorkspaceSales, type WorkspaceCommissionCurrency, type WorkspaceCommission} from '../domain/workspace-finance';
 
-const commissionStates = Object.values(ORDER_COMMISSION.status);
 const cancelledRefundOutcomes=[CANCELLATION.outcome.refunded,CANCELLATION.outcome.refundedExternally];
 const needsRefund = [RETURN_STATUS.refundPending, RETURN_STATUS.refundFailed];
 
@@ -84,7 +85,7 @@ export class DrizzleWorkspaceFinanceReader {
   async creatorCommissions(creatorId: string): Promise<WorkspaceCommissionCurrency[]> {
     const status = ORDER_COMMISSION.status;
     const result = await this.database.db.execute(sql`
-      ${commissionFacts(creatorId)}
+      ${commissionFinancialFacts({kind: COMMISSION_RELEASE.scope.creator, creatorId})}
       select currency, sum(original)::text as "originalAmount", sum(adjusted)::text as "adjustedAmount", sum(original - adjusted)::text as "netAmount",
         coalesce(sum(original - adjusted) filter (where status = ${status.estimated}), ${FINANCE.zero})::text as "estimatedAmount",
         coalesce(sum(original - adjusted) filter (where status = ${status.pending}), ${FINANCE.zero})::text as "pendingAmount",
@@ -103,12 +104,12 @@ export class DrizzleWorkspaceFinanceReader {
     });
   }
   async commissionPage(creatorId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<WorkspaceCommission>> {
-    const facts = commissionFacts(creatorId);
+    const facts = commissionFinancialFacts({kind: COMMISSION_RELEASE.scope.creator, creatorId});
     const totals = await this.database.db.execute(sql`${facts} select count(*)::text as total, count(*) filter (where invalid)::text as invalid from facts`);
     if (workspaceInteger(totals.rows[FINANCE.zero].invalid) !== FINANCE.zero) throw new ConflictException(FINANCE.failure.persisted);
     const total = workspaceInteger(totals.rows[FINANCE.zero].total);
     const result = await this.database.db.execute(sql`${facts}
-      select id, order_item_id as "orderItemId", brand_id as "brandId", source_outfit_id as "sourceOutfitId", status, currency,
+      select id, order_item_id as "orderItemId", brand_id as "brandId", source_outfit_id as "sourceOutfitId", status, currency, release_state as "releaseState", available_at as "availableAt",
         base_amount::text as "baseAmount", (commission_rate * ${FINANCE.basisPoints})::integer::text as "rateBps",
         original::text as "originalAmount", adjusted::text as "adjustedAmount", (original - adjusted)::text as "netAmount",
         (case when status = ${ORDER_COMMISSION.status.paid} then returned else ${FINANCE.zero} end)::text as "paidAdjustmentAmount", to_char(created_at at time zone ${FINANCE.timestamp.zone}, ${FINANCE.timestamp.format}) as "createdAt"
@@ -117,28 +118,10 @@ export class DrizzleWorkspaceFinanceReader {
       id: row.id, orderItemId: row.orderItemId, brandId: row.brandId, sourceOutfitId: row.sourceOutfitId, status: row.status, currency: row.currency,
       baseAmount: workspaceInteger(row.baseAmount), rateBps: workspaceInteger(row.rateBps), originalAmount: workspaceInteger(row.originalAmount),
       adjustedAmount: workspaceInteger(row.adjustedAmount), netAmount: workspaceInteger(row.netAmount), paidAdjustmentAmount: workspaceInteger(row.paidAdjustmentAmount),
-      createdAt: row.createdAt,
+      release: {state: row.releaseState, availableAt: row.availableAt}, createdAt: row.createdAt,
     }));
     const next = page.offset + items.length;
     return {items, page: {...page, total, nextOffset: next < total ? next : null}};
   }
 
-}
-
-function commissionFacts(creatorId: string) {
-  const status = ORDER_COMMISSION.status;
-  return sql`with adjustments as (
-        select ra.commission_id, sum(ra.amount)::bigint as amount from ${returnCommissionAdjustments} ra
-        join ${commissions} cm on cm.id = ra.commission_id where cm.creator_id = ${creatorId} group by ra.commission_id
-      ), facts as (
-        select cm.id, cm.order_item_id, cm.brand_id, cm.source_outfit_id, cm.created_at, cm.base_amount, cm.commission_rate, o.currency, cm.status, cm.commission_amount::bigint as original,
-          case when cm.status = ${status.cancelled} then cm.commission_amount::bigint else coalesce(a.amount, ${FINANCE.zero}) end as adjusted,
-          coalesce(a.amount, ${FINANCE.zero}) as returned,
-          (cm.commission_amount < ${FINANCE.zero} or coalesce(a.amount, ${FINANCE.zero}) < ${FINANCE.zero} or coalesce(a.amount, ${FINANCE.zero}) > cm.commission_amount
-            or cm.base_amount < ${FINANCE.zero} or cm.base_amount <> oi.total_price or cm.commission_rate < ${FINANCE.zero} or cm.commission_rate > ${FINANCE.single}
-            or cm.commission_rate <> oi.commission_rate or cm.source_outfit_id is distinct from oi.source_outfit_id
-            or cm.status not in (${sql.join(commissionStates.map(value => sql`${value}`), sql`, `)}) or cm.brand_id <> o.brand_id or cm.creator_id is distinct from oi.source_creator_id) as invalid
-        from ${commissions} cm join ${orderItems} oi on oi.id = cm.order_item_id join ${orders} o on o.id = oi.order_id
-        left join adjustments a on a.commission_id = cm.id where cm.creator_id = ${creatorId}
-      )`;
 }
