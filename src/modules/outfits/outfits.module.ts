@@ -1,3 +1,4 @@
+import {OutfitPublicationsWorker} from './infrastructure/outfit-publications.worker';
 import {MediaModule} from '../media/media.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
@@ -13,7 +14,7 @@ import { OutfitsController } from './presentation/outfits.controller';
   imports: [DatabaseModule, IdentityModule, ProductsModule, AdminAuditModule, MediaModule],
   controllers: [OutfitsController],
   providers: [
-    OutfitsService,
+    OutfitsService, OutfitPublicationsWorker,
     {
       provide: OUTFIT_REPOSITORY,
       useClass: DrizzleOutfitRepository

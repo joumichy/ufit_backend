@@ -1,7 +1,8 @@
+import {OUTFIT_PUBLICATION as P, type OutfitCalendarQuery} from '../domain/outfit-publication.contract';
 import {OUTFIT_MEDIA} from '../../media/domain/outfit-media.contract';
 import {findAuthoringProfile, ProfileAccessMode} from '../../../shared/infrastructure/database/profile-authoring-access';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, lt, inArray, isNull, notInArray, gt, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, inArray, isNull, notInArray, gt, gte, lte, sql } from 'drizzle-orm';
 import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_VISIBILITY} from '../domain/outfit-editing.contract';
 import {PRODUCT_STATUS} from '../../products/domain/product-contract';
 import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
@@ -53,6 +54,29 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     const page = rows.slice(OUTFIT_EDITING.limits.first, query.limit);
     return {items: await this.loadDetails(page, this.database), nextCursor: rows.length > query.limit ? page.at(OUTFIT_EDITING.limits.last)!.id : null};
   }
+  async listCalendar(query: OutfitCalendarQuery): Promise<OutfitManagedPage> {
+    const rows = await this.database.db.select().from(outfits).where(and(
+      query.creatorId ? eq(outfits.creatorId, query.creatorId) : undefined,
+      query.brandId ? eq(outfits.brandId, query.brandId) : undefined,
+      gte(outfits.scheduledFor, query.from), lt(outfits.scheduledFor, query.until),
+      query.cursor ? gt(outfits.id, query.cursor) : undefined)).orderBy(outfits.id).limit(query.limit + P.clock.overflow);
+    const page = rows.slice(P.clock.first, query.limit);
+    return {items: await this.loadDetails(page, this.database), nextCursor: rows.length > query.limit ? page.at(P.clock.last)!.id : null};
+  }
+  async listDuePublications(now: Date, cursor?: string): Promise<string[]> {
+    const rows = await this.database.db.select({id: outfits.id}).from(outfits).where(and(
+      eq(outfits.status, OUTFIT_STATUS.scheduled), lte(outfits.scheduledFor, now), cursor ? gt(outfits.id, cursor) : undefined))
+      .orderBy(outfits.id).limit(P.clock.batch);
+    return rows.map(row => row.id);
+  }
+  async publishScheduled(id: string, now: Date): Promise<void> {
+    await this.database.db.update(outfits).set({status: OUTFIT_STATUS.published, visibility: OUTFIT_VISIBILITY.public,
+      publishedAt: now, version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, updatedAt: now}).where(eq(outfits.id, id));
+  }
+  async setPublication(id: string, scheduledFor: Date | null, timeZone: string | null): Promise<void> {
+    await this.database.db.update(outfits).set({scheduledFor, publicationTimeZone: timeZone,
+      version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, updatedAt: new Date()}).where(eq(outfits.id, id));
+  }
   listTags(): Promise<OutfitTag[]> { return this.database.db.select({id: tags.id, type: tags.type, slug: tags.slug, label: tags.label}).from(tags).orderBy(tags.type, tags.label, tags.id); }
   async hasReadyOutfitMedia(owner: OutfitOwner, ids: string[]): Promise<boolean> {
     if (!ids.length) return true;
@@ -97,7 +121,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     await this.replacePins(id, input.pins);
     await this.database.db.update(outfits).set({...input.fields, status: OUTFIT_STATUS.draft, visibility: OUTFIT_VISIBILITY.private,
       version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, reviewedBy: null, reviewedAt: null, rejectionReason: null,
-      publishedAt: null, updatedAt: new Date()}).where(eq(outfits.id, id));
+      publishedAt: null, scheduledFor: null, publicationTimeZone: null, updatedAt: new Date()}).where(eq(outfits.id, id));
   }
 
   async createOutfit(input: Parameters<OutfitRepository['createOutfit']>[0]): Promise<Outfit> {
@@ -168,7 +192,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
         visibility,
         version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`,
         reviewedBy: reviewerId ?? null,
-        reviewedAt: status === OUTFIT_STATUS.published || status === OUTFIT_STATUS.rejected ? new Date() : null,
+        reviewedAt: status === OUTFIT_STATUS.published || status === OUTFIT_STATUS.scheduled || status === OUTFIT_STATUS.rejected ? new Date() : null,
         rejectionReason: status === OUTFIT_STATUS.rejected ? rejectionReason : null,
         publishedAt: status === OUTFIT_STATUS.published ? new Date() : null,
         updatedAt: new Date()

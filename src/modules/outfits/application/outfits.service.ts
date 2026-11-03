@@ -1,3 +1,4 @@
+import {OUTFIT_PUBLICATION as P, validPublicationTimeZone, type OutfitPublicationInput} from '../domain/outfit-publication.contract';
 import {OUTFIT_MEDIA} from '../../media/domain/outfit-media.contract';
 import type {OutfitMediaReader} from '../../media/domain/outfit-media.types';
 import {createHash} from 'node:crypto';
@@ -115,7 +116,9 @@ export class OutfitsService {
       if (input.decision === OUTFIT_STATUS.published) {
         await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id), pins: before.pins.map(pin => ({imagePosition: before.images.find(image => image.id === pin.imageId)!.position, itemPosition: before.items.find(item => item.id === pin.itemId)!.position, x: pin.x, y: pin.y}))});
       }
-      await repository.updateStatus(id, input.decision, input.decision === OUTFIT_STATUS.published ? OUTFIT_VISIBILITY.public : OUTFIT_VISIBILITY.private, user.id, reason);
+      const status = input.decision === OUTFIT_STATUS.published && before.outfit.scheduledFor !== null && before.outfit.scheduledFor > new Date()
+        ? OUTFIT_STATUS.scheduled : input.decision;
+      await repository.updateStatus(id, status, status === OUTFIT_STATUS.published ? OUTFIT_VISIBILITY.public : OUTFIT_VISIBILITY.private, user.id, reason);
     });
     return this.toManagedDetail(detail, prepared.products, prepared.displays);
   }
@@ -123,6 +126,7 @@ export class OutfitsService {
     const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
       if (before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
       await repository.updateStatus(id, OUTFIT_STATUS.archived, OUTFIT_VISIBILITY.private);
+      if (before.outfit.scheduledFor !== null) await repository.setPublication(id, null, null);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
@@ -130,6 +134,7 @@ export class OutfitsService {
     const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
       if (before.outfit.status !== OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
       await repository.updateStatus(id, OUTFIT_STATUS.draft, OUTFIT_VISIBILITY.private);
+      if (before.outfit.scheduledFor !== null) await repository.setPublication(id, null, null);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
@@ -161,6 +166,57 @@ export class OutfitsService {
       return repository.listManaged(parsed.data);
     });
     return {items: await this.projectManaged(page.items), nextCursor: page.nextCursor};
+  }
+  async planPublication(user: OutfitActor, id: string, input: OutfitPublicationInput) {
+    const parsed = z.object({expectedVersion: z.number().int().positive(), scheduledFor: z.iso.datetime({offset: true}).nullable(),
+      timeZone: z.string().max(P.timezone.maximumLength).refine(validPublicationTimeZone).nullable()}).strict().safeParse(input);
+    if (!parsed.success || (parsed.data.scheduledFor === null) !== (parsed.data.timeZone === null)) throw new BadRequestException(P.failure.input);
+    const scheduledFor = parsed.data.scheduledFor === null ? null : new Date(parsed.data.scheduledFor);
+    if (scheduledFor !== null && scheduledFor <= new Date()) throw new BadRequestException(P.failure.input);
+    const detail = await this.mutate(user, id, parsed.data, false, async (repository, before) => {
+      if (before.outfit.status === OUTFIT_STATUS.published || before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      if (scheduledFor === null) {
+        await repository.updateStatus(id, OUTFIT_STATUS.draft, OUTFIT_VISIBILITY.private);
+      } else {
+        this.requireComplete(before);
+        await this.validateExistingContent(repository, before);
+        if (before.outfit.status !== OUTFIT_STATUS.scheduled) await repository.updateStatus(id, OUTFIT_STATUS.underReview, OUTFIT_VISIBILITY.private);
+      }
+      await repository.setPublication(id, scheduledFor, parsed.data.timeZone);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
+  }
+  async getPublicationCalendar(user: OutfitActor, input: unknown) {
+    const parsed = managedOwner.extend({from: z.iso.datetime({offset: true}), until: z.iso.datetime({offset: true}),
+      cursor: z.uuid().optional(), limit: z.coerce.number().int().min(OUTFIT_EDITING.limits.pageMin).max(OUTFIT_EDITING.limits.pageMax).default(OUTFIT_EDITING.limits.pageDefault)})
+      .strict().safeParse(input);
+    if (!parsed.success) throw new BadRequestException(P.failure.range);
+    const from = new Date(parsed.data.from), until = new Date(parsed.data.until);
+    if (until <= from || until.getTime() - from.getTime() > P.clock.maxRangeDays * P.clock.dayMs) throw new BadRequestException(P.failure.range);
+    const page = await this.outfits.readSnapshot(async repository => {
+      await this.requireOwner(repository, this.owner(parsed.data), user, false);
+      return repository.listCalendar({...parsed.data, from, until});
+    });
+    return {...page, items: await this.projectManaged(page.items), asOf: new Date().toISOString()};
+  }
+  async publishScheduledOutfit(id: string, now: Date): Promise<boolean> {
+    const source = await this.outfits.readSnapshot(repository => this.requireOutfit(id, repository));
+    return this.outfits.transaction(async repository => {
+      await repository.lockOwner(this.owner(source.outfit));
+      const row = await repository.lockOutfit(id);
+      if (!row || row.status !== OUTFIT_STATUS.scheduled || row.scheduledFor === null || row.scheduledFor > now) return false;
+      const detail = await this.requireOutfit(id, repository);
+      this.requireComplete(detail);
+      await this.validateExistingContent(repository, detail);
+      await repository.publishScheduled(id, now);
+      return true;
+    });
+  }
+  private validateExistingContent(repository: OutfitRepository, detail: OutfitDetail) {
+    return this.validateContent(repository, this.owner(detail.outfit), {fields: detail.outfit, items: detail.items, images: detail.images,
+      tagIds: detail.tags.map(tag => tag.id), pins: detail.pins.map(pin => ({
+        imagePosition: detail.images.find(image => image.id === pin.imageId)!.position,
+        itemPosition: detail.items.find(item => item.id === pin.itemId)!.position, x: pin.x, y: pin.y}))});
   }
   async getMetadata() { return {tags: await this.outfits.listTags(), itemTypes: OUTFIT_ITEM_TYPES, tagTypes: OUTFIT_TAG_TYPES, statuses: OUTFIT_STATUSES}; }
 
@@ -248,7 +304,8 @@ export class OutfitsService {
     return {...publicFields, version: detail.outfit.version, status: detail.outfit.status, visibility: detail.outfit.visibility,
       owner: detail.owner, genderTarget: detail.outfit.genderTarget, rejectionReason: detail.outfit.rejectionReason,
       reviewedAt: detail.outfit.reviewedAt?.toISOString() ?? null, createdAt: detail.outfit.createdAt.toISOString(),
-      updatedAt: detail.outfit.updatedAt.toISOString(), images: detail.images.map(image => {
+      updatedAt: detail.outfit.updatedAt.toISOString(), scheduledFor: detail.outfit.scheduledFor?.toISOString() ?? null,
+      publicationTimeZone: detail.outfit.publicationTimeZone, images: detail.images.map(image => {
         const displayUrl = displays.get(image.url);
         if (!displayUrl) throw new BadRequestException(OUTFIT_MEDIA.failure.ownership);
         return {id: image.id, url: image.url, displayUrl, position: image.position};

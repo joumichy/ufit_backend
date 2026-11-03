@@ -17,6 +17,10 @@ import {UserAdministrationController} from './presentation/controllers/user-admi
 import {UserAdministrationService} from './application/user-administration.service';
 import {DrizzleUserAdministrationRepository} from './infrastructure/persistence/drizzle-user-administration.repository';
 import {USER_ADMINISTRATION} from './domain/user-administration.contract';
+import {PROFILE_ADMINISTRATION} from './domain/profile-administration.contract';
+import {ProfileAdministrationController} from './presentation/controllers/profile-administration.controller';
+import {ProfileAdministrationService} from './application/profile-administration.service';
+import {DrizzleProfileAdministrationRepository} from './infrastructure/persistence/drizzle-profile-administration.repository';
 import {ACCOUNT_DELETION} from './domain/account-deletion.contract';
 import {AccountDeletionService} from './application/account-deletion.service';
 import {AccountDeletionProcessor} from './application/account-deletion-processor';
@@ -31,7 +35,7 @@ import {OUTFIT_MEDIA} from '../media/domain/outfit-media.contract';
 
 @Module({
   imports: [DatabaseModule],
-  controllers: [MeController, UserAdministrationController,AccountDeletionsController,StylePreferencesController],
+  controllers: [MeController, UserAdministrationController,ProfileAdministrationController,AccountDeletionsController,StylePreferencesController],
   providers: [
     IdentityService, UserAdministrationService,DrizzleStylePreferencesRepository,
     AccountDeletionService,DrizzleAccountDeletionRepository,DrizzleAccountDeletionQueue,AccountDeletionsWorker,
@@ -40,6 +44,8 @@ import {OUTFIT_MEDIA} from '../media/domain/outfit-media.contract';
       useFactory:(queue:DrizzleAccountDeletionQueue,authority:SupabaseAccountDeletion)=>new AccountDeletionProcessor(queue,
         {[ACCOUNT_DELETION.media.product]:new SupabaseImageStorage(PRODUCT_MEDIA),[ACCOUNT_DELETION.media.outfit]:new SupabaseImageStorage(OUTFIT_MEDIA),[ACCOUNT_DELETION.media.profile]:new SupabaseImageStorage(PROFILE_IMAGE)},authority)},
     {provide: USER_ADMINISTRATION.token.repository, useClass: DrizzleUserAdministrationRepository},
+    ProfileAdministrationService,
+    {provide: PROFILE_ADMINISTRATION.token.repository, useClass: DrizzleProfileAdministrationRepository},
     AuthGuard,
     RoleGuard,
     AdminGuard,

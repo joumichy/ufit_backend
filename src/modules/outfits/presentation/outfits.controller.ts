@@ -1,3 +1,4 @@
+import {OUTFIT_PUBLICATION as P, type OutfitPublicationInput} from '../domain/outfit-publication.contract';
 import {OUTFIT_WRITE_ROLES, OUTFIT_ADMIN_ROLES} from '../domain/outfit-editing.contract';
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
@@ -58,6 +59,20 @@ export class OutfitsController {
 
   @Get(outfitRoutes.discovery)
   getDiscoveryOptions() { return this.outfitsService.getDiscoveryOptions(); }
+
+  @Get(P.routes.calendar)
+  @UseGuards(AuthGuard, RoleGuard)
+  @Roles(...OUTFIT_WRITE_ROLES)
+  calendar(@CurrentUser() user: AuthenticatedUser, @Query() query: Record<string, unknown>) {
+    return this.outfitsService.getPublicationCalendar(user, query);
+  }
+
+  @Patch(P.routes.publication)
+  @UseGuards(AuthGuard, RoleGuard)
+  @Roles(...OUTFIT_WRITE_ROLES)
+  publication(@CurrentUser() user: AuthenticatedUser, @Param(outfitRoutes.id, ParseUUIDPipe) id: string, @Body() body: OutfitPublicationInput) {
+    return this.outfitsService.planPublication(user, id, body);
+  }
 
   @Get(outfitRoutes.managed)
   @UseGuards(AuthGuard, RoleGuard)

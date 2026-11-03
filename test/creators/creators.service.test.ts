@@ -1,4 +1,5 @@
 import {PROFILE_IMAGE} from '../../src/modules/media/domain/profile-image.contract';
+import {USER_ADMINISTRATION} from '../../src/modules/identity/domain/user-administration.contract';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { CreatorsService } from '../../src/modules/creators/creators.service';
@@ -19,6 +20,7 @@ function profile(overrides: Partial<CreatorProfileRow> = {}): CreatorProfileRow 
     imageVersion: PROFILE_IMAGE.limits.initialVersion,
     avatarUrl: null,
     status: 'active',
+    statusVersion: USER_ADMINISTRATION.limits.initialVersion,
     gradeCode: CREATOR_GRADE.initialCode,
     gradeVersion: CREATOR_GRADE.limits.initialVersion,
     createdAt: now,

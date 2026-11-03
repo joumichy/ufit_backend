@@ -1,3 +1,4 @@
+import type {OutfitCalendarQuery} from '../../src/modules/outfits/domain/outfit-publication.contract';
 import type {OutfitMediaFixtureAsset} from './memory-outfit-media.reader';
 import {OUTFIT_MEDIA} from '../../src/modules/media/domain/outfit-media.contract';
 import {randomUUID} from 'node:crypto';
@@ -56,6 +57,22 @@ export class MemoryOutfitRepository implements OutfitRepository {
     for (const row of page) items.push((await this.findById(row.id))!);
     return {items, nextCursor: rows.length > query.limit ? page.at(OUTFIT_EDITING.limits.last)!.id : null};
   }
+  async listCalendar(query: OutfitCalendarQuery) {
+    const all = await this.listManaged({...query, limit: Number.MAX_SAFE_INTEGER});
+    const rows = all.items.filter(detail => detail.outfit.scheduledFor !== null && detail.outfit.scheduledFor >= query.from && detail.outfit.scheduledFor < query.until);
+    return {items: rows.slice(OUTFIT_EDITING.limits.first, query.limit), nextCursor: rows.length > query.limit ? rows[query.limit - OUTFIT_EDITING.limits.overflow].outfit.id : null};
+  }
+  async listDuePublications(now: Date, cursor?: string) {
+    return [...this.outfits.values()].filter(row => row.status === OUTFIT_STATUS.scheduled && row.scheduledFor !== null && row.scheduledFor <= now && (!cursor || row.id > cursor)).map(row => row.id).sort();
+  }
+  async setPublication(id: string, scheduledFor: Date | null, timeZone: string | null) {
+    const row = this.outfits.get(id)!;
+    this.outfits.set(id, {...row, scheduledFor, publicationTimeZone: timeZone, version: row.version + OUTFIT_EDITING.versionStep});
+  }
+  async publishScheduled(id: string, now: Date) {
+    const row = this.outfits.get(id)!;
+    this.outfits.set(id, {...row, status: OUTFIT_STATUS.published, visibility: OUTFIT_VISIBILITY.public, publishedAt: now, version: row.version + OUTFIT_EDITING.versionStep});
+  }
   async listTags() { return this.tags; }
   async hasReadyOutfitMedia(owner: OutfitOwner, ids: string[]) {
     return ids.every(id => this.mediaAssets.get(id)?.status === OUTFIT_MEDIA.status.ready && this.mediaAssets.get(id)?.owner.creatorId === owner.creatorId && this.mediaAssets.get(id)?.owner.brandId === owner.brandId);
@@ -75,7 +92,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
     await this.replacePins(id, input.pins);
     const before = this.outfits.get(id)!;
     this.outfits.set(id, {...before, ...input.fields, status: OUTFIT_STATUS.draft, visibility: OUTFIT_VISIBILITY.private,
-      version: before.version + OUTFIT_EDITING.versionStep, reviewedBy: null, reviewedAt: null, rejectionReason: null, publishedAt: null});
+      version: before.version + OUTFIT_EDITING.versionStep, reviewedBy: null, reviewedAt: null, rejectionReason: null, publishedAt: null, scheduledFor: null, publicationTimeZone: null});
   }
 
   async createOutfit(input: Parameters<OutfitRepository['createOutfit']>[0]): Promise<Outfit> {
@@ -86,7 +103,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
       visibility: 'private',
       totalPriceMin: 0,
       totalPriceMax: 0,
-      publishedAt: null,
+      publishedAt: null, scheduledFor: null, publicationTimeZone: null,
       createdAt: new Date('2026-05-20T00:00:00.000Z'),
       updatedAt: new Date('2026-05-20T00:00:00.000Z'),
       ...input
@@ -133,7 +150,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
       status,
       visibility,
       reviewedBy: reviewerId ?? null,
-      reviewedAt: status === 'published' || status === 'rejected' ? new Date('2026-05-20T00:00:00.000Z') : null,
+      reviewedAt: status === OUTFIT_STATUS.published || status === OUTFIT_STATUS.scheduled || status === OUTFIT_STATUS.rejected ? new Date('2026-05-20T00:00:00.000Z') : null,
       rejectionReason: status === 'rejected' ? rejectionReason ?? null : null,
       publishedAt: status === 'published' ? new Date('2026-05-20T00:00:00.000Z') : null
     };

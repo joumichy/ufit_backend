@@ -9,6 +9,7 @@ import {users, userRoles} from './schema.identity';
 export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from './schema.identity';
 export {notifications, notificationEmailDeliveries} from './schema.notifications';
 import {CREATOR_GRADE} from '../../../modules/creators/grades/creator-grade.contract';
+import {USER_ADMINISTRATION} from '../../../modules/identity/domain/user-administration.contract';
 import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
 import {PROFILE_IMAGE} from '../../../modules/media/domain/profile-image.contract';
 import {OUTFIT_MEDIA} from '../../../modules/media/domain/outfit-media.contract';
@@ -17,7 +18,9 @@ import {OUTFIT_EDITING, OUTFIT_STATUSES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES}
 import { GENDER_TARGETS } from '../../domain/gender-target';
 import { PRODUCT_MEDIA } from '../../../modules/media/domain/product-media.contract';
 import { PRODUCT_EDITING, PRODUCT_STATUSES, PRODUCT_STATUS, PRODUCT_VARIANT_STATUSES, PRODUCT_IMAGE_KINDS } from '../../../modules/products/domain/product-contract';
-import { PROFILE_STATUS, PROFILE_STATUSES } from '../../domain/profile-editing.contract';
+import { PROFILE_STATUS } from '../../domain/profile-editing.contract';
+import {profileStatusEnum} from './schema.profile-status';
+export {profileStatusEnum} from './schema.profile-status';
 import { CREATOR_SOCIAL_PLATFORMS } from '../../../modules/creators/creator-social.contract';
 import type { CreatorApplicationDossier, BrandApplicationDossier } from "../../../modules/applications/types/application-contract";
 import { sql } from 'drizzle-orm';
@@ -51,7 +54,6 @@ export const applicationDecisionEnum = ufitSchema.enum('application_decision', [
   'needs_more_info'
 ]);
 
-export const profileStatusEnum = ufitSchema.enum('profile_status', PROFILE_STATUSES);
 
 export const socialPlatformEnum = ufitSchema.enum('social_platform', CREATOR_SOCIAL_PLATFORMS);
 
@@ -159,6 +161,7 @@ export const creatorProfiles = ufitSchema.table(
     avatarUrl: text('avatar_url'),
     imageVersion: integer('image_version').notNull().default(PROFILE_IMAGE.limits.initialVersion),
     status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
+    statusVersion: integer('status_version').notNull().default(USER_ADMINISTRATION.limits.initialVersion),
     gradeVersion: integer('grade_version').notNull().default(CREATOR_GRADE.limits.initialVersion),
     gradeCode: text('grade_code')
       .notNull()
@@ -171,6 +174,7 @@ export const creatorProfiles = ufitSchema.table(
     userUnique: uniqueIndex('uidx_creator_profiles_user').on(table.userId),
     applicationUnique: uniqueIndex('uidx_creator_profiles_application').on(table.applicationId),
     slugUnique: uniqueIndex('uidx_creator_profiles_slug').on(table.slug),
+    statusVersion: check('creator_profiles_status_version_valid', sql`${table.statusVersion} >= ${USER_ADMINISTRATION.limits.initialVersion}`),
     imageVersion: check('creator_profiles_image_version_check', sql`${table.imageVersion} >= ${PROFILE_IMAGE.limits.initialVersion}`)
   })
 );
@@ -252,6 +256,7 @@ export const brandProfiles = ufitSchema.table(
     websiteUrl: text('website_url'),
     bio: text('bio'),
     status: profileStatusEnum('status').notNull().default(PROFILE_STATUS.active),
+    statusVersion: integer('status_version').notNull().default(USER_ADMINISTRATION.limits.initialVersion),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
@@ -259,6 +264,7 @@ export const brandProfiles = ufitSchema.table(
     ownerIdx: index('idx_brand_profiles_owner').on(table.ownerUserId),
     applicationUnique: uniqueIndex('uidx_brand_profiles_application').on(table.applicationId),
     slugUnique: uniqueIndex('uidx_brand_profiles_slug').on(table.slug),
+    statusVersion: check('brand_profiles_status_version_valid', sql`${table.statusVersion} >= ${USER_ADMINISTRATION.limits.initialVersion}`),
     imageVersion: check('brand_profiles_image_version_check', sql`${table.imageVersion} >= ${PROFILE_IMAGE.limits.initialVersion}`)
   })
 );
@@ -414,6 +420,8 @@ export const outfits = ufitSchema.table(
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
     rejectionReason: text('rejection_reason'),
     publishedAt: timestamp('published_at', { withTimezone: true }),
+    scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+    publicationTimeZone: text('publication_time_zone'),
     ...timestamps
   },
   (table) => ({
@@ -801,6 +809,7 @@ export const adminActionLogs = ufitSchema.table(
 export type { UserRow, NewUserRow, UserRoleRow, NewUserRoleRow, CreatorApplicationRow, NewCreatorApplicationRow, BrandApplicationRow, NewBrandApplicationRow, ApplicationReviewRow, NewApplicationReviewRow, CreatorProfileRow, NewCreatorProfileRow, BrandProfileRow, NewBrandProfileRow, BrandMemberRow, NewBrandMemberRow, ProductRow, NewProductRow, ProductVariantRow, NewProductVariantRow, ProductImageRow, NewProductImageRow, OutfitRow, NewOutfitRow, OutfitItemRow, NewOutfitItemRow, OutfitImageRow, NewOutfitImageRow, EditorialCollectionRow, NewEditorialCollectionRow, EditorialCollectionItemRow, NewEditorialCollectionItemRow, SavedOutfitRow, CreatorFollowRow, CartRow, NewCartRow, CartItemRow, NewCartItemRow, OrderRow, NewOrderRow, OrderItemRow, NewOrderItemRow, PaymentRow, StripeWebhookEventRow, NewStripeWebhookEventRow, CommissionRow, NewCommissionRow, ShipmentRow, NewShipmentRow, AdminActionLogRow } from './schema.rows';
 
 export { connectAccounts } from "./schema.connect";
+export {profileStatusChanges} from './schema.profile-administration';
 
 export const productMediaAssets = ufitSchema.table('product_media_assets', {
   id: uuid('id').primaryKey(),

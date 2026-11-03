@@ -1,7 +1,7 @@
 import {PROFILE_EDITING, PROFILE_AUTHOR_ROLES} from '../../../shared/domain/profile-editing.contract';
 
-export const OUTFIT_STATUS = {draft: 'draft', submitted: 'submitted', underReview: 'under_review', published: 'published', rejected: 'rejected', archived: 'archived'} as const;
-export const OUTFIT_STATUSES = [OUTFIT_STATUS.draft, OUTFIT_STATUS.submitted, OUTFIT_STATUS.underReview, OUTFIT_STATUS.published, OUTFIT_STATUS.rejected, OUTFIT_STATUS.archived] as const;
+export const OUTFIT_STATUS = {draft: 'draft', submitted: 'submitted', underReview: 'under_review', scheduled: 'scheduled', published: 'published', rejected: 'rejected', archived: 'archived'} as const;
+export const OUTFIT_STATUSES = [OUTFIT_STATUS.draft, OUTFIT_STATUS.submitted, OUTFIT_STATUS.underReview, OUTFIT_STATUS.scheduled, OUTFIT_STATUS.published, OUTFIT_STATUS.rejected, OUTFIT_STATUS.archived] as const;
 export const OUTFIT_VISIBILITY = {public: 'public', private: 'private', featured: 'featured'} as const;
 export const OUTFIT_VISIBILITIES = [OUTFIT_VISIBILITY.public, OUTFIT_VISIBILITY.private, OUTFIT_VISIBILITY.featured] as const;
 export const OUTFIT_ITEM_TYPES = ['top', 'bottom', 'shoes', 'bag', 'accessory', 'outerwear', 'eyewear', 'headwear'] as const;

@@ -1,3 +1,4 @@
+import type {OutfitCalendarQuery} from './outfit-publication.contract';
 import type {AuthenticatedUser} from '../../identity/domain/user.types';
 import type {ProfileOwner, ProfileOwnerInfo, ProfileKind} from '../../../shared/domain/profile-editing.contract';
 import type {OUTFIT_STATUSES, OUTFIT_TAG_TYPES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES} from './outfit-editing.contract';
@@ -20,6 +21,8 @@ export interface Outfit {
   totalPriceMin: number;
   totalPriceMax: number;
   publishedAt: Date | null;
+  scheduledFor: Date | null;
+  publicationTimeZone: string | null;
   reviewedBy: string | null;
   reviewedAt: Date | null;
   rejectionReason: string | null;
@@ -87,6 +90,10 @@ export interface OutfitRepository {
   lockOwner(owner: OutfitOwner): Promise<void>;
   lockOutfit(id: string): Promise<Outfit | undefined>;
   findByCreationRequest(owner: OutfitOwner, requestId: string): Promise<{detail: OutfitDetail; fingerprint: string | null} | null>;
+  listCalendar(query: OutfitCalendarQuery): Promise<OutfitManagedPage>;
+  listDuePublications(now: Date, cursor?: string): Promise<string[]>;
+  publishScheduled(id: string, now: Date): Promise<void>;
+  setPublication(id: string, scheduledFor: Date | null, timeZone: string | null): Promise<void>;
   listManaged(query: OutfitManagedQuery): Promise<OutfitManagedPage>;
   listTags(): Promise<OutfitTag[]>;
   hasReadyOutfitMedia(owner: OutfitOwner, ids: string[]): Promise<boolean>;
@@ -94,7 +101,7 @@ export interface OutfitRepository {
   replaceContent(id: string, input: OutfitContentUpdate): Promise<void>;
   replaceTags(id: string, tagIds: string[]): Promise<void>;
   replacePins(id: string, pins: OutfitPinInput[]): Promise<void>;
-  createOutfit(input: Omit<Outfit, 'id' | 'version' | 'status' | 'visibility' | 'totalPriceMin' | 'totalPriceMax' | 'publishedAt' | 'createdAt' | 'updatedAt'> & {creationRequestId: string; creationFingerprint: string}): Promise<Outfit>;
+  createOutfit(input: Omit<Outfit, 'id' | 'version' | 'status' | 'visibility' | 'totalPriceMin' | 'totalPriceMax' | 'publishedAt' | 'scheduledFor' | 'publicationTimeZone' | 'createdAt' | 'updatedAt'> & {creationRequestId: string; creationFingerprint: string}): Promise<Outfit>;
   addItems(outfitId: string, items: Array<Omit<OutfitItem, 'id' | 'outfitId'>>): Promise<OutfitItem[]>;
   addImages(outfitId: string, images: Array<Omit<OutfitImage, 'id' | 'outfitId'>>): Promise<OutfitImage[]>;
   findById(outfitId: string): Promise<OutfitDetail | null>;
