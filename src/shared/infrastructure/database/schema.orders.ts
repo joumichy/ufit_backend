@@ -148,7 +148,7 @@ export const orderCancellations = ufitSchema.table("order_cancellations", {
   paymentOutcome: text("payment_outcome"),
   effectsApplied: boolean("effects_applied").notNull().default(false),
   ...timestamps,
-});
+}, table => ({orderIdentity: uniqueIndex('order_cancellations_id_order_unique').on(table.id,table.orderId)}));
 
 
 export const orderCancellationRefunds = ufitSchema.table('order_cancellation_refunds', {

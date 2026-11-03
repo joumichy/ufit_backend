@@ -1,3 +1,7 @@
+import {AdminRefundOrganizationController, PrivateRefundOrganizationController} from './presentation/refund-organization.controller';
+import {RefundOrganizationService} from './application/refund-organization.service';
+import {DrizzleRefundOrganizationRepository} from './infrastructure/drizzle-refund-organization.repository';
+import {REFUND_ORGANIZATION} from './domain/refund-organization';
 import {RefundRecoveryController} from './presentation/refund-recovery.controller';
 import {RefundRecoveryService} from './application/refund-recovery.service';
 import {DrizzleRefundRecoveryRepository} from './infrastructure/drizzle-refund-recovery.repository';
@@ -38,8 +42,9 @@ import {RETURN_REFUND} from './domain/return-refund';
     CommissionsModule,
     forwardRef(() => PaymentsModule),
   ],
-  controllers: [RefundRecoveryController, OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
+  controllers: [AdminRefundOrganizationController, PrivateRefundOrganizationController, RefundRecoveryController, OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
   providers: [
+    RefundOrganizationService, DrizzleRefundOrganizationRepository, {provide: REFUND_ORGANIZATION.repository, useExisting: DrizzleRefundOrganizationRepository},
     RefundRecoveryService, DrizzleRefundRecoveryRepository, {provide: REFUND_RECOVERY.repository, useExisting: DrizzleRefundRecoveryRepository},
     OrdersService,
     OrderReturnsService,

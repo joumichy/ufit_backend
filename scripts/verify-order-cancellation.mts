@@ -87,6 +87,8 @@ async function main() {
       assert.equal((await cancellations.prepareRefund(claim)).id,attempt.id);
       await record(claim,attempt,CANCELLATION_REFUND.providerStatus.pending); await cancellations.complete(claim);
       assert.equal(await stock(),fixture.stock-fixture.quantity); assert.equal((await cancellation(paid.order.id)).effectsApplied,false);
+      assert.equal((await customerOrders.findById(paid.order.id))?.cancellation?.id,claim.id);
+      assert.equal((await brandOrders.detail(source.brandId,paid.order.id))?.cancellation?.id,claim.id);
       assert.equal((await customerOrders.findById(paid.order.id))?.cancellation?.refund?.state,CANCELLATION_REFUND.state.pending);
       assert.equal((await brandOrders.detail(source.brandId,paid.order.id))?.cancellation?.refund?.state,CANCELLATION_REFUND.state.pending);
       checks.push('durable attempt identity, pending and coherent customer/brand projections');

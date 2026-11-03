@@ -131,6 +131,7 @@ export interface CancellationRefundAttempt extends CancellationRefundSummary {
 export interface CancellationRefundReference {orderId: string; cancellationId: string; attemptId: string; refundId: string;}
 export interface CancellationRefundResult extends CancellationRefundSummary {refundId: string | null;}
 export interface CancellationProjection {
+  id: string;
   status: CancellationClaim['status']; reason: CancellationClaim['reason'];
   outcome: CancellationOutcome | null; refund: CancellationRefundSummary | null;
 }
