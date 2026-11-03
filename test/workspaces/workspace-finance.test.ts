@@ -1,6 +1,7 @@
+import {commissionEntrySchema} from '../../src/modules/commissions/domain/commission-entry.contract';
 import {ConflictException} from '@nestjs/common';
 import {describe, expect, it} from 'vitest';
-import {workspaceInteger, workspaceSalesSchema, workspaceCommissionCurrencySchema, workspaceCommissionSchema} from '../../src/modules/workspaces/domain/workspace-finance';
+import {workspaceInteger, workspaceSalesSchema, workspaceCommissionCurrencySchema} from '../../src/modules/workspaces/domain/workspace-finance';
 
 const sales = {currency: 'CHF', capturedOrderCount: 1, capturedAmount: 26780, refundedAmount: 12990, refundInProgressAmount: 13790, netAmount: 13790};
 const commissions = {currency: 'CHF', originalAmount: 100, adjustedAmount: 30, netAmount: 70,
@@ -33,16 +34,16 @@ describe('workspace financial contracts', () => {
   it('requires one exact commission row with frozen currency, integer basis points and an explicit timestamp', () => {
     const row = {id: 'aab605b4-f111-4abb-8fa9-bdbeeb308aa1', orderItemId: '771d6390-c24d-4686-8af8-ceb354e12b39',
       brandId: '5af33e92-3d45-47cf-930a-4489c5ca3450', sourceOutfitId: 'b9596f35-969d-459b-aefc-a8656f191c1c',
-      status: 'paid', currency: 'BHD', baseAmount: 300, rateBps: 833, originalAmount: 25, adjustedAmount: 16, netAmount: 9,
+      status: 'paid', creator: {id: '11111111-1111-4111-8111-111111111111', name: 'Créateur de qualification'}, sale: {orderNumber: 'QUAL-COMMISSION', productName: 'Chemise figée', brandName: 'Marque de qualification', quantity: 3}, currency: 'BHD', baseAmount: 300, rateBps: 833, originalAmount: 25, adjustedAmount: 16, netAmount: 9,
       paidAdjustmentAmount: 16, release: {state: 'paid', availableAt: null}, createdAt: '2026-11-01T00:00:00.000Z'};
-    expect(workspaceCommissionSchema.parse(row)).toEqual(row);
+    expect(commissionEntrySchema.parse(row)).toEqual(row);
     for (const invalid of [{...row, commissionAmount: 25}, {...row, rateBps: 0.0833}, {...row, createdAt: null},
       {...row, paidAdjustmentAmount: 15}, {...row, status: 'pending', paidAdjustmentAmount: 16}, {...row, netAmount: 25},
       {...row, release: undefined}, {...row, release: {state: 'payable', availableAt: '2026-11-01T00:00:00.000Z'}}]) {
-      expect(workspaceCommissionSchema.safeParse(invalid).success).toBe(false);
+      expect(commissionEntrySchema.safeParse(invalid).success).toBe(false);
     }
     const {currency: removedCurrency, ...missingCurrency} = row;
-    expect(workspaceCommissionSchema.safeParse(missingCurrency).success).toBe(false);
+    expect(commissionEntrySchema.safeParse(missingCurrency).success).toBe(false);
   });
   it('retains paid principal and identifies its return adjustment without claiming a provider reversal', () => {
     expect(workspaceCommissionCurrencySchema.parse(commissions)).toEqual(commissions);

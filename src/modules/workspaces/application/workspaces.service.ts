@@ -1,4 +1,4 @@
-import type {WorkspaceSales, WorkspaceCommissionCurrency, WorkspaceCommission} from '../domain/workspace-finance';
+import type {WorkspaceSales, WorkspaceCommissionCurrency} from '../domain/workspace-finance';
 import {WORKSPACE_FINANCE} from '../domain/workspace-finance';
 import {canAuthorProfile, PROFILE_STATUS, type ProfileOwner} from '../../../shared/domain/profile-editing.contract';
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
@@ -70,7 +70,6 @@ export interface CreatorWorkspaceOutfit {
   updatedAt: string | null;
 }
 
-export type CreatorWorkspaceCommission = WorkspaceCommission;
 
 export interface BrandWorkspaceProduct {
   id: string;
@@ -135,7 +134,6 @@ export interface WorkspacesRepository {
   findCreatorProfileByUserId(userId: string): Promise<CreatorWorkspaceProfile | null>;
   getCreatorMetrics(creatorId: string): Promise<CreatorWorkspaceMetrics>;
   listCreatorOutfits(creatorId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<CreatorWorkspaceOutfit>>;
-  listCreatorCommissions(creatorId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<CreatorWorkspaceCommission>>;
 
   findBrandProfileForMember(brandProfileId: string, userId: string): Promise<BrandWorkspaceProfile | null>;
   getBrandMetrics(brandProfileId: string): Promise<BrandWorkspaceMetrics>;
@@ -195,14 +193,6 @@ export class WorkspacesService {
   async listCreatorOutfits(userId: string, input: WorkspacePageInput) {
     const profile = await this.requireCreatorProfile(userId);
     return this.workspaces.listCreatorOutfits(profile.id, this.normalizePage(input));
-  }
-
-  async listCreatorCommissions(userId: string, input: WorkspacePageInput) {
-    return this.workspaces.snapshot(async repository => {
-      const profile = await this.requireCreatorProfile(userId, repository);
-      await this.requireFinancialAccess(repository, userId, {creatorId: profile.id, brandId: null});
-      return repository.listCreatorCommissions(profile.id, this.normalizePage(input));
-    });
   }
 
   async getBrandDashboard(brandProfileId: string, userId: string) {

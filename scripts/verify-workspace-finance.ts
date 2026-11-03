@@ -1,4 +1,8 @@
 import 'reflect-metadata';
+import {DrizzleCommissionLedgerRepository} from '../src/modules/commissions/infrastructure/drizzle-commission-ledger.repository';
+import {CommissionLedgerService} from '../src/modules/commissions/application/commission-ledger.service';
+import {commissionLedgerQuerySchema} from '../src/modules/commissions/domain/commission-ledger.contract';
+import {COMMISSION_RELEASE} from '../src/modules/commissions/domain/commission-release';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -51,7 +55,7 @@ async function verify(): Promise<void> {
       assert.equal(result.rows[fixture.zero].access, 'on'); passed++;
     }, READ_SNAPSHOT);
     await assert.rejects(database.db.transaction(async tx => {
-      const session = {db: tx}, reader = new DrizzleWorkspaceFinanceReader(session);
+      const session = {db: tx}, reader = new DrizzleWorkspaceFinanceReader(session), ledger = new DrizzleCommissionLedgerRepository(session), ledgerService = new CommissionLedgerService(ledger);
       const [source] = await tx.select().from(orders).where(eq(orders.id, sourceId)); assert(source);
       const [item] = await tx.select().from(orderItems).where(eq(orderItems.orderId, source.id)); assert(item?.sourceCreatorId);
       const [sourceCommission] = await tx.select().from(commissions).where(eq(commissions.orderItemId, item.id)); assert(sourceCommission);
@@ -152,14 +156,18 @@ async function verify(): Promise<void> {
       await tx.update(payments).set({currency: 'JPY'}).where(eq(payments.orderId, chf.id));
       await denied(() => reader.sales(scopes.brand), fixture.conflict); passed++;
       await tx.update(payments).set({currency: 'CHF'}).where(eq(payments.orderId, chf.id));
-      const paginated = await reader.commissionPage(creatorId, {limit: fixture.one, offset: fixture.zero});
+      const commissionQuery = commissionLedgerQuerySchema.parse({limit: fixture.one});
+      const commissionScope = {kind: COMMISSION_RELEASE.scope.creator, creatorId} as const;
+      const paginated = await ledger.page(commissionScope, commissionQuery);
+      let cursor: string | undefined, revision: string | undefined;
       const pagedIds = new Set<string>();
-      for (let offset = fixture.zero as number; offset < paginated.page.total; offset++) {
-        const page = await reader.commissionPage(creatorId, {limit: fixture.one, offset});
+      for (let offset = fixture.zero as number; offset < paginated.totalCount; offset++) {
+        const page = await ledger.page(commissionScope, {...commissionQuery,cursor,revision});
         assert.equal(page.items.length, fixture.one);
         const current = page.items[fixture.zero];
         assert(!pagedIds.has(current.id)); pagedIds.add(current.id);
-        assert.equal(page.page.nextOffset, offset + fixture.one < paginated.page.total ? offset + fixture.one : null);
+        assert.equal(page.nextCursor===null, offset + fixture.one===paginated.totalCount);
+        cursor=page.nextCursor===null?undefined:page.nextCursor;revision=page.nextCursor===null?undefined:page.revision;
         if (current.id === chf.commissionId) {
           assert.equal(current.currency, 'CHF'); assert.equal(current.originalAmount, fixture.commission);
           assert.equal(current.adjustedAmount, fixture.adjustment + fixture.adjustment);
@@ -168,7 +176,7 @@ async function verify(): Promise<void> {
         }
         assert(!('customerId' in current) && !('shippingAddress' in current) && !('commissionRate' in current) && !('commissionAmount' in current));
       }
-      assert.equal(pagedIds.size, paginated.page.total); passed++;
+      assert.equal(pagedIds.size, paginated.totalCount); passed++;
       await tx.update(commissions).set({status: 'validated'}).where(eq(commissions.id, bhd.commissionId));
       const validated = (await reader.creatorCommissions(creatorId)).find(row => row.currency === 'BHD')!;
       const oldBhd = commissionBaseline.find(row => row.currency === 'BHD');
@@ -180,18 +188,18 @@ async function verify(): Promise<void> {
       assert.equal(estimated.estimatedAmount - (oldBhd?.estimatedAmount ?? fixture.zero), fixture.commission); passed++;
       await tx.update(commissions).set({commissionAmount: fixture.one}).where(eq(commissions.id, chf.commissionId));
       await denied(() => reader.creatorCommissions(creatorId), fixture.conflict);
-      await denied(() => reader.commissionPage(creatorId, {limit: fixture.one, offset: fixture.zero}), fixture.conflict); passed++;
+      await denied(() => ledger.page(commissionScope,commissionQuery), fixture.conflict); passed++;
       await tx.update(commissions).set({commissionAmount: fixture.commission}).where(eq(commissions.id, chf.commissionId));
       const service = new WorkspacesService(new DrizzleWorkspacesRepository(session));
       await service.getCreatorDashboard(creator.userId); passed++;
       await tx.update(users).set({status: 'suspended'}).where(eq(users.id, creator.userId));
       await denied(() => service.getCreatorDashboard(creator.userId), fixture.denied);
-      await denied(() => service.listCreatorCommissions(creator.userId, {}), fixture.denied); passed++;
+      await denied(() => ledgerService.listCreator(creator.userId, {}), fixture.denied); passed++;
       await tx.update(users).set({status: 'active'}).where(eq(users.id, creator.userId));
       const actorRoles = await tx.select().from(userRoles).where(eq(userRoles.userId, creator.userId));
       await tx.delete(userRoles).where(eq(userRoles.userId, creator.userId));
       await denied(() => service.getCreatorDashboard(creator.userId), fixture.denied);
-      await denied(() => service.listCreatorCommissions(creator.userId, {}), fixture.denied); passed++;
+      await denied(() => ledgerService.listCreator(creator.userId, {}), fixture.denied); passed++;
       await tx.insert(userRoles).values(actorRoles);
       const [member] = await tx.select().from(brandMembers).where(eq(brandMembers.brandProfileId, source.brandId)); assert(member);
       await tx.update(brandMembers).set({status: 'removed'}).where(eq(brandMembers.id, member.id));

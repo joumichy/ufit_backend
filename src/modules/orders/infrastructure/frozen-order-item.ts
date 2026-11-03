@@ -3,8 +3,8 @@ import {z} from 'zod';
 import type {OrderItemRow} from '../../../shared/infrastructure/database/schema';
 import type {FrozenOrderItem} from '../domain/frozen-order-item';
 
-const FROZEN_ITEM = {minimumText: 1} as const;
-const snapshotSchema = z.object({name: z.string().min(FROZEN_ITEM.minimumText), sku: z.string().min(FROZEN_ITEM.minimumText),
+export const FROZEN_ITEM = {minimumText: 1,name:'name',jsonString:'string'} as const;
+const snapshotSchema = z.object({[FROZEN_ITEM.name]: z.string().min(FROZEN_ITEM.minimumText), sku: z.string().min(FROZEN_ITEM.minimumText),
   size: z.string().nullable().optional(), color: z.string().nullable().optional(), imageUrl: z.string().nullable().optional()});
 export function projectFrozenOrderItem(row: OrderItemRow, failure: {code: string; message: string}): FrozenOrderItem {
   const parsed = snapshotSchema.safeParse(row.productSnapshot);

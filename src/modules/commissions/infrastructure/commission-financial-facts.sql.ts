@@ -1,14 +1,16 @@
 import {sql} from 'drizzle-orm';
-import {commissions, orderItems, orders, shipments, orderReturns, orderReturnItems, orderCancellations, returnCommissionAdjustments} from '../../../shared/infrastructure/database/schema';
+import {commissions,creatorProfiles,brandProfiles,orderItems,orders,shipments,orderReturns,orderReturnItems,orderCancellations,returnCommissionAdjustments} from '../../../shared/infrastructure/database/schema';
+import {FROZEN_ITEM} from '../../orders/infrastructure/frozen-order-item';
 import {ORDER_COMMISSION, ORDER_STATUS, CANCELLATION} from '../../orders/domain/order-lifecycle';
 import {ORDER_RETURN} from '../../orders/domain/order-return.contract';
 import {COMMISSION_RELEASE as RELEASE, type CommissionFinancialScope} from '../domain/commission-release';
+import {COMMISSION_ENTRY} from '../domain/commission-entry.contract';
 
 const limits = {zero: 0, one: 1};
 const statuses = Object.values(ORDER_COMMISSION.status);
 const datedStatuses = [ORDER_COMMISSION.status.pending, ORDER_COMMISSION.status.validated];
 const noDateStates = [RELEASE.state.estimated, RELEASE.state.awaitingDelivery, RELEASE.state.paid, RELEASE.state.cancelled];
-const timestamp = {zone: 'UTC', format: 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'};
+const timestamp = COMMISSION_ENTRY.timestamp;
 const values = (items: readonly string[]) => sql.join(items.map(value => sql`${value}`), sql`, `);
 
 /** Live release facts: no cached validation can outlive a return or its dispute. */
@@ -20,7 +22,8 @@ export function commissionFinancialFacts(scope: CommissionFinancialScope) {
     join ${commissions} cm on cm.id=ra.commission_id where ${owner} group by ra.commission_id
   ), commission_basis as (
     select cm.id,cm.order_item_id,cm.creator_id,cm.brand_id,cm.source_outfit_id,cm.created_at,cm.base_amount,cm.commission_rate,
-      cm.status as raw_status,o.order_number,o.currency,o.status as order_status,o.commerce_snapshot,s.delivered_at,
+      cm.status as raw_status,o.id as order_id,o.order_number,o.currency,o.status as order_status,o.commerce_snapshot,s.delivered_at,
+      cp.display_name as creator_name,bp.brand_name,oi.quantity,oi.product_snapshot->>${FROZEN_ITEM.name} as product_name,
       cm.commission_amount::bigint as original,
       case when cm.status=${status.cancelled} then cm.commission_amount::bigint else coalesce(a.amount,${limits.zero}) end as adjusted,
       coalesce(a.amount,${limits.zero}) as returned,
@@ -30,8 +33,13 @@ export function commissionFinancialFacts(scope: CommissionFinancialScope) {
       (cm.commission_amount<${limits.zero} or coalesce(a.amount,${limits.zero})<${limits.zero} or coalesce(a.amount,${limits.zero})>cm.commission_amount
         or cm.base_amount<${limits.zero} or cm.base_amount<>oi.total_price or cm.commission_rate<${limits.zero} or cm.commission_rate>${limits.one}
         or cm.commission_rate<>oi.commission_rate or cm.source_outfit_id is distinct from oi.source_outfit_id
-        or cm.status not in (${values(statuses)}) or cm.brand_id<>o.brand_id or cm.creator_id is distinct from oi.source_creator_id) as data_invalid
+        or cm.status not in (${values(statuses)}) or cm.brand_id<>o.brand_id or cm.creator_id is distinct from oi.source_creator_id
+        or cp.id is null or bp.id is null or char_length(btrim(cp.display_name))<${limits.one} or char_length(btrim(bp.brand_name))<${limits.one}
+        or char_length(btrim(o.order_number))<${limits.one} or oi.quantity<${limits.one}
+        or jsonb_typeof(oi.product_snapshot->${FROZEN_ITEM.name}) is distinct from ${FROZEN_ITEM.jsonString}
+        or char_length(btrim(oi.product_snapshot->>${FROZEN_ITEM.name}))<${limits.one}) as data_invalid
     from ${commissions} cm join ${orderItems} oi on oi.id=cm.order_item_id join ${orders} o on o.id=oi.order_id
+    left join ${creatorProfiles} cp on cp.id=cm.creator_id left join ${brandProfiles} bp on bp.id=cm.brand_id
     left join ${shipments} s on s.order_id=o.id left join adjustments a on a.commission_id=cm.id where ${owner}
   ), commission_terms as (
     select b.*,case when jsonb_typeof(commerce_snapshot->${RELEASE.snapshot.window})=${RELEASE.snapshot.number}

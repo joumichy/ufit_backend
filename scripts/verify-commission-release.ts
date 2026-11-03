@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import {DrizzleCommissionLedgerRepository} from '../src/modules/commissions/infrastructure/drizzle-commission-ledger.repository';
+import {commissionLedgerQuerySchema} from '../src/modules/commissions/domain/commission-ledger.contract';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
@@ -29,6 +31,7 @@ async function verify() {
   const digest=async(table:string)=>(await db.query<{digest:string}>('select md5(coalesce(jsonb_agg(to_jsonb(t) order by to_jsonb(t)::text)::text,\'[]\')) digest from "ufit"."'+table+'" t')).rows[fixture.zero].digest;
   try{for(const table of fixture.tables)before.set(table,await digest(table));
     await assert.rejects(db.db.transaction(async tx=>{
+      const ledger=new DrizzleCommissionLedgerRepository({db:tx});
       const reader=new DrizzleWorkspaceFinanceReader({db:tx}),admin=new DrizzleAdminRepository({db:tx});
       const adminPage={limit:fixture.fullPage,offset:fixture.zero};
       const adminBaseline=(await admin.listQueue('commissions',adminPage)).page.total;
@@ -47,7 +50,7 @@ async function verify() {
       for(const[currentId,currentItemId]of [[commissionId,itemId],[otherCommissionId,otherItemId]])await tx.insert(commissions).values({id:currentId,orderItemId:currentItemId,
         creatorId:creator.id,brandId:source.brandId,sourceOutfitId:original.sourceOutfitId,baseAmount:fixture.base,commissionRate:fixture.rate,commissionAmount:fixture.commission,status:ORDER_COMMISSION.status.pending});
       await tx.insert(shipments).values({orderId:id,brandId:source.brandId,status:SHIPMENT_STATUS.pending});
-      const current=async()=>{const page=await reader.commissionPage(creator.id,{limit:fixture.fullPage,offset:fixture.zero});const value=page.items.find(row=>row.id===commissionId);assert(value);return value;};
+      const current=async()=>{const page=await ledger.page({kind:RELEASE.scope.creator,creatorId:creator.id},commissionLedgerQuerySchema.parse({limit:fixture.fullPage}));const value=page.items.find(row=>row.id===commissionId);assert(value);return value;};
       const expectRelease=async(state:string,status:string)=>{const value=await current();assert.equal(value.release.state,state);assert.equal(value.status,status);assert.equal(value.originalAmount,fixture.commission);return value;};
       assert.equal((await expectRelease(RELEASE.state.awaitingDelivery,ORDER_COMMISSION.status.pending)).release.availableAt,null);checks++;
       assert.equal((await admin.listQueue('commissions',adminPage)).page.total,adminBaseline+fixture.one+fixture.one);checks++;
@@ -71,7 +74,7 @@ async function verify() {
       assert.equal(adminHeld.page.total,adminBaseline+fixture.one);assert.equal(adminItem.status,ORDER_COMMISSION.status.pending);assert.equal(adminItem.currency,fixture.currency);assert.equal(adminItem.amount,fixture.commission);assert.equal(adminItem.title,fixture.prefix+id);checks++;
       const afterHold=(await reader.creatorCommissions(creator.id)).find(row=>row.currency===fixture.currency)!;
       assert.equal(beforeHold.validatedAmount-afterHold.validatedAmount,fixture.commission);assert.equal(afterHold.pendingAmount-beforeHold.pendingAmount,fixture.commission);
-      const neighbour=(await reader.commissionPage(creator.id,{limit:fixture.fullPage,offset:fixture.zero})).items.find(row=>row.id===otherCommissionId)!;
+      const neighbour=(await ledger.page({kind:RELEASE.scope.creator,creatorId:creator.id},commissionLedgerQuerySchema.parse({limit:fixture.fullPage}))).items.find(row=>row.id===otherCommissionId)!;
       assert.equal(neighbour.release.state,RELEASE.state.payable);checks++;
       for(const state of [RETURN_STATUS.refundPending,RETURN_STATUS.refundFailed]){
         await tx.update(orderReturns).set({status:state,receivedAt:sql`current_timestamp`,allocationNumber:fixture.one}).where(eq(orderReturns.id,returnId));await expectRelease(RELEASE.state.returnOpen,ORDER_COMMISSION.status.pending);checks++;

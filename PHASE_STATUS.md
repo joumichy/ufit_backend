@@ -1,8 +1,30 @@
 # UFit Backend - Etat des phases
 
-Dernière mise à jour : 2026-11-02
+Dernière mise à jour : 2026-11-03
 
-## État actif : socle des collections éditoriales
+## État actif : lecture financière des commissions
+
+Travail sur `charlie`. GET `admin/commissions`, `admin/commissions/:id` et
+`admin/commissions/:id/returns` exposent une consultation privée et identifiée :
+pièce figée, référence de vente, marque, créateur, calcul, règle d'achat et retours.
+GET `creators/me/commissions` utilise la même projection, avec profil résolu depuis
+l'acteur ; l'ancien contrat offset est remplacé par curseur/révision. Les lectures
+relisent l'accès actif dans le snapshot et répondent `private, no-store`.
+Recherche littérale, filtres et pagination refusent les révisions périmées.
+Les faits financiers restent calculés depuis livraison/délai figé, annulations
+et retours, sans validation persistée périmée ni taux courant substitué.
+
+Build/types et699tests backend passent ;19contrôles SQL du ledger,31de disponibilité
+et15financiers avec rollback,64contrôles HTTP réels. Schéma inchangé :75tables et
+40migrations conservées. Vingt-trois commandes préparées Stripe TEST, vrais
+événements récupérés puis finalisation réelle, servent à qualifier la pagination
+native ; aucune preuve de checkout Connect ou de webhook signé déduite. Le stock
+QA est revenu à7 et sa règle produit est inactive ; aucun versement effectué.
+Le périmètre complet, les parcours iOS et limites restent possédés par la
+[checklist Ufit](../../docs/ufit_ios_complete_checklist.md) et la
+[note commissions](../../docs/journal/entries/2026-11-03-060509-commission-ledger-91ff.md).
+
+## Socle des collections éditoriales — lot précédent
 
 Travail mobile/backend sur `charlie`. Le propriétaire Editorial possède désormais
 création/édition atomiques, publication, archivage et restauration, contrôle de

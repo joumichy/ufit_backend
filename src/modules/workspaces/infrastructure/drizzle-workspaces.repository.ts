@@ -25,7 +25,6 @@ import type {
   BrandWorkspaceOutfitIntegration,
   BrandWorkspaceProduct,
   BrandWorkspaceProfile,
-  CreatorWorkspaceCommission,
   CreatorWorkspaceMetrics,
   CreatorWorkspaceOutfit,
   CreatorWorkspaceProfile,
@@ -171,13 +170,6 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
       page,
       total[0]?.value ?? 0
     );
-  }
-
-  async listCreatorCommissions(
-    creatorId: string,
-    page: Required<WorkspacePageInput>
-  ): Promise<WorkspacePage<CreatorWorkspaceCommission>> {
-    return new DrizzleWorkspaceFinanceReader(this.database).commissionPage(creatorId, page);
   }
 
   async findBrandProfileForMember(brandProfileId: string, userId: string): Promise<BrandWorkspaceProfile | null> {

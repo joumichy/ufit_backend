@@ -2,8 +2,6 @@ import {ConflictException} from '@nestjs/common';
 import {z} from 'zod';
 import {CURRENCY_CODES} from '../../../shared/domain/currencies';
 import {PROFILE_KIND} from '../../../shared/domain/profile-editing.contract';
-import {commissionReleaseSchema, commissionReleaseStatus} from '../../commissions/domain/commission-release';
-import {ORDER_COMMISSION} from '../../orders/domain/order-lifecycle';
 
 export const WORKSPACE_FINANCE = {
   scope: PROFILE_KIND,
@@ -61,17 +59,6 @@ export const workspaceCommissionCurrencySchema = z.object({
   && sum([value.estimatedAmount, value.pendingAmount, value.validatedAmount, value.paidAmount]) - BigInt(value.paidAdjustmentAmount) === BigInt(value.netAmount)
   && value.paidAdjustmentAmount <= value.paidAmount);
 export type WorkspaceCommissionCurrency = z.infer<typeof workspaceCommissionCurrencySchema>;
-export const workspaceCommissionSchema = z.object({
-  id: z.uuid(), orderItemId: z.uuid(), brandId: z.uuid(), sourceOutfitId: z.uuid(),
-  status: z.enum(Object.values(ORDER_COMMISSION.status)), currency,
-  baseAmount: integer, rateBps: integer.max(WORKSPACE_FINANCE.basisPoints),
-  originalAmount: integer, adjustedAmount: integer, netAmount: integer, paidAdjustmentAmount: integer,
-  release: commissionReleaseSchema, createdAt: z.iso.datetime(),
-}).strict().refine(value => value.status === commissionReleaseStatus(value.release)
-  && BigInt(value.originalAmount) - BigInt(value.adjustedAmount) === BigInt(value.netAmount)
-  && (value.status === ORDER_COMMISSION.status.paid ? value.paidAdjustmentAmount === value.adjustedAmount : value.paidAdjustmentAmount === WORKSPACE_FINANCE.zero));
-export type WorkspaceCommission = z.infer<typeof workspaceCommissionSchema>;
-
 /** SQL emits explicit integer text, preserving exact sums before JSON serialization. */
 export function workspaceInteger(value: unknown): number {
   if (typeof value !== 'string' || !WORKSPACE_FINANCE.integerPattern.test(value)) throw new ConflictException(WORKSPACE_FINANCE.failure.persisted);

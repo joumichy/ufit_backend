@@ -36,12 +36,6 @@ export class WorkspacesController {
     return this.workspacesService.listCreatorOutfits(user.id, pageFromQuery(limit, offset));
   }
 
-  @Get('creators/me/commissions')
-  @Roles('creator')
-  listCreatorCommissions(@CurrentUser() user: AuthenticatedUser, @Query('limit') limit?: string, @Query('offset') offset?: string) {
-    return this.workspacesService.listCreatorCommissions(user.id, pageFromQuery(limit, offset));
-  }
-
   @Get('brands/:brandProfileId/dashboard')
   @Roles('brand_owner', 'brand_manager')
   getBrandDashboard(@CurrentUser() user: AuthenticatedUser, @Param('brandProfileId') brandProfileId: string) {

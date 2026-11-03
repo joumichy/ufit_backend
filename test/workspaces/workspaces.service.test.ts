@@ -8,7 +8,6 @@ import {
   type BrandWorkspaceProduct,
   type BrandWorkspaceOutfitIntegration,
   type CreatorWorkspaceOutfit,
-  type CreatorWorkspaceCommission,
   type BrandWorkspaceProfile,
   type CreatorWorkspaceMetrics,
   type CreatorWorkspaceProfile,
@@ -103,11 +102,6 @@ class FakeWorkspacesRepository implements WorkspacesRepository {
   async listCreatorOutfits(_creatorId: string, page: Required<WorkspacePageInput>) {
     this.lastPage = page;
     return emptyPage<CreatorWorkspaceOutfit>(page);
-  }
-
-  async listCreatorCommissions(_creatorId: string, page: Required<WorkspacePageInput>) {
-    this.lastPage = page;
-    return emptyPage<CreatorWorkspaceCommission>(page);
   }
 
   async findBrandProfileForMember(): Promise<BrandWorkspaceProfile | null> {

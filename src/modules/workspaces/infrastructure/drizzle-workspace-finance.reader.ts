@@ -1,6 +1,5 @@
 import {returnRefundFinancialFacts,externalRefundSettlements} from '../../../shared/infrastructure/database/schema.refund-settlements';
 import {refundOrganizationCases} from '../../../shared/infrastructure/database/schema.refund-organizations';
-import type {WorkspacePage, WorkspacePageInput} from '../application/workspaces.service';
 import {ConflictException} from '@nestjs/common';
 import {sql} from 'drizzle-orm';
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
@@ -10,8 +9,8 @@ import {RETURN_STATUS} from '../../orders/domain/order-return.contract';
 import {RETURN_REFUND_ATTEMPT} from '../../orders/domain/return-refund';
 import {commissionFinancialFacts} from '../../commissions/infrastructure/commission-financial-facts.sql';
 import {COMMISSION_RELEASE} from '../../commissions/domain/commission-release';
-import {WORKSPACE_FINANCE as FINANCE, WORKSPACE_COMMISSION_FIELDS, requireWorkspaceProjection, workspaceInteger, workspaceSalesSchema, workspaceCommissionCurrencySchema, workspaceCommissionSchema,
-  type WorkspaceFinanceScope, type WorkspaceSales, type WorkspaceCommissionCurrency, type WorkspaceCommission} from '../domain/workspace-finance';
+import {WORKSPACE_FINANCE as FINANCE, WORKSPACE_COMMISSION_FIELDS, requireWorkspaceProjection, workspaceInteger, workspaceSalesSchema, workspaceCommissionCurrencySchema,
+  type WorkspaceFinanceScope, type WorkspaceSales, type WorkspaceCommissionCurrency} from '../domain/workspace-finance';
 
 const cancelledRefundOutcomes=[CANCELLATION.outcome.refunded,CANCELLATION.outcome.refundedExternally];
 const needsRefund = [RETURN_STATUS.refundPending, RETURN_STATUS.refundFailed];
@@ -103,25 +102,4 @@ export class DrizzleWorkspaceFinanceReader {
       return requireWorkspaceProjection(workspaceCommissionCurrencySchema, {currency: row.currency, ...amounts});
     });
   }
-  async commissionPage(creatorId: string, page: Required<WorkspacePageInput>): Promise<WorkspacePage<WorkspaceCommission>> {
-    const facts = commissionFinancialFacts({kind: COMMISSION_RELEASE.scope.creator, creatorId});
-    const totals = await this.database.db.execute(sql`${facts} select count(*)::text as total, count(*) filter (where invalid)::text as invalid from facts`);
-    if (workspaceInteger(totals.rows[FINANCE.zero].invalid) !== FINANCE.zero) throw new ConflictException(FINANCE.failure.persisted);
-    const total = workspaceInteger(totals.rows[FINANCE.zero].total);
-    const result = await this.database.db.execute(sql`${facts}
-      select id, order_item_id as "orderItemId", brand_id as "brandId", source_outfit_id as "sourceOutfitId", status, currency, release_state as "releaseState", available_at as "availableAt",
-        base_amount::text as "baseAmount", (commission_rate * ${FINANCE.basisPoints})::integer::text as "rateBps",
-        original::text as "originalAmount", adjusted::text as "adjustedAmount", (original - adjusted)::text as "netAmount",
-        (case when status = ${ORDER_COMMISSION.status.paid} then returned else ${FINANCE.zero} end)::text as "paidAdjustmentAmount", to_char(created_at at time zone ${FINANCE.timestamp.zone}, ${FINANCE.timestamp.format}) as "createdAt"
-      from facts order by created_at desc, id desc limit ${page.limit} offset ${page.offset}`);
-    const items = result.rows.map(row => requireWorkspaceProjection(workspaceCommissionSchema, {
-      id: row.id, orderItemId: row.orderItemId, brandId: row.brandId, sourceOutfitId: row.sourceOutfitId, status: row.status, currency: row.currency,
-      baseAmount: workspaceInteger(row.baseAmount), rateBps: workspaceInteger(row.rateBps), originalAmount: workspaceInteger(row.originalAmount),
-      adjustedAmount: workspaceInteger(row.adjustedAmount), netAmount: workspaceInteger(row.netAmount), paidAdjustmentAmount: workspaceInteger(row.paidAdjustmentAmount),
-      release: {state: row.releaseState, availableAt: row.availableAt}, createdAt: row.createdAt,
-    }));
-    const next = page.offset + items.length;
-    return {items, page: {...page, total, nextOffset: next < total ? next : null}};
-  }
-
 }
