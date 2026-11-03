@@ -69,7 +69,10 @@ export async function ensureStripeConnectAccount(
   > = {
     type: CONNECT.accountType,
     country: record.country,
-    capabilities: { transfers: { requested: true } },
+    // Full-service Swiss accounts require card_payments alongside transfers;
+    // recipient agreements cannot support the selected cross-border Connect flow.
+    capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+    tos_acceptance: { service_agreement: CONNECT.creation.serviceAgreement },
     metadata: {
       [CONNECT.metadata.associationId]: record.id,
       [CONNECT.metadata.profileId]: record.profileId,

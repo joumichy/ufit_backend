@@ -13,6 +13,10 @@ export const CONNECT = {
   capabilityActive: "active",
   capabilityPending: "pending",
   accountType: "express",
+  creation: {
+    serviceAgreement: "full",
+    idempotencyPrefix: "ufit-connect-account:full-card-transfers:",
+  },
   linkType: "account_onboarding",
   collectionFields: "eventually_due",
   metadata: {
@@ -151,4 +155,4 @@ export function emptyConnectSnapshot(
     pendingVerificationCount: CONNECT.zero,
   };
 }
-export const connectCreationKey = (id: string) => `ufit-connect-account:${id}`;
+export const connectCreationKey = (id: string) => CONNECT.creation.idempotencyPrefix + id;

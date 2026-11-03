@@ -105,7 +105,7 @@ describe("Connect recipient contracts", () => {
     expect(result.id).toBe("acct_recipient");
     expect(stripe.accounts.create).not.toHaveBeenCalled();
   });
-  it("creates an Express transfer recipient with a stable, minimal provider contract", async () => {
+  it("creates an Express full-service account with a stable cross-border contract", async () => {
     const stripe = client();
     await ensureStripeConnectAccount(stripe as never, {
       ...fixture.record,
@@ -115,15 +115,33 @@ describe("Connect recipient contracts", () => {
       {
         type: "express",
         country: "US",
-        capabilities: { transfers: { requested: true } },
+        capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+        tos_acceptance: { service_agreement: "full" },
         metadata: {
           ufit_connect_id: "connect-record",
           ufit_profile_id: "brand",
           ufit_profile_kind: "brand",
         },
       },
-      { idempotencyKey: "ufit-connect-account:connect-record" },
+      { idempotencyKey: "ufit-connect-account:full-card-transfers:connect-record" },
     );
+  });
+  it.each([CONNECT.kind.creator, CONNECT.kind.brand])("requests the required full-service capabilities for a Swiss %s", async kind => {
+    const stripe = client();
+    await ensureStripeConnectAccount(stripe as never, {
+      ...fixture.record, kind, country: "CH", stripeAccountId: null,
+    });
+    expect(stripe.accounts.create).toHaveBeenCalledWith(expect.objectContaining({
+      country: "CH", capabilities: {card_payments: {requested: true}, transfers: {requested: true}},
+      tos_acceptance: {service_agreement: "full"},
+    }), {idempotencyKey: "ufit-connect-account:full-card-transfers:connect-record"});
+  });
+  it("retrieves an already attached account without changing its capabilities or agreement", async () => {
+    const stripe = client();
+    await ensureStripeConnectAccount(stripe as never, fixture.record);
+    expect(stripe.accounts.retrieve).toHaveBeenCalledWith("acct_recipient");
+    expect(stripe.accounts.list).not.toHaveBeenCalled();
+    expect(stripe.accounts.create).not.toHaveBeenCalled();
   });
   it("reports the observed platform prerequisite without marking a recipient ready", async () => {
     const stripe = client();
