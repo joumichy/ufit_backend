@@ -1,5 +1,7 @@
 import type {IdentityAccess} from '../../src/modules/identity/domain/user.types';
 import {WORKSPACE_FINANCE} from '../../src/modules/workspaces/domain/workspace-finance';
+import {workspaceTransferPageSchema, WORKSPACE_TRANSFERS, type WorkspaceTransferQuery} from '../../src/modules/workspaces/domain/workspace-transfers';
+import type {WorkspaceFinanceScope} from '../../src/modules/workspaces/domain/workspace-finance';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import {
@@ -74,7 +76,15 @@ const brandMetrics: BrandWorkspaceMetrics = {
   }
 };
 
+const transferFixture = {creatorId: '11111111-1111-4111-8111-111111111111', brandId: '22222222-2222-4222-8222-222222222222',
+  asOf: '2026-11-03T21:00:00.000Z', revision: 'd751713988987e9331980363e24189ce'} as const;
 class FakeWorkspacesRepository implements WorkspacesRepository {
+  lastTransferScope?: WorkspaceFinanceScope;
+  async getTransfers(scope: WorkspaceFinanceScope, query: WorkspaceTransferQuery) {
+    expect(this.inSnapshot).toBe(true); this.lastTransferScope = scope;
+    return workspaceTransferPageSchema.parse({...scope, profileId: scope.profileId, asOf: transferFixture.asOf,
+      limit: query.limit, revision: transferFixture.revision, totalCount: 0, nextCursor: null, currencies: [], items: []});
+  }
   async getRevenue(): Promise<never> { throw new Error('Revenue projection not configured in this test'); }
   actor: IdentityAccess | undefined = {status: 'active', roles: ['creator', 'brand_owner']};
   inSnapshot = false;
@@ -134,6 +144,33 @@ function emptyPage<T>(page: Required<WorkspacePageInput>): WorkspacePage<T> {
 }
 
 describe('WorkspacesService', () => {
+  it('scopes transfer history to the owned profile within the financial snapshot', async () => {
+    const repository = new FakeWorkspacesRepository();
+    repository.creator = {...creatorProfile, id: transferFixture.creatorId};
+    repository.brand = {...brandProfile, id: transferFixture.brandId};
+    const service = new WorkspacesService(repository);
+    await expect(service.getCreatorTransfers(creatorProfile.userId, {})).resolves.toMatchObject({profileId: transferFixture.creatorId, kind: WORKSPACE_FINANCE.scope.creator, items: []});
+    expect(repository.lastTransferScope).toEqual({profileId: transferFixture.creatorId, kind: WORKSPACE_FINANCE.scope.creator});
+    await expect(service.getBrandTransfers(transferFixture.brandId, creatorProfile.userId, {})).resolves.toMatchObject({profileId: transferFixture.brandId, kind: WORKSPACE_FINANCE.scope.brand});
+  });
+
+  it('rejects transfer reads before accessing the ledger when identity or membership is unavailable', async () => {
+    const repository = new FakeWorkspacesRepository(), service = new WorkspacesService(repository);
+    repository.creator = {...creatorProfile, id: transferFixture.creatorId};
+    repository.actor = {status: 'active', roles: ['customer']};
+    await expect(service.getCreatorTransfers(creatorProfile.userId, {})).rejects.toBeInstanceOf(ForbiddenException);
+    repository.brand = null;
+    await expect(service.getBrandTransfers(transferFixture.brandId, creatorProfile.userId, {})).rejects.toBeInstanceOf(ForbiddenException);
+    expect(repository.lastTransferScope).toBeUndefined();
+  });
+
+  it('rejects unknown transfer query fields, incomplete cursors and invalid profile IDs before a snapshot', () => {
+    const repository = new FakeWorkspacesRepository(), service = new WorkspacesService(repository);
+    expect(() => service.getCreatorTransfers(creatorProfile.userId, {amount: 100})).toThrow();
+    expect(() => service.getCreatorTransfers(creatorProfile.userId, {cursor: transferFixture.creatorId})).toThrow();
+    expect(() => service.getBrandTransfers(brandProfile.id, creatorProfile.userId, {})).toThrow();
+    expect(repository.lastTransferScope).toBeUndefined();
+  });
   it('returns creator dashboard projections with grade and performance', async () => {
     const service = new WorkspacesService(new FakeWorkspacesRepository());
 

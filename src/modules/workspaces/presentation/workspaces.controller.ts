@@ -1,10 +1,11 @@
-import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Inject, Param, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
 import { Roles } from '../../../shared/presentation/decorators/roles.decorator';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { WorkspacesService } from '../application/workspaces.service';
+import {WORKSPACE_TRANSFERS as TRANSFERS} from '../domain/workspace-transfers';
 
 function pageFromQuery(limit?: string, offset?: string) {
   return {
@@ -19,6 +20,20 @@ const MEMBERSHIPS_ROUTE = "me/workspaces";
 @UseGuards(AuthGuard, RoleGuard)
 export class WorkspacesController {
   constructor(@Inject(WorkspacesService) private readonly workspacesService: WorkspacesService) {}
+
+  @Get(TRANSFERS.route.creator)
+  @Header(TRANSFERS.cache.header, TRANSFERS.cache.value)
+  @Roles(...TRANSFERS.roles.creator)
+  getCreatorTransfers(@CurrentUser() user: AuthenticatedUser, @Query() raw: unknown) {
+    return this.workspacesService.getCreatorTransfers(user.id, raw);
+  }
+
+  @Get(TRANSFERS.route.brand)
+  @Header(TRANSFERS.cache.header, TRANSFERS.cache.value)
+  @Roles(...TRANSFERS.roles.brand)
+  getBrandTransfers(@CurrentUser() user: AuthenticatedUser, @Param(TRANSFERS.route.brandId) brandProfileId: string, @Query() raw: unknown) {
+    return this.workspacesService.getBrandTransfers(brandProfileId, user.id, raw);
+  }
 
   @Get(MEMBERSHIPS_ROUTE)
   memberships(@CurrentUser() user: AuthenticatedUser, @Query() raw: unknown) {

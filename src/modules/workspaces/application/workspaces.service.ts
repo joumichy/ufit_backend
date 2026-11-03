@@ -4,6 +4,8 @@ import {WORKSPACE_FINANCE} from '../domain/workspace-finance';
 import {canAuthorProfile, PROFILE_STATUS, type ProfileOwner} from '../../../shared/domain/profile-editing.contract';
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
 import type {IdentityAccess} from '../../identity/domain/user.types';
+import {allocationIDSchema} from '../../payments/domain/payment-allocation';
+import {WORKSPACE_TRANSFERS, workspaceTransferQuerySchema, type WorkspaceTransferQuery, type WorkspaceTransferPage} from '../domain/workspace-transfers';
 import { z } from 'zod';
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 
@@ -124,6 +126,7 @@ export interface WorkspaceMemberships {
   brands: BrandWorkspaceProfile[];
 }
 export interface WorkspacesRepository {
+  getTransfers(scope: WorkspaceFinanceScope, query: WorkspaceTransferQuery): Promise<WorkspaceTransferPage>;
   getRevenue(scope: WorkspaceFinanceScope, period: RevenuePeriod): Promise<WorkspaceRevenue>;
   snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T>;
   actorAccess(userId: string): Promise<IdentityAccess | undefined>;
@@ -156,6 +159,26 @@ const WORKSPACE_ACCESS_MESSAGE = {
 @Injectable()
 export class WorkspacesService {
   constructor(@Inject(WORKSPACES_REPOSITORY) private readonly workspaces: WorkspacesRepository) {}
+
+  getCreatorTransfers(userId: string, raw: unknown) {
+    const parsed = workspaceTransferQuerySchema.safeParse(raw);
+    if (!parsed.success) throw new BadRequestException(WORKSPACE_TRANSFERS.failure.input);
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireCreatorProfile(userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: profile.id, brandId: null});
+      return repository.getTransfers({kind: WORKSPACE_FINANCE.scope.creator, profileId: profile.id}, parsed.data);
+    });
+  }
+
+  getBrandTransfers(brandProfileId: string, userId: string, raw: unknown) {
+    const parsed = workspaceTransferQuerySchema.safeParse(raw), id = allocationIDSchema.safeParse(brandProfileId);
+    if (!parsed.success || !id.success) throw new BadRequestException(WORKSPACE_TRANSFERS.failure.input);
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireBrandMember(id.data, userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: null, brandId: profile.id});
+      return repository.getTransfers({kind: WORKSPACE_FINANCE.scope.brand, profileId: profile.id}, parsed.data);
+    });
+  }
 
   async getCreatorRevenue(userId: string, raw: unknown) {
     const period = revenuePeriod(raw);

@@ -5,6 +5,8 @@ import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructur
 import {findIdentityAccess, IdentityAccessMode} from '../../identity/infrastructure/persistence/identity-access';
 import {DrizzleWorkspaceFinanceReader} from './drizzle-workspace-finance.reader';
 import {DrizzleWorkspaceRevenueReader} from './drizzle-workspace-revenue.reader';
+import {DrizzleWorkspaceTransfersReader} from './drizzle-workspace-transfers.reader';
+import type {WorkspaceTransferQuery} from '../domain/workspace-transfers';
 import type {RevenuePeriod} from '../domain/workspace-revenue';
 import type {WorkspaceFinanceScope} from '../domain/workspace-finance';
 import {WORKSPACE_FINANCE as FINANCE} from '../domain/workspace-finance';
@@ -41,6 +43,10 @@ const MEMBERSHIP_ACTIVE = "active";
 @Injectable()
 export class DrizzleWorkspacesRepository implements WorkspacesRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
+
+  getTransfers(scope: WorkspaceFinanceScope, query: WorkspaceTransferQuery) {
+    return new DrizzleWorkspaceTransfersReader(this.database).read(scope, query);
+  }
 
   getRevenue(scope: WorkspaceFinanceScope, period: RevenuePeriod) {
     return new DrizzleWorkspaceRevenueReader(this.database).read(scope, period);
