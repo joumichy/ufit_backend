@@ -5,5 +5,5 @@ export const READ_SNAPSHOT = {isolationLevel: 'repeatable read', accessMode: 're
 
 // Repositories can share an existing transaction without opening another connection.
 export interface DatabaseSession {
-  readonly db: Pick<NodePgDatabase<typeof schema>, "select" | "insert" | "update" | "delete" | "execute" | "query" | "transaction">;
+  readonly db: Pick<NodePgDatabase<typeof schema>, "select" | "selectDistinctOn" | "insert" | "update" | "delete" | "execute" | "query" | "transaction">;
 }
