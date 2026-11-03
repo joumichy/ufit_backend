@@ -1,3 +1,4 @@
+import type {ExternalRefundSettlement} from './refund-proof-review';
 export const ORDER_STATUS = {
   pendingPayment: "pending_payment",
   paid: "paid",
@@ -12,7 +13,7 @@ export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 export const CANCELLATION = {
   repository: Symbol("OrderCancellationRepository"),
   status: { requested: "requested", succeeded: "succeeded", failed: "failed" },
-  outcome: { notCharged: "not_charged", refunded: "refunded", refundFailed: "refund_failed", refundCancelled: "refund_canceled", refundBlocked: "refund_blocked" },
+  outcome: { notCharged: "not_charged", refunded: "refunded", refundedExternally:"refunded_externally", refundFailed: "refund_failed", refundCancelled: "refund_canceled", refundBlocked: "refund_blocked" },
   reason: {
     customer: "customer_requested",
     stockUnavailable: "stock_unavailable",
@@ -133,7 +134,7 @@ export interface CancellationRefundResult extends CancellationRefundSummary {ref
 export interface CancellationProjection {
   id: string;
   status: CancellationClaim['status']; reason: CancellationClaim['reason'];
-  outcome: CancellationOutcome | null; refund: CancellationRefundSummary | null;
+  outcome: CancellationOutcome | null; refund: CancellationRefundSummary | null; externalSettlement:ExternalRefundSettlement|null;
 }
 export function cancellationRefundOutcome(result: CancellationRefundSummary): CancellationOutcome | null {
   switch (result.state) {

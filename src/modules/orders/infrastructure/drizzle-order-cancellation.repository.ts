@@ -1,3 +1,5 @@
+import {findExternalRefundSettlement} from './refund-proof-projection';
+import {REFUND_RECOVERY} from '../domain/refund-recovery.contract';
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {DrizzleOrderNotifications} from './drizzle-order-notifications';
 import {cancelledOrderNotification} from '../domain/order-notification';
@@ -222,8 +224,9 @@ export class DrizzleOrderCancellationRepository
       await tx.update(orderCancellationRefunds).set({state: result.state, providerStatus: result.providerStatus, stripeRefundId: result.refundId, updatedAt: new Date()}).where(eq(orderCancellationRefunds.id, row.id));
       const latest = await this.latestRefund(tx, claim.id);
       if (latest?.id !== row.id) return true;
-      const outcome = cancellationRefundOutcome(result);
-      const status = !cancellation.effectsApplied || outcome === null ? CANCELLATION.status.requested
+      const external=await findExternalRefundSettlement({db:tx},{kind:REFUND_RECOVERY.kind.cancellation,id:claim.id});
+      const outcome = external?CANCELLATION.outcome.refundedExternally:cancellationRefundOutcome(result);
+      const status = external?CANCELLATION.status.succeeded:!cancellation.effectsApplied || outcome === null ? CANCELLATION.status.requested
         : result.state === CANCELLATION_REFUND.state.succeeded ? CANCELLATION.status.succeeded : CANCELLATION.status.failed;
       await tx.update(orderCancellations).set({status, paymentOutcome: outcome, updatedAt: new Date()}).where(eq(orderCancellations.id, claim.id));
       const [payment] = await tx.select().from(payments).where(and(eq(payments.provider, ORDER_PAYMENT.provider), eq(payments.providerPaymentIntentId, row.paymentIntentId))).limit(ORDER_LIMIT.singleRow);

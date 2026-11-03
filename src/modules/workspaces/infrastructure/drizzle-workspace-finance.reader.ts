@@ -1,3 +1,5 @@
+import {returnRefundFinancialFacts,externalRefundSettlements} from '../../../shared/infrastructure/database/schema.refund-settlements';
+import {refundOrganizationCases} from '../../../shared/infrastructure/database/schema.refund-organizations';
 import type {WorkspacePage, WorkspacePageInput} from '../application/workspaces.service';
 import {ConflictException} from '@nestjs/common';
 import {sql} from 'drizzle-orm';
@@ -10,6 +12,7 @@ import {WORKSPACE_FINANCE as FINANCE, WORKSPACE_COMMISSION_FIELDS, requireWorksp
   type WorkspaceFinanceScope, type WorkspaceSales, type WorkspaceCommissionCurrency, type WorkspaceCommission} from '../domain/workspace-finance';
 
 const commissionStates = Object.values(ORDER_COMMISSION.status);
+const cancelledRefundOutcomes=[CANCELLATION.outcome.refunded,CANCELLATION.outcome.refundedExternally];
 const needsRefund = [RETURN_STATUS.refundPending, RETURN_STATUS.refundFailed];
 
 
@@ -37,16 +40,9 @@ export class DrizzleWorkspaceFinanceReader {
           sum(oi.total_price) as full_amount,
           count(*) filter (where oi.quantity < ${FINANCE.single} or oi.unit_price < ${FINANCE.zero} or oi.total_price::bigint <> oi.quantity::bigint * oi.unit_price) as invalid_count
         from ${orderItems} oi join captures c on c.id = oi.order_id group by oi.order_id
-      ), refund_attempts as (
-        select rf.return_id, coalesce(sum(rf.amount) filter (where rf.state = ${RETURN_REFUND_ATTEMPT.succeeded}), ${FINANCE.zero}) as amount,
-          count(*) filter (where rf.state = ${RETURN_REFUND_ATTEMPT.succeeded}) as succeeded_count
-        from ${orderReturnRefunds} rf join ${orderReturns} rr on rr.id = rf.return_id join captures c on c.id = rr.order_id group by rf.return_id
       ), return_money as (
-        select rr.order_id, sum(coalesce(rf.amount, ${FINANCE.zero})) as amount,
-          bool_or(case when rr.status = ${RETURN_STATUS.refunded}
-            then coalesce(rf.succeeded_count, ${FINANCE.zero}) <> ${FINANCE.single} or rf.amount <> rr.total_amount
-            else coalesce(rf.succeeded_count, ${FINANCE.zero}) <> ${FINANCE.zero} end) as invalid
-        from ${orderReturns} rr join captures c on c.id = rr.order_id left join refund_attempts rf on rf.return_id = rr.id group by rr.order_id
+        select rf.order_id,sum(rf.amount) as amount,bool_or(rf.invalid) as invalid
+        from ${returnRefundFinancialFacts} rf join captures c on c.id=rf.order_id group by rf.order_id
       ), return_pieces as (
         select rr.order_id,
           coalesce(sum(ri.quantity::bigint * oi.unit_price) filter (where rr.status = ${RETURN_STATUS.refunded}), ${FINANCE.zero})::bigint as merchandise,
@@ -64,11 +60,14 @@ export class DrizzleWorkspaceFinanceReader {
         from captures c left join return_money rm on rm.order_id = c.id left join return_pieces rp on rp.order_id = c.id left join return_pending rn on rn.order_id = c.id
       ), facts as (
         select c.currency, ${captured} as captured,
-          ${returned} + case when oc.status = ${CANCELLATION.status.succeeded} and oc.payment_outcome = ${CANCELLATION.outcome.refunded} then ${captured} else ${FINANCE.zero} end as refunded,
+          ${returned} + case when oc.status = ${CANCELLATION.status.succeeded} and oc.payment_outcome in (${sql.join(cancelledRefundOutcomes.map(value=>sql`${value}`),sql`, `)}) then ${captured} else ${FINANCE.zero} end as refunded,
           ${returning} + case when oc.status = ${CANCELLATION.status.requested} then ${captured} else ${FINANCE.zero} end as pending,
           c.invalid or r.invalid or r.amount + r.pending_amount > c.amount or a.amount is null or a.amount < ${FINANCE.zero} or a.invalid_count > ${FINANCE.zero} or a.full_amount <> c.subtotal_amount
-            or (c.payment_status = ${ORDER_PAYMENT.status.refunded} and r.amount + case when oc.payment_outcome = ${CANCELLATION.outcome.refunded} then c.amount else ${FINANCE.zero} end <> c.amount) as invalid
+            or (oc.payment_outcome = ${CANCELLATION.outcome.refundedExternally} and (es.id is null or es.amount<>c.amount or es.currency<>c.currency or c.payment_status=${ORDER_PAYMENT.status.refunded}))
+            or (es.id is not null and (oc.status<>${CANCELLATION.status.succeeded} or oc.payment_outcome<>${CANCELLATION.outcome.refundedExternally}))
+            or (c.payment_status = ${ORDER_PAYMENT.status.refunded} and r.amount + case when oc.payment_outcome in (${sql.join(cancelledRefundOutcomes.map(value=>sql`${value}`),sql`, `)}) then c.amount else ${FINANCE.zero} end <> c.amount) as invalid
         from captures c left join attributed a on a.order_id = c.id join returned r on r.id = c.id left join ${orderCancellations} oc on oc.order_id = c.id
+        left join ${refundOrganizationCases} ec on ec.cancellation_id=oc.id left join ${externalRefundSettlements} es on es.case_id=ec.id
       )
       select currency, count(*)::text as "capturedOrderCount", sum(captured)::text as "capturedAmount", sum(refunded)::text as "refundedAmount",
         sum(pending)::text as "refundInProgressAmount", (sum(captured) - sum(refunded))::text as "netAmount",

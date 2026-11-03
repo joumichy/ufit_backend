@@ -1,13 +1,17 @@
 import {BadRequestException,Inject,Injectable,NotFoundException} from '@nestjs/common';
 import {z} from 'zod';
 import {refundOrganizationReferenceSchema,type RefundOrganizationAccess} from '../domain/refund-organization';
-import {REFUND_PROOF as P,prepareRefundProof,refundProofCommandSchema,type RefundProofFile,type RefundProofRepository,type RefundProofStorage} from '../domain/refund-proof.contract';
+import {REFUND_PROOF as P,prepareRefundProof,refundProofCommandSchema,refundProofMultipartSchema,refundProofHistoryQuerySchema,type RefundProofFile,type RefundProofRepository,type RefundProofStorage} from '../domain/refund-proof.contract';
 
 @Injectable()
 export class RefundProofService {
   constructor(@Inject(P.repository) private readonly proofs:RefundProofRepository,@Inject(P.storage) private readonly storage:RefundProofStorage) {}
   async upload(access:RefundOrganizationAccess,kind:string,id:string,raw:unknown,file?:RefundProofFile) {
-    const command=refundProofCommandSchema.safeParse(raw);
+    const multipart=refundProofMultipartSchema.safeParse(raw);
+    if(!multipart.success)throw new BadRequestException(P.failure.input);
+    let decoded:unknown;
+    try {decoded=JSON.parse(multipart.data.command);}catch {throw new BadRequestException(P.failure.input);}
+    const command=refundProofCommandSchema.safeParse(decoded);
     if(!command.success || command.data.transferredOn>new Date().toISOString().slice(DatePart.start,DatePart.end))throw new BadRequestException(P.failure.input);
     const reference=this.reference(kind,id),prepared=prepareRefundProof(file);
     const asset=await this.proofs.reserve(access,reference,command.data,prepared);
@@ -19,6 +23,11 @@ export class RefundProofService {
     const receipt=await this.proofs.receipt(access,this.reference(kind,id),requestId);
     if(!receipt)throw new NotFoundException(P.failure.receipt);
     return receipt;
+  }
+  history(access:RefundOrganizationAccess,kind:string,id:string,raw:unknown) {
+    const query=refundProofHistoryQuerySchema.safeParse(raw);
+    if(!query.success)throw new BadRequestException(P.failure.input);
+    return this.proofs.history(access,this.reference(kind,id),query.data);
   }
   async file(access:RefundOrganizationAccess,kind:string,id:string,proofId:string) {
     this.identity(proofId);

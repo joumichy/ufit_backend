@@ -1,3 +1,4 @@
+import {cancellationSettlementMap} from './refund-proof-projection';
 import {projectCancellation} from './cancellation-projection';
 import {BadRequestException, ConflictException, Inject, Injectable} from '@nestjs/common';
 import {and, desc, eq, inArray, lt, or} from 'drizzle-orm';
@@ -45,18 +46,19 @@ export class DrizzleBrandOrdersRepository implements BrandOrderRepository {
   async detail(brandId: string, id: string): Promise<BrandOrderDetail | undefined> {
     const [row] = await this.database.db.select().from(orders).where(and(eq(orders.id, id), eq(orders.brandId, brandId), inArray(orders.status, BRAND_ORDERS.visibleStatuses))).limit(ORDER_LIMIT.singleRow);
     if (!row) return undefined;
-    const [items, [shipping], [cancellation], [refund]] = await Promise.all([
+    const [items, [shipping], [cancellation], [refund],external] = await Promise.all([
       this.database.db.select().from(orderItems).where(eq(orderItems.orderId, id)).orderBy(orderItems.id),
       this.database.db.select().from(shipments).where(eq(shipments.orderId, id)).limit(ORDER_LIMIT.singleRow),
       this.database.db.select().from(orderCancellations).where(eq(orderCancellations.orderId, id)).limit(ORDER_LIMIT.singleRow),
       this.database.db.select().from(orderCancellationRefunds).innerJoin(orderCancellations, eq(orderCancellations.id, orderCancellationRefunds.cancellationId))
         .where(eq(orderCancellations.orderId, id)).orderBy(desc(orderCancellationRefunds.attemptNumber)).limit(ORDER_LIMIT.singleRow),
+      cancellationSettlementMap(this.database,[id]),
     ]);
     const address = shippingAddressSchema.safeParse(row.shippingAddress);
     if (!address.success || (shipping && shipping.brandId !== row.brandId)) throw new ConflictException(BRAND_ORDERS.failure.persisted);
     const shipment = shipping ? projectShipment(shipping) : null;
     return {...projectSummary(row, items, shipping), subtotalAmount: row.subtotalAmount, shippingAmount: row.shippingAmount, taxAmount: row.taxAmount,
-      cancellation: cancellation ? projectCancellation(cancellation, refund?.order_cancellation_refunds) : null, shippingAddress: address.data, items: items.map(item => projectFrozenOrderItem(item, BRAND_ORDERS.failure.persisted)), shipment, actions: shipment ? shipmentActions({shipment, orderStatus: row.status as OrderStatus}) : []};
+      cancellation: cancellation ? projectCancellation(cancellation, refund?.order_cancellation_refunds,external.get(id) ?? null) : null, shippingAddress: address.data, items: items.map(item => projectFrozenOrderItem(item, BRAND_ORDERS.failure.persisted)), shipment, actions: shipment ? shipmentActions({shipment, orderStatus: row.status as OrderStatus}) : []};
   }
 }
 function projectSummary(row: OrderRow, items: OrderItemRow[], shipping?: ShipmentRow): BrandOrderSummary {

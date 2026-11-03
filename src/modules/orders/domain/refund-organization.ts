@@ -1,3 +1,4 @@
+import type {ExternalRefundSettlement,RefundProofReviewCommand} from './refund-proof-review';
 import type {RefundProofMetadata} from './refund-proof.contract';
 import {createHash} from 'node:crypto';
 import {BadRequestException, ConflictException, ForbiddenException} from '@nestjs/common';
@@ -44,7 +45,7 @@ export const refundOrganizationSchema = z.object({
   updatedAt: z.iso.datetime(),
 }).strict().refine(value => (value.status === REFUND_ORGANIZATION.status.awaitingCustomer) === (value.customerDetails === null));
 export type RefundOrganization = z.infer<typeof refundOrganizationSchema>;
-export interface RefundOrganizationDocument {summary: RefundRecoverySummary; organization: RefundOrganization | null; proof: RefundProofMetadata | null; actions: RefundOrganizationAction[];}
+export interface RefundOrganizationDocument {summary: RefundRecoverySummary; organization: RefundOrganization | null; proof: RefundProofMetadata | null; settlement:ExternalRefundSettlement|null; reviewActions:RefundProofReviewCommand['decision'][]; actions: RefundOrganizationAction[];}
 export interface RefundOrganizationReceipt {requestId: string; version: number;}
 export interface RefundOrganizationResult {document: RefundOrganizationDocument; receipt: RefundOrganizationReceipt;}
 export interface RefundOrganizationAccess {scope: RefundOrganizationScope; actorId: string;}

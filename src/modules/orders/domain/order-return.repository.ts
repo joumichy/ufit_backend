@@ -1,3 +1,4 @@
+import type {ExternalRefundSettlement} from './refund-proof-review';
 import type {BrandManagementAccess} from '../../brands/brands.repository';
 import type {UserStatus, UserRole} from '../../identity/domain/user.types';
 import {RETURN_ACTOR, type OrderReturn} from './order-return';
@@ -21,7 +22,7 @@ export interface ReturnRefundSummary {
 export interface StoredOrderReturn {
   document: OrderReturn; requestId: string; requestFingerprint: string; returnPolicy: string;
   allocationNumber: number | null;
-  refund: ReturnRefundSummary | null;
+  refund: ReturnRefundSummary | null; externalSettlement:ExternalRefundSettlement|null;
 }
 export interface OrderReturnSummary {
   id: string; orderId: string; brandId: string; orderNumber: string; version: number; status: ReturnStatus;
@@ -49,5 +50,5 @@ export interface OrderReturnRepository {
 export interface OrderReturnDetail extends Omit<OrderReturn, 'items'> {
   orderNumber: string; currency: string; returnPolicy: string;
   items: Array<ReturnQuantity & {orderedQuantity: number; name: string; sku: string; size: string | null; color: string | null; imageUrl: string | null; unitPrice: number; merchandiseAmount: number; restockQuantity: number | null}>;
-  refund: ReturnRefundSummary | null; actions: ReturnActionName[];
+  refund: ReturnRefundSummary | null; externalSettlement:ExternalRefundSettlement|null; actions: ReturnActionName[];
 }

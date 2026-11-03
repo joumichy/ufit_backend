@@ -101,12 +101,14 @@ async function verify(): Promise<void> {
       await tx.update(orders).set({status: 'paid'}).where(eq(orders.id, unpaid.id));
       await assertDelta('CHF', {captured: 505, refunded: 0, pending: 0}, {captured: 300, refunded: 0, pending: 0}); passed++;
 
+      let allocationNumber = fixture.zero as number;
       async function returned(status: 'refunded' | 'refund_failed', attemptStates: ('succeeded' | 'failed')[]) {
         const id = randomUUID(), at = new Date();
+        allocationNumber += fixture.one;
         await tx.insert(orderReturns).values({id, orderId: chf.id, requestId: randomUUID(), requestFingerprint: 'a'.repeat(64), status,
           reason: fixture.reason, returnPolicy: fixture.reason, deadline: at, refundPolicyCode: ORDER_RETURN.policy.code,
           merchandiseAmount: fixture.returnMerchandise, taxAmount: fixture.returnTax, shippingAmount: fixture.zero, totalAmount: fixture.returnTotal,
-          completesOrder: false, receivedAt: at, refundedAt: status === 'refunded' ? at : null});
+          completesOrder: false, receivedAt: at, refundedAt: status === 'refunded' ? at : null, allocationNumber});
         const [returnItem] = await tx.insert(orderReturnItems).values({returnId: id, orderId: chf.id, orderItemId: chf.itemId, quantity: fixture.one, restockQuantity: fixture.zero}).returning();
         for (const [index, state] of attemptStates.entries()) {
           await tx.insert(orderReturnRefunds).values({returnId: id, attemptNumber: index + fixture.one, amount: fixture.returnTotal,

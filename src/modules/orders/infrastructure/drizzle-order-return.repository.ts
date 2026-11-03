@@ -1,3 +1,5 @@
+import {findExternalRefundSettlement} from './refund-proof-projection';
+import {REFUND_RECOVERY} from '../domain/refund-recovery.contract';
 import {DrizzleOrderNotifications} from './drizzle-order-notifications';
 import {returnNotification} from '../domain/return-notification';
 import {BadRequestException, ConflictException, Inject, Injectable} from '@nestjs/common';
@@ -60,11 +62,12 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
       .innerJoin(orders, eq(orders.id, record.orderId)).where(eq(record.id, id)).limit(ORDER_RETURN.persistence.singleRow);
     const [row] = lock ? await query.for(ORDER_RETURN.persistence.lock, {of: record}) : await query;
     if (!row) return undefined;
-    const [items, refund] = await Promise.all([
+    const [items, refund,externalSettlement] = await Promise.all([
       this.database.db.select().from(orderReturnItems).where(eq(orderReturnItems.returnId, id)).orderBy(asc(orderReturnItems.orderItemId)),
       latestReturnRefund(this.database, id),
+      findExternalRefundSettlement(this.database,{kind:REFUND_RECOVERY.kind.orderReturn,id}),
     ]);
-    return projectReturnRecord(row.record, row.brandId, items, refund);
+    return projectReturnRecord(row.record, row.brandId, items, refund,externalSettlement);
   }
   async findRequest(orderId: string, requestId: string) {
     const [row] = await this.database.db.select({id: orderReturns.id}).from(orderReturns)

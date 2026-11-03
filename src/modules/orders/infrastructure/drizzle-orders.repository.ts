@@ -1,3 +1,5 @@
+import {cancellationSettlementMap} from './refund-proof-projection';
+import type {ExternalRefundSettlement} from '../domain/refund-proof-review';
 import {projectCancellation, projectCancellationRefund} from './cancellation-projection';
 import {COMMISSION_RULE} from '../../commissions/domain/commission-rule.contract';
 import type {ShippingAddressSnapshot} from '../domain/shipping-address';
@@ -204,7 +206,7 @@ export class DrizzleOrderRepository implements OrderRepository {
       const selected = rows.slice(ORDER_LIMIT.firstRow, limit);
       const ids = selected.map((row) => row.id);
       if (!ids.length) return { items: [], nextCursor: null };
-      const [items, shipping, cancellations, refunds] = await Promise.all([
+      const [items, shipping, cancellations, refunds,external] = await Promise.all([
         tx.select().from(orderItems).where(inArray(orderItems.orderId, ids)),
         tx.select().from(shipments).where(inArray(shipments.orderId, ids)),
         tx
@@ -213,6 +215,7 @@ export class DrizzleOrderRepository implements OrderRepository {
           .where(inArray(orderCancellations.orderId, ids)),
         tx.select().from(orderCancellationRefunds).innerJoin(orderCancellations, eq(orderCancellations.id, orderCancellationRefunds.cancellationId))
           .where(inArray(orderCancellations.orderId, ids)).orderBy(desc(orderCancellationRefunds.attemptNumber)),
+        cancellationSettlementMap({db:tx},ids),
       ]);
       return {
         items: selected.map((row) =>
@@ -222,6 +225,7 @@ export class DrizzleOrderRepository implements OrderRepository {
             shipping.find((value) => value.orderId === row.id),
             cancellations.find((value) => value.orderId === row.id),
             refunds.find(value => value.order_cancellations.orderId === row.id)?.order_cancellation_refunds,
+            external.get(row.id) ?? null,
           ),
         ),
         nextCursor:
@@ -238,7 +242,7 @@ export class DrizzleOrderRepository implements OrderRepository {
         .where(eq(orders.id, orderId))
         .limit(ORDER_LIMIT.singleRow);
       if (!order) return undefined;
-      const [items, [shipment], [cancellation], [refund]] = await Promise.all([
+      const [items, [shipment], [cancellation], [refund],external] = await Promise.all([
         tx.select().from(orderItems).where(eq(orderItems.orderId, orderId)),
         tx
           .select()
@@ -252,8 +256,9 @@ export class DrizzleOrderRepository implements OrderRepository {
           .limit(ORDER_LIMIT.singleRow),
         tx.select().from(orderCancellationRefunds).innerJoin(orderCancellations, eq(orderCancellations.id, orderCancellationRefunds.cancellationId))
           .where(eq(orderCancellations.orderId, orderId)).orderBy(desc(orderCancellationRefunds.attemptNumber)).limit(ORDER_LIMIT.singleRow),
+        cancellationSettlementMap({db:tx},[orderId]),
       ]);
-      return projectOrder(order, items, shipment, cancellation, refund?.order_cancellation_refunds);
+      return projectOrder(order, items, shipment, cancellation, refund?.order_cancellation_refunds,external.get(orderId) ?? null);
     }, ORDER_READ.snapshot);
   }
 }
@@ -264,6 +269,7 @@ function projectOrder(
   shipment?: ShipmentRow,
   cancellation?: typeof orderCancellations.$inferSelect,
   refund?: typeof orderCancellationRefunds.$inferSelect,
+  externalSettlement:ExternalRefundSettlement|null=null,
 ): Order {
   return {
     id: order.id,
@@ -292,7 +298,7 @@ function projectOrder(
           incidentAt: shipment.incidentAt?.toISOString(),
         }
       : undefined,
-    cancellation: cancellation ? projectCancellation(cancellation, refund) : undefined,
+    cancellation: cancellation ? projectCancellation(cancellation, refund,externalSettlement) : undefined,
     subtotalAmount: order.subtotalAmount,
     shippingAmount: order.shippingAmount,
     taxAmount: order.taxAmount,

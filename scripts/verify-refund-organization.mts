@@ -92,7 +92,7 @@ async function main(){
         const proofs=new DrizzleRefundProofRepository({db:tx}),pdf=Buffer.from('%PDF-1.4\nSPECIMEN — no transfer\n%%EOF');
         const prepared=prepareRefundProof({buffer:pdf,mimetype:P.mime.pdf,size:pdf.length});
         const response=await repository.apply(customer,reference,{...reply,requestId:randomUUID(),expectedVersion:fixture.four});
-        const proofCommand:RefundProofCommand={requestId:randomUUID(),expectedVersion:response.document.organization!.version,transferReference:fixture.details,transferredOn:'2026-11-01'};
+        const proofCommand:RefundProofCommand={requestId:randomUUID(),replacesProofId:null,expectedVersion:response.document.organization!.version,transferReference:fixture.details,transferredOn:'2026-11-01'};
         await assert.rejects(proofs.reserve(customer,reference,proofCommand,prepared),e=>(e as {status:number}).status===fixture.status.denied);
         const pending=await proofs.reserve(brand,reference,proofCommand,prepared);
         assert.deepEqual(await proofs.reserve(brand,reference,proofCommand,prepared),pending);

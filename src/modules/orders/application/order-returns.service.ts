@@ -151,7 +151,9 @@ export class OrderReturnsService {
 }
 function returnFingerprint(value: object): string { return createHash(ORDER_RETURN.fingerprint.algorithm).update(JSON.stringify(value)).digest(ORDER_RETURN.fingerprint.encoding); }
 function presentReturn(stored: StoredOrderReturn, order: ReturnOrderContext, scope: ReturnScope): OrderReturnDetail {
-  const {document} = stored, original = new Map(order.items.map(item => [item.id, item]));
+  const {document} = stored;
+  if(stored.externalSettlement && (document.status!==RETURN_STATUS.refunded || stored.externalSettlement.amount!==document.amounts.totalAmount || stored.externalSettlement.currency!==order.currency))throw new ConflictException(ORDER_RETURN.failure.persisted);
+  const original = new Map(order.items.map(item => [item.id, item]));
   const restocked = new Map(document.reception?.items.map(item => [item.orderItemId, item.restockQuantity]));
   return {...document, orderNumber: order.orderNumber, currency: order.currency, returnPolicy: stored.returnPolicy,
     items: document.items.map(item => {
@@ -159,5 +161,5 @@ function presentReturn(stored: StoredOrderReturn, order: ReturnOrderContext, sco
       if (!source) throw new ConflictException(ORDER_RETURN.failure.persisted);
       return {...item, orderedQuantity: source.quantity, name: source.name, sku: source.sku, size: source.size, color: source.color,
         imageUrl: source.imageUrl, unitPrice: source.unitPrice, merchandiseAmount: source.unitPrice * item.quantity, restockQuantity: restocked.get(item.orderItemId) ?? null};
-    }), refund: stored.refund, actions: returnActions(document, scope.kind, stored.refund?.providerStatus ?? null)};
+    }), refund: stored.refund,externalSettlement:stored.externalSettlement, actions: returnActions(document, scope.kind, stored.refund?.providerStatus ?? null)};
 }

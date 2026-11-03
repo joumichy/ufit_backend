@@ -1,5 +1,7 @@
+import {refundOrganizationCases} from '../../../shared/infrastructure/database/schema.refund-organizations';
+import {externalRefundSettlements} from '../../../shared/infrastructure/database/schema.refund-settlements';
 import {ConflictException, Inject, Injectable} from '@nestjs/common';
-import {and, asc, count, desc, eq, gt, inArray, or, sql} from 'drizzle-orm';
+import {and, asc, count, desc, eq, gt, inArray, or, sql,exists} from 'drizzle-orm';
 import {unionAll} from 'drizzle-orm/pg-core';
 import {z} from 'zod';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
@@ -18,22 +20,24 @@ const recordSchema = z.object({kind: refundRecoveryKindSchema, id: z.uuid(), ord
 @Injectable()
 export class DrizzleRefundRecoveryRepository implements RefundRecoveryRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
-  private rows(database: DatabaseSession['db']) {
+  private rows(database: DatabaseSession['db'],history=false) {
     const returned = database.selectDistinctOn([orderReturnRefunds.returnId]).from(orderReturnRefunds)
       .orderBy(orderReturnRefunds.returnId, desc(orderReturnRefunds.attemptNumber)).as(REFUND_RECOVERY.query.returnLatest);
     const cancelled = database.selectDistinctOn([orderCancellationRefunds.cancellationId]).from(orderCancellationRefunds)
       .orderBy(orderCancellationRefunds.cancellationId, desc(orderCancellationRefunds.attemptNumber)).as(REFUND_RECOVERY.query.cancellationLatest);
+    const settledReturn=history?exists(database.select({id:externalRefundSettlements.id}).from(externalRefundSettlements).innerJoin(refundOrganizationCases,eq(refundOrganizationCases.id,externalRefundSettlements.caseId)).where(eq(refundOrganizationCases.returnId,orderReturns.id))):undefined;
+    const settledCancellation=history?exists(database.select({id:externalRefundSettlements.id}).from(externalRefundSettlements).innerJoin(refundOrganizationCases,eq(refundOrganizationCases.id,externalRefundSettlements.caseId)).where(eq(refundOrganizationCases.cancellationId,orderCancellations.id))):undefined;
     const returns = database.select({kind: sql<RefundRecoveryKind>`${REFUND_RECOVERY.kind.orderReturn}`.as(REFUND_RECOVERY.column.kind), id: sql<string>`${orderReturns.id}`.as(REFUND_RECOVERY.column.id),
       orderId: sql<string>`${orders.id}`.as(REFUND_RECOVERY.column.orderId), brandId: sql<string>`${orders.brandId}`.as(REFUND_RECOVERY.column.brandId), brandName: sql<string>`${brandProfiles.brandName}`.as(REFUND_RECOVERY.column.brandName), orderNumber: sql<string>`${orders.orderNumber}`.as(REFUND_RECOVERY.column.orderNumber), amount: sql<number>`${orderReturns.totalAmount}`.as(REFUND_RECOVERY.column.amount), attemptAmount: sql<number>`${returned.amount}`.as(REFUND_RECOVERY.column.attemptAmount), currency: sql<string>`${orders.currency}`.as(REFUND_RECOVERY.column.currency), attemptCurrency: sql<string>`${orders.currency}`.as(REFUND_RECOVERY.column.attemptCurrency),
       failedAt: sql<Date>`${returned.updatedAt}`.mapWith(returned.updatedAt).as(REFUND_RECOVERY.column.failedAt), attemptId: sql<string>`${returned.id}`.as(REFUND_RECOVERY.column.attemptId), attemptNumber: sql<number>`${returned.attemptNumber}`.as(REFUND_RECOVERY.column.attemptNumber), state: sql<string>`${returned.state}`.as(REFUND_RECOVERY.column.state), providerStatus: sql<string | null>`${returned.providerStatus}`.as(REFUND_RECOVERY.column.providerStatus), refundId: sql<string | null>`${returned.stripeRefundId}`.as(REFUND_RECOVERY.column.refundId)})
       .from(orderReturns).innerJoin(orders, eq(orders.id, orderReturns.orderId)).innerJoin(brandProfiles, eq(brandProfiles.id, orders.brandId)).innerJoin(returned, eq(returned.returnId, orderReturns.id))
-      .where(and(eq(orderReturns.status, RETURN_STATUS.refundFailed), inArray(returned.state, [RETURN_REFUND.state.failed, RETURN_REFUND.state.blocked]),
+      .where(and(or(eq(orderReturns.status, RETURN_STATUS.refundFailed),settledReturn), inArray(returned.state, [RETURN_REFUND.state.failed, RETURN_REFUND.state.blocked]),
         or(eq(returned.state, RETURN_REFUND.state.blocked), eq(returned.providerStatus, RETURN_REFUND.providerStatus.failed))));
     const cancellations = database.select({kind: sql<RefundRecoveryKind>`${REFUND_RECOVERY.kind.cancellation}`.as(REFUND_RECOVERY.column.kind), id: sql<string>`${orderCancellations.id}`.as(REFUND_RECOVERY.column.id),
       orderId: sql<string>`${orders.id}`.as(REFUND_RECOVERY.column.orderId), brandId: sql<string>`${orders.brandId}`.as(REFUND_RECOVERY.column.brandId), brandName: sql<string>`${brandProfiles.brandName}`.as(REFUND_RECOVERY.column.brandName), orderNumber: sql<string>`${orders.orderNumber}`.as(REFUND_RECOVERY.column.orderNumber), amount: sql<number>`${orders.totalAmount}`.as(REFUND_RECOVERY.column.amount), attemptAmount: sql<number>`${cancelled.amount}`.as(REFUND_RECOVERY.column.attemptAmount), currency: sql<string>`${orders.currency}`.as(REFUND_RECOVERY.column.currency), attemptCurrency: sql<string>`${cancelled.currency}`.as(REFUND_RECOVERY.column.attemptCurrency),
       failedAt: sql<Date>`${cancelled.updatedAt}`.mapWith(cancelled.updatedAt).as(REFUND_RECOVERY.column.failedAt), attemptId: sql<string>`${cancelled.id}`.as(REFUND_RECOVERY.column.attemptId), attemptNumber: sql<number>`${cancelled.attemptNumber}`.as(REFUND_RECOVERY.column.attemptNumber), state: sql<string>`${cancelled.state}`.as(REFUND_RECOVERY.column.state), providerStatus: sql<string | null>`${cancelled.providerStatus}`.as(REFUND_RECOVERY.column.providerStatus), refundId: sql<string | null>`${cancelled.stripeRefundId}`.as(REFUND_RECOVERY.column.refundId)})
       .from(orderCancellations).innerJoin(orders, eq(orders.id, orderCancellations.orderId)).innerJoin(brandProfiles, eq(brandProfiles.id, orders.brandId)).innerJoin(cancelled, eq(cancelled.cancellationId, orderCancellations.id))
-      .where(and(inArray(orderCancellations.status, [CANCELLATION.status.requested, CANCELLATION.status.failed]),
+      .where(and(or(inArray(orderCancellations.status, [CANCELLATION.status.requested, CANCELLATION.status.failed]),settledCancellation),
         inArray(cancelled.state, [CANCELLATION_REFUND.state.failed, CANCELLATION_REFUND.state.blocked]),
         or(eq(cancelled.state, CANCELLATION_REFUND.state.blocked), eq(cancelled.providerStatus, CANCELLATION_REFUND.providerStatus.failed))));
     return unionAll(returns, cancellations).as(REFUND_RECOVERY.query.rows);
@@ -61,7 +65,7 @@ export class DrizzleRefundRecoveryRepository implements RefundRecoveryRepository
     }, READ_SNAPSHOT);
   }
   async detail(kind: RefundRecoveryKind, id: string): Promise<RefundRecoveryDetail | undefined> {
-    const rows = this.rows(this.database.db);
+    const rows = this.rows(this.database.db,true);
     const [row] = await this.database.db.select().from(rows).where(and(eq(rows.kind, kind), eq(rows.id, id))).limit(REFUND_RECOVERY.page.minimumLimit);
     return row ? projectRecovery(row) : undefined;
   }

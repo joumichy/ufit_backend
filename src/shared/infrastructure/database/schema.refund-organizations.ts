@@ -8,8 +8,9 @@ import {REFUND_ORGANIZATION as O} from '../../../modules/orders/domain/refund-or
 
 export const refundOrganizationCases = ufitSchema.table('refund_organization_cases', {
   id: uuid('id').primaryKey(), orderId: uuid('order_id').notNull().references(()=>orders.id),
-  returnId: uuid('return_id'), cancellationId: uuid('cancellation_id'), version: integer('version').notNull(),
+  returnId: uuid('return_id'), cancellationId: uuid('cancellation_id'), currentProofId: uuid('current_proof_id'), version: integer('version').notNull(),
 }, table => ({
+  orderIdentity: uniqueIndex('refund_organization_case_order_identity').on(table.id,table.orderId),
   returnUnique: uniqueIndex('refund_organization_return_unique').on(table.returnId),
   cancellationUnique: uniqueIndex('refund_organization_cancellation_unique').on(table.cancellationId),
   origin: check('refund_organization_origin_required', sql`(${table.returnId} is null) <> (${table.cancellationId} is null)`),
