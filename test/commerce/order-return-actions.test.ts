@@ -74,8 +74,10 @@ describe('Versioned return actions', () => {
     const failed = {...document(), status: 'refund_failed' as const};
     expect(returnActions(failed, 'customer')).toEqual([]);
     for (const actor of ['brand', 'administrator'] as const) {
-      expect(returnActions(failed, actor)).toEqual(['retry_refund']);
-      expect(applyReturnAction(failed, actor, command({action: 'retry_refund', expectedVersion: 1}), fixture.now)).toMatchObject({version: 2, status: 'refund_pending'});
+      expect(returnActions(failed, actor)).toEqual([]);
+      expect(returnActions(failed, actor, 'failed')).toEqual([]);
+      expect(returnActions(failed, actor, 'canceled')).toEqual(['retry_refund']);
+      expect(applyReturnAction(failed, actor, command({action: 'retry_refund', expectedVersion: 1}), fixture.now, 'canceled')).toMatchObject({version: 2, status: 'refund_pending'});
     }
     expect(returnActions({...document(), status: 'refund_pending'}, 'brand')).toEqual([]);
   });

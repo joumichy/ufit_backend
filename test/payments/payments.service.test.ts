@@ -78,18 +78,21 @@ describe("PaymentsService", () => {
     const orders = { attachPaymentIntent: vi.fn() };
     const cancellations = { recoverOrder: vi.fn() };
     const connect = { assertSaleRecipients: vi.fn(), accountUpdated: vi.fn() };
+    const returnRefunds = {reconcile: vi.fn().mockResolvedValue(true)};
     return {
       stripe,
       finalizer,
       orders,
       cancellations,
       connect,
+      returnRefunds,
       service: new PaymentsService(
         stripe as never,
         finalizer,
         orders as never,
         cancellations as never,
         connect as never,
+        returnRefunds as never,
       ),
     };
   }
@@ -260,5 +263,40 @@ describe("PaymentsService", () => {
       false,
     );
     expect(finalizer.confirm).not.toHaveBeenCalled();
+  });
+  const refundFixture = {
+    orderId: 'fa331043-2215-452c-bade-a3d3292574b1', returnId: 'db73c31b-4936-4ce9-9f34-ea47a53fae09',
+    attemptId: 'ecbc06d5-d7a0-44ea-a5b1-01864ba9ce17', refundId: 're_owned_return',
+    events: ['refund.created', 'refund.updated', 'refund.failed'], payload: 'signed refund payload', signature: 'signature',
+    metadata: {order: 'order_id', return: 'return_id', attempt: 'return_refund_attempt_id'},
+  } as const;
+  it('routes verified refund facts to the owned durable attempt and reports idempotent replay', async () => {
+    for (const type of refundFixture.events) {
+      const {service, stripe, returnRefunds, finalizer} = setup();
+      stripe.webhooks.constructEvent.mockReturnValue({type, data: {object: {id: refundFixture.refundId, metadata: {
+        [refundFixture.metadata.order]: refundFixture.orderId, [refundFixture.metadata.return]: refundFixture.returnId,
+        [refundFixture.metadata.attempt]: refundFixture.attemptId,
+      }}}});
+      const reference = {orderId: refundFixture.orderId, returnId: refundFixture.returnId, attemptId: refundFixture.attemptId, refundId: refundFixture.refundId};
+      await expect(service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature)).resolves.toEqual({received: true, duplicate: false});
+      expect(returnRefunds.reconcile).toHaveBeenCalledWith(reference);
+      returnRefunds.reconcile.mockResolvedValue(false);
+      await expect(service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature)).resolves.toEqual({received: true, duplicate: true});
+      expect(finalizer.confirm).not.toHaveBeenCalled();
+    }
+  });
+  it('ignores unmanaged refunds, rejects malformed managed ownership and lets provider recovery retry', async () => {
+    const {service, stripe, returnRefunds} = setup();
+    stripe.webhooks.constructEvent.mockReturnValue({type: refundFixture.events.at(-1), data: {object: {id: refundFixture.refundId, metadata: {}}}});
+    await service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature);
+    expect(returnRefunds.reconcile).not.toHaveBeenCalled();
+    const metadata = {[refundFixture.metadata.return]: refundFixture.returnId};
+    stripe.webhooks.constructEvent.mockReturnValue({type: refundFixture.events.at(-1), data: {object: {id: refundFixture.refundId, metadata}}});
+    await expect(service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature)).rejects.toMatchObject({status: 400});
+    expect(returnRefunds.reconcile).not.toHaveBeenCalled();
+    Object.assign(metadata, {[refundFixture.metadata.order]: refundFixture.orderId, [refundFixture.metadata.attempt]: refundFixture.attemptId});
+    const failure = new Error(refundFixture.payload);
+    returnRefunds.reconcile.mockRejectedValueOnce(failure);
+    await expect(service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature)).rejects.toBe(failure);
   });
 });

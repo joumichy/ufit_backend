@@ -63,6 +63,6 @@ import {RETURN_REFUND} from './domain/return-refund';
     DrizzleOrderRepository,
     DrizzleProductSnapshotReader,
   ],
-  exports: [OrdersService, OrderCancellationService, "OrderRepository"],
+  exports: [OrdersService, OrderCancellationService, ReturnRefundsService, "OrderRepository"],
 })
 export class OrdersModule {}

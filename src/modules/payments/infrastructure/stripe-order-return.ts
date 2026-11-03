@@ -20,8 +20,10 @@ export async function refundStripeReturn(stripe: ReturnStripeClient, claim: Retu
   let refund: Refund | undefined = claim.refundId ? await stripe.refunds.retrieve(claim.refundId) : undefined;
   if (!refund) {
     let cursor: string | undefined;
+    let originalMethodFailed = false;
     do {
       const page = await stripe.refunds.list({payment_intent: intent.id, limit: STRIPE_COMMERCE.pageLimit, starting_after: cursor});
+      originalMethodFailed ||= page.data.some(candidate => candidate.status === RETURN_REFUND.providerStatus.failed);
       const matches = page.data.filter(candidate => candidate.metadata?.[STRIPE_RETURN.metadata.returnId] === claim.returnId && candidate.metadata?.[STRIPE_RETURN.metadata.attemptId] === claim.attemptId);
       if (matches.length > STRIPE_RETURN.maximumAttemptMatches || (refund && matches.length > ORDER_RETURN.amount.zero)) throw new ConflictException(RETURN_REFUND.failure.mismatch);
       if (matches.length) refund = matches.at(ORDER_RETURN.limit.firstRow);
@@ -29,6 +31,9 @@ export async function refundStripeReturn(stripe: ReturnStripeClient, claim: Retu
       if (page.has_more && (!next || next === cursor)) throw new ConflictException(RETURN_REFUND.failure.mismatch);
       cursor = next;
     } while (cursor);
+    // Stripe requires an alternative refund route after failure; do not leave
+    // a new durable attempt endlessly retrying a request the provider refuses.
+    if (!refund && originalMethodFailed) return {state: RETURN_REFUND.state.blocked, refundId: null, providerStatus: null};
   }
   refund ??= await stripe.refunds.create({payment_intent: intent.id, amount: claim.amount, reason: STRIPE_COMMERCE.cancellationReason,
     metadata: {[STRIPE_ORDER_METADATA.orderId]: claim.orderId, [STRIPE_RETURN.metadata.returnId]: claim.returnId, [STRIPE_RETURN.metadata.attemptId]: claim.attemptId}},

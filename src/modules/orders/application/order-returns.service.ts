@@ -102,10 +102,12 @@ export class OrderReturnsService {
     return this.returns.transaction(async repository => {
       await this.authorize(repository, actorId, scope, true);
       const {stored, order} = await this.loadScoped(repository, actorId, scope, id, true);
-      const changed = applyReturnAction(stored.document, scope.kind, parsed.data, new Date().toISOString());
+      if (parsed.data.action === RETURN_ACTION.retryRefund && stored.refund?.providerStatus !== RETURN_REFUND.providerStatus.cancelled) throw new ConflictException(RETURN_REFUND.failure.originalMethod);
+      const changed = applyReturnAction(stored.document, scope.kind, parsed.data, new Date().toISOString(), stored.refund?.providerStatus ?? null);
       if (parsed.data.action === RETURN_ACTION.receive || parsed.data.action === RETURN_ACTION.retryRefund) {
         if (order.status !== ORDER_STATUS.delivered || order.paymentProvider !== ORDER_PAYMENT.provider || !order.paymentIntentId) throw new ConflictException(RETURN_REFUND.failure.unavailable);
-        const previous = await repository.returnedQuantities(order.id);
+        if (parsed.data.action === RETURN_ACTION.retryRefund && stored.allocationNumber === null) throw new ConflictException(ORDER_RETURN.failure.persisted);
+        const previous = await repository.returnedQuantities(order.id, stored.allocationNumber ?? undefined);
         const plan = allocateReturnRefund(order.amounts, order.items, previous, changed.items), amounts = changed.amounts;
         assertSameRefundAmounts(plan, amounts);
       }
@@ -157,5 +159,5 @@ function presentReturn(stored: StoredOrderReturn, order: ReturnOrderContext, sco
       if (!source) throw new ConflictException(ORDER_RETURN.failure.persisted);
       return {...item, orderedQuantity: source.quantity, name: source.name, sku: source.sku, size: source.size, color: source.color,
         imageUrl: source.imageUrl, unitPrice: source.unitPrice, merchandiseAmount: source.unitPrice * item.quantity, restockQuantity: restocked.get(item.orderItemId) ?? null};
-    }), refund: stored.refund, actions: returnActions(document, scope.kind)};
+    }), refund: stored.refund, actions: returnActions(document, scope.kind, stored.refund?.providerStatus ?? null)};
 }

@@ -8,7 +8,7 @@ import {z} from 'zod';
 import {getEnv} from '../src/config/env';
 import {DatabaseService} from '../src/shared/infrastructure/database/database.service';
 import type {DatabaseSession} from '../src/shared/infrastructure/database/database-session';
-import {orders, orderItems, payments, shipments, users, brandMembers, commissions, productVariants} from '../src/shared/infrastructure/database/schema';
+import {orders, orderItems, payments, shipments, users, brandMembers, commissions, productVariants, commissionRules, creatorProfiles} from '../src/shared/infrastructure/database/schema';
 import {orderReturns, orderReturnItems, orderReturnRefunds, returnCommissionAdjustments} from '../src/shared/infrastructure/database/schema.returns';
 import {OrderReturnsService} from '../src/modules/orders/application/order-returns.service';
 import {DrizzleOrderReturnRepository} from '../src/modules/orders/infrastructure/drizzle-order-return.repository';
@@ -23,7 +23,7 @@ const fixture = {
   orderPrefix: 'QUAL-RETURN-', paymentPrefix: 'pi_qualification_return_', refundPrefix: 're_qualification_return_',
   quantity: 3, unitPrice: 100, subtotal: 300, tax: 25, shipping: 80, total: 405, currency: 'CHF', commission: 25, rate: '0.0833',
   roles: ['customer', 'brand', 'admin'] as const,
-  tables: ['orders', 'order_items', 'payments', 'commissions', 'product_variants', 'shipments', 'users', 'user_roles', 'brand_members', 'brand_profiles', 'order_status_history', 'order_returns', 'order_return_items', 'order_return_refunds', 'return_commission_adjustments'],
+  tables: ['orders', 'order_items', 'payments', 'commissions', 'commission_rules', 'product_variants', 'shipments', 'users', 'user_roles', 'brand_members', 'brand_profiles', 'order_status_history', 'order_returns', 'order_return_items', 'order_return_refunds', 'return_commission_adjustments'],
   reason: 'Qualification du retour.', instructions: 'Retourner la pièce à la marque de qualification.',
   paginationRows: 55, pageSize: 20, zero: 0, one: 1,
 } as const;
@@ -65,6 +65,12 @@ async function verify(): Promise<void> {
       const [sourceCommission] = await tx.select().from(commissions).where(eq(commissions.orderItemId, sourceItem.id)).limit(fixture.one);
       assert(sourceItem && sourceCommission, 'The source item and creator attribution are required');
       const id = randomUUID(), itemId = randomUUID(), intentId = fixture.paymentPrefix + id, at = new Date(); createdOrders.push(id);
+      const [creator] = await tx.select({gradeCode: creatorProfiles.gradeCode}).from(creatorProfiles).where(eq(creatorProfiles.id, sourceCommission.creatorId)).limit(fixture.one);
+      assert(creator, 'The recorded creator grade is required for the purchased commission snapshot');
+      // A transaction-only historical rule supplies exact provenance without changing a live scope.
+      const [rule] = await tx.insert(commissionRules).values({scopeId: randomUUID(), revision: fixture.one, brandId: source.brandId,
+        productId: sourceItem.productId, creatorGradeCode: creator.gradeCode, baseRate: fixture.rate, bonusRate: String(fixture.zero),
+        active: false, reason: fixture.reason, createdByUserId: admin, supersededAt: at}).returning();
       await tx.insert(orders).values({id, orderNumber: fixture.orderPrefix + id, customerId: customer, brandId: source.brandId,
         sourceCreatorId: sourceCommission.creatorId, sourceOutfitId: sourceCommission.sourceOutfitId,
         status: 'delivered', subtotalAmount: fixture.subtotal, shippingAmount: fixture.shipping, taxAmount: fixture.tax, totalAmount: fixture.total, currency: fixture.currency,
@@ -72,7 +78,8 @@ async function verify(): Promise<void> {
         paymentProvider: 'stripe', stripePaymentIntentId: intentId});
       await tx.insert(orderItems).values({id: itemId, orderId: id, productId: sourceItem.productId, productVariantId: sourceItem.productVariantId,
         productSnapshot: sourceItem.productSnapshot, quantity: fixture.quantity, unitPrice: fixture.unitPrice, totalPrice: fixture.subtotal,
-        commissionRate: fixture.rate, sourceCreatorId: sourceCommission.creatorId, sourceOutfitId: sourceCommission.sourceOutfitId});
+        commissionRate: fixture.rate, commissionRuleId: rule.id, commissionCreatorGradeCode: creator.gradeCode,
+        sourceCreatorId: sourceCommission.creatorId, sourceOutfitId: sourceCommission.sourceOutfitId});
       await tx.insert(payments).values({orderId: id, provider: 'stripe', providerPaymentIntentId: intentId, amount: fixture.total, currency: fixture.currency, status: 'succeeded'});
       await tx.insert(shipments).values({orderId: id, brandId: source.brandId, status: 'delivered', carrier: 'Qualification', trackingNumber: id, shippedAt: at, deliveredAt: at});
       const [commission] = await tx.insert(commissions).values({orderItemId: itemId, creatorId: sourceCommission.creatorId, brandId: source.brandId,
@@ -124,10 +131,66 @@ async function verify(): Promise<void> {
       await refunds.settle(firstClaim, {state: 'succeeded', refundId: firstRefundId, providerStatus: 'succeeded'});
       assert.equal((await service.detail(customer, customerScope, current.id)).version, 9); passed++;
       const second = await create(); current = second.document; assert.equal(second.quote.amounts.totalAmount, 108);
+      await assert.rejects(tx.transaction(async nested => {
+        const localSession: DatabaseSession = {db: nested}, localRepository = new DrizzleOrderReturnRepository(localSession);
+        const localService = new OrderReturnsService(localRepository), localRefunds = new DrizzleReturnRefundRepository(localSession);
+        const known = await localRefunds.findAttempt({orderId: id, returnId: firstClaim.returnId, attemptId: firstClaim.attemptId, refundId: firstRefundId});
+        assert.equal(known.refundId, firstRefundId);
+        await localRefunds.settle(known, {state: 'failed', refundId: firstRefundId, providerStatus: 'failed'});
+        assert.equal(await localRepository.findOpen(id), second.document.id);
+        const failed = await localService.detail(brand, brandScope, firstClaim.returnId);
+        assert.equal(failed.status, 'refund_failed');
+        assert.equal((await localService.options(customer, id)).items.find(item => item.id === itemId)?.availableQuantity, 2);
+        assert.equal(await localRefunds.settle(known, {state: 'succeeded', refundId: firstRefundId, providerStatus: 'succeeded'}), false);
+        assert.equal((await localService.detail(brand, brandScope, firstClaim.returnId)).version, failed.version);
+        let later = await localService.act(brand, brandScope, second.document.id, {action: 'approve', expectedVersion: second.document.version, instructions: fixture.instructions});
+        later = await localService.act(brand, brandScope, later.id, {action: 'receive', expectedVersion: later.version, items: [{orderItemId: itemId, restockQuantity: 0}]});
+        let pending = await localRefunds.claimRecoverable();
+        const laterClaim = pending.find(value => value.returnId === later.id); assert(laterClaim);
+        await localRefunds.settle(laterClaim, {state: 'succeeded', refundId: fixture.refundPrefix + laterClaim.attemptId, providerStatus: 'succeeded'});
+        const finalQuote = await localService.preview(customer, id, selection);
+        assert.equal(finalQuote.amounts.totalAmount, 189);
+        let final = await localService.create(customer, id, {...selection, requestId: randomUUID(), reason: fixture.reason, quoteFingerprint: finalQuote.fingerprint});
+        final = await localService.act(brand, brandScope, final.id, {action: 'approve', expectedVersion: final.version, instructions: fixture.instructions});
+        final = await localService.act(brand, brandScope, final.id, {action: 'receive', expectedVersion: final.version, items: [{orderItemId: itemId, restockQuantity: 0}]});
+        pending = await localRefunds.claimRecoverable();
+        const finalClaim = pending.find(value => value.returnId === final.id); assert(finalClaim);
+        await localRefunds.settle(finalClaim, {state: 'succeeded', refundId: fixture.refundPrefix + finalClaim.attemptId, providerStatus: 'succeeded'});
+        assert.equal((await localRepository.order(id, false))?.status, 'delivered');
+        assert.equal((await localService.options(customer, id)).unavailableReason, 'all_returned');
+        assert.deepEqual(failed.actions, []);
+        await denied(() => localService.act(brand, brandScope, failed.id, {action: 'retry_refund', expectedVersion: failed.version}), 409);
+        assert.equal((await localRepository.order(id, false))?.status, 'delivered');
+        const adjustments = await nested.select().from(returnCommissionAdjustments).where(eq(returnCommissionAdjustments.commissionId, commission.id));
+        assert.equal(adjustments.length, fixture.quantity);
+        assert.equal(adjustments.reduce<number>((sum, row) => sum + row.amount, fixture.zero), fixture.commission);
+        assert.equal((await nested.select({value: productVariants.stockQuantity}).from(productVariants).where(eq(productVariants.id, sourceItem.productVariantId)))[fixture.zero].value, originalStock + 1);
+        const failedFinal = await localService.detail(brand, brandScope, final.id);
+        await localRefunds.settle(finalClaim, {state: 'failed', refundId: fixture.refundPrefix + finalClaim.attemptId, providerStatus: 'failed'});
+        assert.equal((await localRepository.order(id, false))?.status, 'delivered');
+        assert.equal((await nested.select().from(payments).where(eq(payments.orderId, id)))[fixture.zero].status, 'succeeded');
+        assert.equal((await localService.detail(brand, brandScope, final.id)).version, failedFinal.version + 1);
+        assert.equal(await localRefunds.settle(finalClaim, {state: 'pending', refundId: fixture.refundPrefix + finalClaim.attemptId, providerStatus: 'pending'}), false);
+        assert.equal((await nested.select().from(returnCommissionAdjustments).where(eq(returnCommissionAdjustments.commissionId, commission.id))).length, fixture.quantity);
+        await denied(() => localRefunds.findAttempt({orderId: randomUUID(), returnId: firstClaim.returnId, attemptId: firstClaim.attemptId, refundId: firstRefundId}), 409);
+        throw new VerificationRollback();
+      }), VerificationRollback); passed++;
       current = await service.act(brand, brandScope, current.id, {action: 'approve', expectedVersion: 1, instructions: fixture.instructions});
       current = await service.act(brand, brandScope, current.id, {action: 'receive', expectedVersion: 2, items: [{orderItemId: itemId, restockQuantity: 0}]});
       const failedClaim = await claim();
-      await refunds.settle(failedClaim, {state: 'failed', refundId: fixture.refundPrefix + failedClaim.attemptId, providerStatus: 'failed'});
+      await refunds.settle(failedClaim, {state: 'failed', refundId: fixture.refundPrefix + failedClaim.attemptId, providerStatus: 'canceled'});
+      await assert.rejects(tx.transaction(async nested => {
+        const localSession: DatabaseSession = {db: nested}, localService = new OrderReturnsService(new DrizzleOrderReturnRepository(localSession));
+        const localRefunds = new DrizzleReturnRefundRepository(localSession);
+        const retried = await localService.act(brand, brandScope, current.id, {action: 'retry_refund', expectedVersion: 4});
+        const queued = (await localRefunds.claimRecoverable()).find(value => value.returnId === retried.id); assert(queued);
+        await localRefunds.settle(queued, {state: 'blocked', refundId: null, providerStatus: null});
+        const blocked = await localService.detail(brand, brandScope, current.id);
+        assert.equal(blocked.refund?.state, 'blocked'); assert.equal(blocked.refund?.providerStatus, null);
+        assert.equal(blocked.status, 'refund_failed'); assert.deepEqual(blocked.actions, []);
+        await denied(() => localService.act(brand, brandScope, blocked.id, {action: 'retry_refund', expectedVersion: blocked.version}), 409);
+        throw new VerificationRollback();
+      }), VerificationRollback); passed++;
       current = await service.act(brand, brandScope, current.id, {action: 'retry_refund', expectedVersion: 4}); assert.equal(current.refund?.attemptNumber, 2);
       const retriedClaim = await claim(); assert.notEqual(retriedClaim.attemptId, failedClaim.attemptId);
       await refunds.settle(retriedClaim, {state: 'succeeded', refundId: fixture.refundPrefix + retriedClaim.attemptId, providerStatus: 'succeeded'}); passed++;
@@ -149,6 +212,16 @@ async function verify(): Promise<void> {
       const attempts = await tx.select({amount: orderReturnRefunds.amount, state: orderReturnRefunds.state}).from(orderReturnRefunds).innerJoin(orderReturns, eq(orderReturns.id, orderReturnRefunds.returnId)).where(eq(orderReturns.orderId, id));
       assert.equal(attempts.filter(row => row.state === 'succeeded').reduce<number>((sum, row) => sum + row.amount, fixture.zero), 405);
       assert.equal((await tx.select({value: productVariants.stockQuantity}).from(productVariants).where(eq(productVariants.id, sourceItem.productVariantId)))[fixture.zero].value, originalStock + 1); passed++;
+      await assert.rejects(tx.transaction(async nested => {
+        const localSession: DatabaseSession = {db: nested}, localRefunds = new DrizzleReturnRefundRepository(localSession);
+        await localRefunds.settle(lastClaim, {state: 'failed', refundId: finalRefund.refundId, providerStatus: 'failed'});
+        assert.equal((await new DrizzleOrderReturnRepository(localSession).order(id, false))?.status, 'delivered');
+        assert.equal((await nested.select().from(payments).where(eq(payments.orderId, id)))[fixture.zero].status, 'succeeded');
+        assert.equal(await localRefunds.settle(lastClaim, finalRefund), false);
+        assert.equal((await nested.select().from(returnCommissionAdjustments).where(eq(returnCommissionAdjustments.commissionId, commission.id))).length, fixture.quantity);
+        assert.equal((await nested.select({value: productVariants.stockQuantity}).from(productVariants).where(eq(productVariants.id, sourceItem.productVariantId)))[fixture.zero].value, originalStock + 1);
+        throw new VerificationRollback();
+      }), VerificationRollback); passed++;
       const ids = Array.from({length: fixture.paginationRows}, () => randomUUID());
       await tx.insert(orderReturns).values(ids.map(returnId => ({id: returnId, orderId: id, requestId: randomUUID(), requestFingerprint: 'b'.repeat(64), status: 'withdrawn', version: 2,
         reason: fixture.reason, returnPolicy: fixture.instructions, deadline: at, refundPolicyCode: ORDER_RETURN.policy.code, merchandiseAmount: 100, taxAmount: 8, shippingAmount: 0, totalAmount: 108, completesOrder: false, createdAt: at, updatedAt: at})));
@@ -160,7 +233,7 @@ async function verify(): Promise<void> {
     }), VerificationRollback);
     for (const [table, hash] of before) assert.equal(await digest(table), hash, 'Return verification did not restore ' + table);
     const [remaining] = await database.db.select({value: count()}).from(orders).where(inArray(orders.id, createdOrders)); assert.equal(remaining.value, fixture.zero);
-    console.log(JSON.stringify({repositoryScenarios: passed, persistedQualificationRows: remaining.value, noStripeCalls: true, returnTrackingCorrectionPreservesSendingDate: true, threePartialRefundsConserve405MinorUnits: true, allBusinessAndFinancialTablesRestored: true}));
+    console.log(JSON.stringify({repositoryScenarios: passed, persistedQualificationRows: remaining.value, noStripeCalls: true, returnTrackingCorrectionPreservesSendingDate: true, threePartialRefundsConserve405MinorUnits: true, lateRefundFailurePreservesPhysicalAllocation: true, staleProviderReadsCannotResurrectFailure: true, outOfOrderRecoveryDoesNotDuplicateCommissionOrStock: true, allBusinessAndFinancialTablesRestored: true}));
   } finally {await database.onModuleDestroy();}
 }
 void verify().catch(error => {console.error(error instanceof Error ? error.message : 'Return verification failed'); process.exitCode = 1;});

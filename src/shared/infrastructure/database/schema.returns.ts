@@ -19,11 +19,14 @@ export const orderReturns = ufitSchema.table('order_returns', {
   adminDecision: text('admin_decision'), adminReason: text('admin_reason'), adminInstructions: text('admin_instructions'), adminDecidedAt: timestamp('admin_decided_at', {withTimezone: true}),
   carrier: text('carrier'), trackingNumber: text('tracking_number'), trackingUrl: text('tracking_url'), sentAt: timestamp('sent_at', {withTimezone: true}),
   receivedAt: timestamp('received_at', {withTimezone: true}), refundedAt: timestamp('refunded_at', {withTimezone: true}),
+  allocationNumber: integer('allocation_number'),
   ...timestamps,
 }, table => ({
   requestUnique: uniqueIndex('order_returns_order_request_unique').on(table.orderId, table.requestId),
   orderIdentityUnique: uniqueIndex('order_returns_id_order_unique').on(table.id, table.orderId),
-  openUnique: uniqueIndex('order_returns_one_open_unique').on(table.orderId).where(sql`${table.status} not in ('refunded', 'closed', 'withdrawn')`),
+  openUnique: uniqueIndex('order_returns_one_open_unique').on(table.orderId).where(sql`${table.receivedAt} is null and ${table.status} not in ('refunded', 'closed', 'withdrawn')`),
+  allocationUnique: uniqueIndex('order_returns_order_allocation_unique').on(table.orderId, table.allocationNumber).where(sql`${table.allocationNumber} is not null`),
+  allocationCheck: check('order_returns_allocation_valid', sql`((${table.receivedAt} is null and ${table.allocationNumber} is null) or (${table.receivedAt} is not null and ${table.allocationNumber} >= 1)) is true`),
   orderCreatedIndex: index('order_returns_order_created_idx').on(table.orderId, table.createdAt.desc(), table.id.desc()),
   createdIndex: index('order_returns_created_idx').on(table.createdAt.desc(), table.id.desc()),
   statusCheck: check('order_returns_status_known', sql`${table.status} in ('requested', 'approved', 'rejected', 'disputed', 'in_transit', 'refund_pending', 'refund_failed', 'refunded', 'closed', 'withdrawn')`),
@@ -64,8 +67,8 @@ export const orderReturnRefunds = ufitSchema.table('order_return_refunds', {
   activeUnique: uniqueIndex('order_return_refunds_one_active_unique').on(table.returnId).where(sql`${table.state} in ('queued', 'pending')`),
   recoveryIndex: index('order_return_refunds_recovery_idx').on(table.nextRecoveryAt, table.id).where(sql`${table.state} in ('queued', 'pending')`),
   amountCheck: check('order_return_refunds_amount_valid', sql`${table.amount} >= 0 and ${table.attemptNumber} >= 1`),
-  stateCheck: check('order_return_refunds_state_valid', sql`${table.state} in ('queued', 'pending', 'succeeded', 'failed')`),
-  providerCheck: check('order_return_refunds_provider_valid', sql`((${table.state} = 'queued' and ${table.stripeRefundId} is null and ${table.providerStatus} is null) or (${table.state} = 'succeeded' and ((${table.amount} = 0 and ${table.stripeRefundId} is null and ${table.providerStatus} is null) or (${table.amount} > 0 and ${table.stripeRefundId} is not null and ${table.providerStatus} = 'succeeded'))) or (${table.amount} > 0 and ${table.stripeRefundId} is not null and ((${table.state} = 'pending' and ${table.providerStatus} in ('pending', 'requires_action')) or (${table.state} = 'failed' and ${table.providerStatus} in ('failed', 'canceled'))))) is true`),
+  stateCheck: check('order_return_refunds_state_valid', sql`${table.state} in ('queued', 'pending', 'succeeded', 'failed', 'blocked')`),
+  providerCheck: check('order_return_refunds_provider_valid', sql`((${table.state} = 'blocked' and ${table.amount} > 0 and ${table.stripeRefundId} is null and ${table.providerStatus} is null) or (${table.state} = 'queued' and ${table.stripeRefundId} is null and ${table.providerStatus} is null) or (${table.state} = 'succeeded' and ((${table.amount} = 0 and ${table.stripeRefundId} is null and ${table.providerStatus} is null) or (${table.amount} > 0 and ${table.stripeRefundId} is not null and ${table.providerStatus} = 'succeeded'))) or (${table.amount} > 0 and ${table.stripeRefundId} is not null and ((${table.state} = 'pending' and ${table.providerStatus} in ('pending', 'requires_action')) or (${table.state} = 'failed' and ${table.providerStatus} in ('failed', 'canceled'))))) is true`),
 }));
 
 export const returnCommissionAdjustments = ufitSchema.table('return_commission_adjustments', {

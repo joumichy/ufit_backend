@@ -1,6 +1,7 @@
 import {ConflictException} from '@nestjs/common';
 import {ORDER_RETURN, RETURN_ACTION, RETURN_STATUS, type OrderReturnAction, type ReturnActionName, type ReturnStatus} from './order-return.contract';
 import type {ReturnQuantity, ReturnRefundAmounts} from './return-refund-policy';
+import {RETURN_REFUND, type ReturnRefundProviderStatus} from './return-refund';
 
 export const RETURN_ACTOR = {customer: 'customer', brand: 'brand', administrator: 'administrator'} as const;
 export type ReturnActor = typeof RETURN_ACTOR[keyof typeof RETURN_ACTOR];
@@ -19,7 +20,7 @@ export interface OrderReturn {
   tracking: {carrier: string; trackingNumber: string; trackingUrl: string | null; sentAt: string} | null;
   reception: {at: string; items: ReturnRestockItem[]} | null;
 }
-export function returnActions(document: OrderReturn, actor: ReturnActor): ReturnActionName[] {
+export function returnActions(document: OrderReturn, actor: ReturnActor, providerStatus: ReturnRefundProviderStatus | null = null): ReturnActionName[] {
   if (document.version >= ORDER_RETURN.revision.maximum) return [];
   if (actor === RETURN_ACTOR.customer) {
     switch (document.status) {
@@ -31,7 +32,7 @@ export function returnActions(document: OrderReturn, actor: ReturnActor): Return
     }
   }
   if (actor === RETURN_ACTOR.administrator && document.status === RETURN_STATUS.disputed) return [RETURN_ACTION.arbitrateApprove, RETURN_ACTION.arbitrateReject];
-  if (document.status === RETURN_STATUS.refundFailed) return [RETURN_ACTION.retryRefund];
+  if (document.status === RETURN_STATUS.refundFailed) return providerStatus === RETURN_REFUND.providerStatus.cancelled ? [RETURN_ACTION.retryRefund] : [];
   if (actor === RETURN_ACTOR.brand) {
     switch (document.status) {
       case RETURN_STATUS.requested: return [RETURN_ACTION.approve, RETURN_ACTION.reject];
@@ -42,9 +43,9 @@ export function returnActions(document: OrderReturn, actor: ReturnActor): Return
   return [];
 }
 /** Authorization resolves actor from current persisted facts before entering this policy. */
-export function applyReturnAction(document: OrderReturn, actor: ReturnActor, input: OrderReturnAction, now: string): OrderReturn {
+export function applyReturnAction(document: OrderReturn, actor: ReturnActor, input: OrderReturnAction, now: string, providerStatus: ReturnRefundProviderStatus | null = null): OrderReturn {
   if (document.version !== input.expectedVersion) throw new ConflictException(ORDER_RETURN.failure.changed);
-  if (!returnActions(document, actor).includes(input.action)) throw new ConflictException(ORDER_RETURN.failure.state);
+  if (!returnActions(document, actor, providerStatus).includes(input.action)) throw new ConflictException(ORDER_RETURN.failure.state);
   const result = {...document, version: document.version + ORDER_RETURN.revision.step, updatedAt: now};
   switch (input.action) {
     case RETURN_ACTION.approve:

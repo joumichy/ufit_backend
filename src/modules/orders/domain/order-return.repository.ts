@@ -20,6 +20,7 @@ export interface ReturnRefundSummary {
 }
 export interface StoredOrderReturn {
   document: OrderReturn; requestId: string; requestFingerprint: string; returnPolicy: string;
+  allocationNumber: number | null;
   refund: ReturnRefundSummary | null;
 }
 export interface OrderReturnSummary {
@@ -38,7 +39,7 @@ export interface OrderReturnRepository {
   find(id: string, lock: boolean): Promise<StoredOrderReturn | undefined>;
   findRequest(orderId: string, requestId: string): Promise<StoredOrderReturn | undefined>;
   findOpen(orderId: string): Promise<string | null>;
-  returnedQuantities(orderId: string): Promise<ReturnQuantity[]>;
+  returnedQuantities(orderId: string, beforeAllocation?: number): Promise<ReturnQuantity[]>;
   list(scope: ReturnScope, actorId: string, query: OrderReturnQuery): Promise<OrderReturnPage>;
   insert(document: OrderReturn, requestId: string, fingerprint: string, returnPolicy: string): Promise<void>;
   save(document: OrderReturn, expectedVersion: number): Promise<void>;

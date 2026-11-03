@@ -1,7 +1,7 @@
 import {DrizzleOrderNotifications} from './drizzle-order-notifications';
 import {returnNotification} from '../domain/return-notification';
 import {BadRequestException, ConflictException, Inject, Injectable} from '@nestjs/common';
-import {and, asc, desc, eq, inArray, lte, lt, notInArray, or, sql, type SQL} from 'drizzle-orm';
+import {and, asc, desc, eq, inArray, isNull, isNotNull, lte, lt, notInArray, or, sql, type SQL} from 'drizzle-orm';
 import {z} from 'zod';
 import {alias} from 'drizzle-orm/pg-core';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
@@ -73,13 +73,13 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
   }
   async findOpen(orderId: string) {
     const [row] = await this.database.db.select({id: orderReturns.id}).from(orderReturns)
-      .where(and(eq(orderReturns.orderId, orderId), notInArray(orderReturns.status, [...ORDER_RETURN.terminalStatuses]))).limit(ORDER_RETURN.persistence.singleRow);
+      .where(and(eq(orderReturns.orderId, orderId), isNull(orderReturns.receivedAt), notInArray(orderReturns.status, [...ORDER_RETURN.terminalStatuses]))).limit(ORDER_RETURN.persistence.singleRow);
     return row?.id ?? null;
   }
-  async returnedQuantities(orderId: string) {
+  async returnedQuantities(orderId: string, beforeAllocation?: number) {
     const rows = await this.database.db.select({orderItemId: orderReturnItems.orderItemId, quantity: sql<number>`sum(${orderReturnItems.quantity})::integer`})
       .from(orderReturnItems).innerJoin(orderReturns, eq(orderReturns.id, orderReturnItems.returnId))
-      .where(and(eq(orderReturns.orderId, orderId), eq(orderReturns.status, RETURN_STATUS.refunded))).groupBy(orderReturnItems.orderItemId);
+      .where(and(eq(orderReturns.orderId, orderId), isNotNull(orderReturns.allocationNumber), beforeAllocation === undefined ? undefined : lt(orderReturns.allocationNumber, beforeAllocation))).groupBy(orderReturnItems.orderItemId);
     return rows;
   }
   async list(scope: ReturnScope, actorId: string, query: OrderReturnQuery) {
@@ -116,7 +116,23 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
     await new DrizzleOrderNotifications(this.database).record(returnNotification(document.orderId, document.id, document.version, document.status), true);
   }
   async save(document: OrderReturn, expectedVersion: number): Promise<void> {
+    let allocationNumber: number | null = null;
+    if (document.reception) {
+      // Serialize receipt allocations on the order, independently of Stripe settlement order.
+      if (!await this.order(document.orderId, true)) throw new ConflictException(ORDER_RETURN.failure.persisted);
+      const [current] = await this.database.db.select({allocationNumber: orderReturns.allocationNumber}).from(orderReturns)
+        .where(and(eq(orderReturns.id, document.id), eq(orderReturns.orderId, document.orderId))).limit(ORDER_RETURN.persistence.singleRow);
+      if (!current) throw new ConflictException(ORDER_RETURN.failure.persisted);
+      allocationNumber = current.allocationNumber;
+      if (allocationNumber === null) {
+        const [last] = await this.database.db.select({allocationNumber: orderReturns.allocationNumber}).from(orderReturns)
+          .where(and(eq(orderReturns.orderId, document.orderId), isNotNull(orderReturns.allocationNumber)))
+          .orderBy(desc(orderReturns.allocationNumber)).limit(ORDER_RETURN.persistence.singleRow);
+        allocationNumber = (last?.allocationNumber ?? ORDER_RETURN.amount.zero) + ORDER_RETURN.revision.step;
+      }
+    }
     const [row] = await this.database.db.update(orderReturns).set({status: document.status, version: document.version, updatedAt: new Date(document.updatedAt),
+      allocationNumber,
       brandDecision: document.brandDecision?.decision ?? null, brandReason: document.brandDecision?.reason ?? null, brandInstructions: document.brandDecision?.instructions ?? null,
       brandDecidedAt: document.brandDecision ? new Date(document.brandDecision.at) : null,
       disputeReason: document.dispute?.reason ?? null, disputedAt: document.dispute ? new Date(document.dispute.at) : null,

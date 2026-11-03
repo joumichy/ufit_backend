@@ -15,10 +15,11 @@ export async function latestReturnRefund(database: DatabaseSession, returnId: st
 export function projectReturnRecord(row: OrderReturnRow, brandId: string, items: OrderReturnItemRow[], refund: OrderReturnRefundRow | undefined): StoredOrderReturn {
   if (!Object.values(RETURN_STATUS).some(status => status === row.status) || row.refundPolicyCode !== ORDER_RETURN.policy.code || !items.length || items.some(item => item.orderId !== row.orderId || item.returnId !== row.id)) throw new ConflictException(ORDER_RETURN.failure.persisted);
   const received = row.receivedAt !== null;
+  if (received !== (row.allocationNumber !== null) || (row.allocationNumber !== null && (!Number.isSafeInteger(row.allocationNumber) || row.allocationNumber < ORDER_RETURN.revision.initial))) throw new ConflictException(ORDER_RETURN.failure.persisted);
   if (items.some(item => (item.restockQuantity !== null) !== received)) throw new ConflictException(ORDER_RETURN.failure.persisted);
   if ([RETURN_STATUS.refundPending, RETURN_STATUS.refundFailed, RETURN_STATUS.refunded].some(status => row.status === status) && !refund) throw new ConflictException(ORDER_RETURN.failure.persisted);
   if (refund && (!Object.values(RETURN_REFUND_ATTEMPT).some(state => state === refund.state) || (refund.providerStatus !== null && !Object.values(RETURN_REFUND.providerStatus).some(status => status === refund.providerStatus)))) throw new ConflictException(ORDER_RETURN.failure.persisted);
-  return {requestId: row.requestId, requestFingerprint: row.requestFingerprint, returnPolicy: row.returnPolicy,
+  return {requestId: row.requestId, requestFingerprint: row.requestFingerprint, returnPolicy: row.returnPolicy, allocationNumber: row.allocationNumber,
     refund: refund ? {attemptNumber: refund.attemptNumber, amount: refund.amount, state: refund.state as ReturnRefundAttemptState, providerStatus: refund.providerStatus as ReturnRefundProviderStatus | null, updatedAt: refund.updatedAt.toISOString()} : null,
     document: {id: row.id, orderId: row.orderId, brandId, version: row.version, status: row.status as ReturnStatus,
       reason: row.reason, items: items.map(item => ({orderItemId: item.orderItemId, quantity: item.quantity})),

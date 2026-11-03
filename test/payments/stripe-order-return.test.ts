@@ -82,6 +82,18 @@ describe('Stripe order return refunds', () => {
       expect(state.creations).toBe(0);
     }
   });
+  it('blocks a new attempt when the original payment already has a failed refund, without inventing a provider refund', async () => {
+    const {state, stripe} = setup();
+    state.refunds = [{...refund(), status: 'failed', metadata: {...refund().metadata, return_refund_attempt_id: fixture.otherAttempt}}];
+    expect(await refundStripeReturn(stripe, claim())).toEqual({state: 'blocked', refundId: null, providerStatus: null});
+    expect(state.creations).toBe(0);
+  });
+  it('does not block an existing attempt because a different refund failed later', async () => {
+    const {state, stripe} = setup();
+    state.refunds = [{...refund(), status: 'failed', id: fixture.otherAttempt, metadata: {...refund().metadata, return_refund_attempt_id: fixture.otherAttempt}}, refund()];
+    expect(await refundStripeReturn(stripe, claim())).toEqual({state: 'succeeded', refundId: fixture.refund, providerStatus: 'succeeded'});
+    expect(state.creations).toBe(0);
+  });
   it('refuses an unrecognized status instead of completing the customer refund', async () => {
     const {state, stripe} = setup(); state.refunds = [{...refund(), status: null}];
     await expect(refundStripeReturn(stripe, {...claim(), refundId: fixture.refund})).rejects.toMatchObject({response: {code: 'order_return_refund_status_unknown'}});

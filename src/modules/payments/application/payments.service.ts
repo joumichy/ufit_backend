@@ -33,8 +33,12 @@ import { STRIPE_ORDER_METADATA, STRIPE_COMMERCE } from "./stripe-commerce";
 
 export { STRIPE_CLIENT } from "./stripe-commerce";
 import { STRIPE_CLIENT } from "./stripe-commerce";
-import {refundStripeReturn} from '../infrastructure/stripe-order-return';
+import {refundStripeReturn, STRIPE_RETURN} from '../infrastructure/stripe-order-return';
 import type {ReturnRefundClaim} from '../../orders/domain/return-refund';
+import {RETURN_REFUND} from '../../orders/domain/return-refund';
+import {ReturnRefundsService} from '../../orders/application/return-refunds.service';
+import {z} from 'zod';
+const refundReferenceSchema = z.object({orderId: z.uuid(), returnId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 export type StripePaymentsClient = Pick<
   StripeSDK,
   | "paymentIntents"
@@ -62,6 +66,8 @@ export class PaymentsService {
     private readonly cancellations: OrderCancellationService,
     @Inject(ConnectAccountsService)
     private readonly connect: ConnectAccountsService,
+    @Inject(forwardRef(() => ReturnRefundsService))
+    private readonly returnRefunds: ReturnRefundsService,
   ) {}
 
   async reverseCancellation(
@@ -138,6 +144,16 @@ export class PaymentsService {
     if (event.type === CONNECT.eventUpdated) {
       await this.connect.accountUpdated(event.data.object.id, event.livemode);
       return { received: true, duplicate: false };
+    }
+    if (STRIPE_COMMERCE.refundEvents.some(type => type === event.type)) {
+      const refund = event.data.object as Awaited<ReturnType<StripePaymentsClient['refunds']['retrieve']>>;
+      const returnId = refund.metadata?.[STRIPE_RETURN.metadata.returnId];
+      const attemptId = refund.metadata?.[STRIPE_RETURN.metadata.attemptId];
+      if (returnId === undefined && attemptId === undefined) return {received: true, duplicate: false};
+      const reference = refundReferenceSchema.safeParse({orderId: refund.metadata?.[STRIPE_ORDER_METADATA.orderId], returnId, attemptId, refundId: refund.id});
+      if (!reference.success) throw new BadRequestException(RETURN_REFUND.failure.mismatch);
+      const changed = await this.returnRefunds.reconcile(reference.data);
+      return {received: true, duplicate: !changed};
     }
     if (event.type !== STRIPE_COMMERCE.paymentSucceeded)
       return { received: true, duplicate: false };
