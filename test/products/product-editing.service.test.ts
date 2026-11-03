@@ -10,7 +10,7 @@ import {PROFILE_STATUS} from '../../src/shared/domain/profile-editing.contract';
 function setup(){const repository=new MemoryProductRepository();const media=new MemoryProductMediaReader();return{repository,media,service:new ProductsService(repository,media)};}
 const create=()=>({brandId:productFixture.brandID,requestId:randomUUID(),name:productFixture.name,description:productFixture.description,category:productFixture.category,basePrice:productFixture.basePrice,currency:productFixture.currency,
  variants:[{sku:productFixture.skuPrefix+randomUUID(),stockQuantity:productFixture.stock}],images:[productFixture.image]});
-function edit(detail:ProductDetail){return{name:detail.product.name,description:detail.product.description,category:detail.product.category,basePrice:detail.product.basePrice,currency:detail.product.currency,
+function edit(detail:Pick<ProductDetail,'variants'|'images'> & {product:Omit<ProductDetail['product'],'reviewedBy'|'reviewedAt'|'rejectionReason'>}){return{name:detail.product.name,description:detail.product.description,category:detail.product.category,basePrice:detail.product.basePrice,currency:detail.product.currency,
  expectedVersion:detail.product.version,variants:detail.variants.map(({id,size,color,sku,stockQuantity,priceOverride,status})=>({id,size,color,sku,stockQuantity,priceOverride,status,expectedStockQuantity:stockQuantity})),images:detail.images.map(({id,url,position,kind})=>({id,url,position,kind}))};}
 describe('owned product lifecycle',()=>{
  it('returns the authoritative brand context in private detail, queue and creation recovery',async()=>{
@@ -30,7 +30,7 @@ describe('owned product lifecycle',()=>{
  it('requires a real membership for every write and denies unscoped non-admin lists',async()=>{
   const{service,repository}=setup(),body=create();const first=await service.createProduct(productFixture.actor,body);repository.members.clear();
   await expect(service.createProduct(productFixture.actor,{...body,requestId:randomUUID()})).rejects.toBeInstanceOf(ForbiddenException);
-  await expect(service.submitProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version})).rejects.toBeInstanceOf(ForbiddenException);
+  await expect(service.publishProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version})).rejects.toBeInstanceOf(ForbiddenException);
   await expect(service.listProducts(productFixture.actor,{})).rejects.toBeInstanceOf(BadRequestException);
  });
  it('rejects a stale content version and never silently removes a variant identity',async()=>{
@@ -39,9 +39,8 @@ describe('owned product lifecycle',()=>{
   await expect(service.updateProduct(productFixture.actor,first.product.id,{...edit(first),variants:[]})).rejects.toBeInstanceOf(BadRequestException);
  });
  it('keeps approved stock changes published and returns content revisions to draft',async()=>{
-  const{service}=setup();const first=await service.createProduct(productFixture.actor,create());const submitted=await service.submitProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version});
-  const approved=await service.reviewProduct(first.product.id,{expectedVersion:submitted.product.version,reviewerId:productFixture.adminID,decision:PRODUCT_STATUS.active});
-  const variant=approved.variants[productFixture.firstIndex];const stocked=await service.updateStock(productFixture.actor,approved.product.id,{expectedVersion:approved.product.version,variantId:variant.id,expectedStockQuantity:variant.stockQuantity,stockQuantity:productFixture.restockQuantity});
+  const{service}=setup();const first=await service.createProduct(productFixture.actor,create());const published=await service.publishProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version});
+  const variant=published.variants[productFixture.firstIndex];const stocked=await service.updateStock(productFixture.actor,published.product.id,{expectedVersion:published.product.version,variantId:variant.id,expectedStockQuantity:variant.stockQuantity,stockQuantity:productFixture.restockQuantity});
   expect(stocked.product.status).toBe(PRODUCT_STATUS.active);const revised=await service.updateProduct(productFixture.actor,stocked.product.id,{...edit(stocked),name:productFixture.revisedName});
   expect(revised.product.status).toBe(PRODUCT_STATUS.draft);expect(revised.variants[productFixture.firstIndex].id).toBe(variant.id);expect(revised.images[productFixture.firstIndex].id).toBe(first.images[productFixture.firstIndex].id);
  });
@@ -50,13 +49,19 @@ describe('owned product lifecycle',()=>{
   await expect(service.updateProduct(productFixture.actor,first.product.id,{...stale,name:productFixture.rollbackName})).rejects.toBeInstanceOf(ConflictException);
   const current=await service.getManagedProduct(productFixture.actor,first.product.id);expect(current.product.name).toBe(first.product.name);expect(current.product.version).toBe(first.product.version);
  });
- it('requires complete submission, a motivated refusal and a new review after restore',async()=>{
-  const{service}=setup();const first=await service.createProduct(productFixture.actor,{...create(),images:[]});
-  await expect(service.submitProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version})).rejects.toBeInstanceOf(BadRequestException);
-  const archived=await service.archiveProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version});const restored=await service.restoreProduct(productFixture.actor,first.product.id,{expectedVersion:archived.product.version});
-  expect(restored.product.status).toBe(PRODUCT_STATUS.draft);expect(restored.product.version).toBeGreaterThan(archived.product.version);
-  const ready=await service.createProduct(productFixture.actor,create());const submitted=await service.submitProduct(productFixture.actor,ready.product.id,{expectedVersion:ready.product.version});
-  await expect(service.reviewProduct(ready.product.id,{expectedVersion:submitted.product.version,reviewerId:productFixture.adminID,decision:PRODUCT_STATUS.rejected})).rejects.toBeInstanceOf(BadRequestException);
+ it('requires complete products and an active brand, without content approval',async()=>{
+  const{service,repository}=setup();const first=await service.createProduct(productFixture.actor,{...create(),images:[]});
+  await expect(service.publishProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version})).rejects.toBeInstanceOf(BadRequestException);
+  const archived=await service.archiveProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version});
+  const restored=await service.restoreProduct(productFixture.actor,first.product.id,{expectedVersion:archived.product.version});
+  expect(restored.product.status).toBe(PRODUCT_STATUS.draft);
+  const ready=await service.createProduct(productFixture.actor,create());repository.brands.get(productFixture.brandID)!.status=PROFILE_STATUS.paused;
+  await expect(service.publishProduct(productFixture.actor,ready.product.id,{expectedVersion:ready.product.version})).rejects.toBeInstanceOf(ForbiddenException);
+  repository.brands.get(productFixture.brandID)!.status=PROFILE_STATUS.active;
+  const published=await service.publishProduct(productFixture.actor,ready.product.id,{expectedVersion:ready.product.version});
+  expect(published.product.status).toBe(PRODUCT_STATUS.active);expect(published.product).not.toHaveProperty('reviewedAt');
+  const withdrawn=await service.withdrawProduct(productFixture.actor,ready.product.id,{expectedVersion:published.product.version});
+  expect(withdrawn.product.status).toBe(PRODUCT_STATUS.draft);
  });
  it('allows moderation to archive and restore without granting content or stock ownership',async()=>{
   const{service}=setup();const first=await service.createProduct(productFixture.actor,create());const moderator={id:productFixture.adminID,roles:['admin'] as const};
@@ -72,12 +77,11 @@ describe('owned product lifecycle',()=>{
   repository.members.clear();await expect(service.recoverCreation(productFixture.actor,body.brandId,body.requestId)).rejects.toBeInstanceOf(ForbiddenException);
  });
 
- it('leaves moderation unchanged when image read links cannot be prepared',async()=>{
+ it('keeps a draft private if image read links cannot be prepared before publication',async()=>{
   const{service,repository,media}=setup();const first=await service.createProduct(productFixture.actor,create());
-  const submitted=await service.submitProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version});
   media.failReads=true;
-  await expect(service.reviewProduct(first.product.id,{expectedVersion:submitted.product.version,decision:PRODUCT_STATUS.active,reviewerId:productFixture.adminID})).rejects.toBeInstanceOf(ServiceUnavailableException);
-  const current=await repository.findById(first.product.id);expect(current?.product.version).toBe(submitted.product.version);expect(current?.product.status).toBe(PRODUCT_STATUS.underReview);
+  await expect(service.publishProduct(productFixture.actor,first.product.id,{expectedVersion:first.product.version})).rejects.toBeInstanceOf(ServiceUnavailableException);
+  const current=await repository.findById(first.product.id);expect(current?.product.version).toBe(first.product.version);expect(current?.product.status).toBe(PRODUCT_STATUS.draft);
  });
  it('attaches only ready media of the product brand and persists stable URLs separately from read URLs',async()=>{
   const{service,repository,media}=setup(),body=create(),assetID=randomUUID();

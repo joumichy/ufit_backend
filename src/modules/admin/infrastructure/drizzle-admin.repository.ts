@@ -5,21 +5,17 @@ import {COMMISSION_RELEASE} from '../../commissions/domain/commission-release';
 import {ORDER_COMMISSION} from '../../orders/domain/order-lifecycle';
 import {WORKSPACE_FINANCE,workspaceInteger} from '../../workspaces/domain/workspace-finance';
 import {availableApplicant} from '../../applications/application-visibility';
-import {ADMIN_ACTIVITY, type AdminActivity} from '../domain/admin-activity.contract';
+import {ADMIN_ACTIVITY, ADMIN_QUEUE, type AdminActivity} from '../domain/admin-activity.contract';
 import {READ_SNAPSHOT,type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import { DatabaseService } from '../../../shared/infrastructure/database/database.service';
 import {
   brandApplications,
   creatorApplications,
-  orders,
-  outfits,
-  products
+  orders
 } from '../../../shared/infrastructure/database/schema';
 import type { AdminPage, AdminQueueItem, AdminQueueName, AdminRepository } from '../application/admin.service';
 
 const applicationStatuses = ['submitted', 'under_review', 'waitlisted', 'needs_more_info'] as const;
-const productStatuses = ['under_review'] as const;
-const outfitStatuses = ['under_review', 'submitted'] as const;
 const orderStatuses = ['paid', 'preparing'] as const;
 const commissionStatuses = [ORDER_COMMISSION.status.pending, ORDER_COMMISSION.status.estimated] as const;
 const commissionQueueType = 'commission';
@@ -37,10 +33,8 @@ export class DrizzleAdminRepository implements AdminRepository {
         .where(and(inArray(creatorApplications.status, ADMIN_ACTIVITY.applicationStatuses),availableApplicant(creatorApplications.userId)));
       const [brands] = await tx.select({value: count()}).from(brandApplications)
         .where(and(inArray(brandApplications.status, ADMIN_ACTIVITY.applicationStatuses),availableApplicant(brandApplications.userId)));
-      const [product] = await tx.select({value: count()}).from(products).where(eq(products.status, ADMIN_ACTIVITY.productStatus));
-      const [outfit] = await tx.select({value: count()}).from(outfits).where(eq(outfits.status, ADMIN_ACTIVITY.outfitStatus));
-      if (!creators || !brands || !product || !outfit) throw new InternalServerErrorException(ADMIN_ACTIVITY.invalid);
-      const result = {applications: creators.value + brands.value, products: product.value, outfits: outfit.value};
+      if (!creators || !brands) throw new InternalServerErrorException(ADMIN_ACTIVITY.invalid);
+      const result = {applications: creators.value + brands.value};
       if (Object.values(result).some(value => !Number.isSafeInteger(value) || value < ADMIN_ACTIVITY.minimumCount)) {
         throw new InternalServerErrorException(ADMIN_ACTIVITY.invalid);
       }
@@ -49,19 +43,15 @@ export class DrizzleAdminRepository implements AdminRepository {
   }
 
   async countQueues(): Promise<Record<AdminQueueName, number>> {
-    const [creatorApplicationCount, brandApplicationCount, productCount, outfitCount, orderCount, commissionCount] = await Promise.all([
+    const [creatorApplicationCount, brandApplicationCount, orderCount, commissionCount] = await Promise.all([
       this.countCreatorApplications(),
       this.countBrandApplications(),
-      this.countProducts(),
-      this.countOutfits(),
       this.countOrders(),
       this.countCommissions()
     ]);
 
     return {
       applications: creatorApplicationCount + brandApplicationCount,
-      products: productCount,
-      outfits: outfitCount,
       orders: orderCount,
       commissions: commissionCount
     };
@@ -69,15 +59,11 @@ export class DrizzleAdminRepository implements AdminRepository {
 
   async listQueue(queue: AdminQueueName, page: { limit: number; offset: number }): Promise<AdminPage<AdminQueueItem>> {
     switch (queue) {
-      case 'applications':
+      case ADMIN_QUEUE.kind.applications:
         return this.listApplications(page);
-      case 'products':
-        return this.listProducts(page);
-      case 'outfits':
-        return this.listOutfits(page);
-      case 'orders':
+      case ADMIN_QUEUE.kind.orders:
         return this.listOrders(page);
-      case 'commissions':
+      case ADMIN_QUEUE.kind.commissions:
         return this.listCommissions(page);
     }
   }
@@ -121,62 +107,6 @@ export class DrizzleAdminRepository implements AdminRepository {
       .slice(page.offset, page.offset + page.limit);
 
     return this.toPage(items, page, total);
-  }
-
-  private async listProducts(page: { limit: number; offset: number }): Promise<AdminPage<AdminQueueItem>> {
-    const [rows, total] = await Promise.all([
-      this.database.db
-        .select()
-        .from(products)
-        .where(inArray(products.status, productStatuses))
-        .orderBy(desc(products.updatedAt))
-        .limit(page.limit)
-        .offset(page.offset),
-      this.countProducts()
-    ]);
-
-    return this.toPage(
-      rows.map((row) => ({
-        id: row.id,
-        type: 'product',
-        status: row.status,
-        ownerId: row.brandId,
-        title: row.name,
-        amount: row.basePrice,
-        currency: row.currency,
-        submittedAt: row.updatedAt?.toISOString() ?? null
-      })),
-      page,
-      total
-    );
-  }
-
-  private async listOutfits(page: { limit: number; offset: number }): Promise<AdminPage<AdminQueueItem>> {
-    const [rows, total] = await Promise.all([
-      this.database.db
-        .select()
-        .from(outfits)
-        .where(inArray(outfits.status, outfitStatuses))
-        .orderBy(desc(outfits.updatedAt))
-        .limit(page.limit)
-        .offset(page.offset),
-      this.countOutfits()
-    ]);
-
-    return this.toPage(
-      rows.map((row) => ({
-        id: row.id,
-        type: 'outfit',
-        status: row.status,
-        ownerId: row.creatorId ?? row.brandId,
-        title: row.title,
-        amount: row.totalPriceMax,
-        currency: 'CHF',
-        submittedAt: row.updatedAt?.toISOString() ?? null
-      })),
-      page,
-      total
-    );
   }
 
   private async listOrders(page: { limit: number; offset: number }): Promise<AdminPage<AdminQueueItem>> {
@@ -232,16 +162,6 @@ export class DrizzleAdminRepository implements AdminRepository {
       .select({ value: count() })
       .from(brandApplications)
       .where(and(inArray(brandApplications.status, applicationStatuses),availableApplicant(brandApplications.userId)));
-    return row?.value ?? 0;
-  }
-
-  private async countProducts(): Promise<number> {
-    const [row] = await this.database.db.select({ value: count() }).from(products).where(inArray(products.status, productStatuses));
-    return row?.value ?? 0;
-  }
-
-  private async countOutfits(): Promise<number> {
-    const [row] = await this.database.db.select({ value: count() }).from(outfits).where(inArray(outfits.status, outfitStatuses));
     return row?.value ?? 0;
   }
 

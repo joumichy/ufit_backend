@@ -1,7 +1,7 @@
 import {PROFILE_EDITING, PROFILE_AUTHOR_ROLES} from '../../../shared/domain/profile-editing.contract';
 
-export const OUTFIT_STATUS = {draft: 'draft', submitted: 'submitted', underReview: 'under_review', scheduled: 'scheduled', published: 'published', rejected: 'rejected', archived: 'archived'} as const;
-export const OUTFIT_STATUSES = [OUTFIT_STATUS.draft, OUTFIT_STATUS.submitted, OUTFIT_STATUS.underReview, OUTFIT_STATUS.scheduled, OUTFIT_STATUS.published, OUTFIT_STATUS.rejected, OUTFIT_STATUS.archived] as const;
+export const OUTFIT_STATUS = {draft: 'draft', scheduled: 'scheduled', published: 'published', archived: 'archived'} as const;
+export const OUTFIT_STATUSES = [OUTFIT_STATUS.draft, OUTFIT_STATUS.scheduled, OUTFIT_STATUS.published, OUTFIT_STATUS.archived] as const;
 export const OUTFIT_VISIBILITY = {public: 'public', private: 'private', featured: 'featured'} as const;
 export const OUTFIT_VISIBILITIES = [OUTFIT_VISIBILITY.public, OUTFIT_VISIBILITY.private, OUTFIT_VISIBILITY.featured] as const;
 export const OUTFIT_ITEM_TYPES = ['top', 'bottom', 'shoes', 'bag', 'accessory', 'outerwear', 'eyewear', 'headwear'] as const;
@@ -24,12 +24,11 @@ export const OUTFIT_EDITING = {
     changed: {code: 'outfit_version_changed', message: 'The outfit changed; reload before editing'},
     state: {code: 'outfit_state_unavailable', message: 'This action is not available in the current outfit state'},
     request: {code: 'outfit_creation_request_changed', message: 'This creation request was used for another payload'},
-    incomplete: {code: 'outfit_submission_incomplete', message: 'A description, photo and coherent outfit pieces are required'},
+    incomplete: {code: 'outfit_publication_incomplete', message: 'A description, photo and coherent outfit pieces are required'},
     items: {code: 'outfit_items_invalid', message: 'Use either an active product or a labelled inspiration piece, with distinct positions'},
     pins: {code: 'outfit_pins_invalid', message: 'Pins must identify distinct photo and item pairs with coordinates between 0 and 10000'},
     images: {code: 'outfit_images_invalid', message: 'Retained image identifiers must belong to this outfit, with distinct positions'},
     tags: {code: 'outfit_tags_invalid', message: 'Select distinct tags from the outfit tag registry'},
-    reason: {code: 'outfit_rejection_reason_required', message: 'A rejection reason is required'},
     missing: 'Outfit not found', page: 'Invalid managed outfit page',
   },
 } as const;

@@ -9,7 +9,7 @@ import { PRODUCT_MEDIA } from '../../media/domain/product-media.contract';
 import type { ProductMediaReader } from '../../media/domain/product-media.types';
 import { PRODUCT_ADMIN_ROLES, PRODUCT_EDITING, PRODUCT_STATUS, PRODUCT_STATUSES, PRODUCT_VARIANT_STATUS, PRODUCT_SELECTION } from '../domain/product-contract';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
-import { CreateProductDto, ProductFieldsDto, ProductVersionDto, ReviewProductDto, UpdateProductDto, UpdateProductStockDto } from './dto/product.dto';
+import { CreateProductDto, ProductFieldsDto, ProductVersionDto, UpdateProductDto, UpdateProductStockDto } from './dto/product.dto';
 
 enum ProductMutationAccess { MemberOnly, Moderation }
 type ProductActor = Pick<AuthenticatedUser, 'id' | 'roles'>;
@@ -93,7 +93,7 @@ export class ProductsService {
   }
   async updateProduct(user: ProductActor, productId: string, input: UpdateProductDto): Promise<ProductDetailResponse> {
     return this.mutateProduct(user, productId, input.expectedVersion, async (repository, detail) => {
-      if (detail.product.status === PRODUCT_STATUS.underReview || detail.product.status === PRODUCT_STATUS.archived) throw new ConflictException(PRODUCT_EDITING.failure.state);
+      if (detail.product.status === PRODUCT_STATUS.archived) throw new ConflictException(PRODUCT_EDITING.failure.state);
       const retainedIDs = input.variants.flatMap(variant => variant.id ? [variant.id] : []);
       if (new Set(retainedIDs).size !== retainedIDs.length || retainedIDs.length !== detail.variants.length ||
           detail.variants.some(variant => !retainedIDs.includes(variant.id)) || input.variants.some(variant => variant.id ? variant.expectedStockQuantity === undefined : variant.expectedStockQuantity !== undefined)) {
@@ -113,12 +113,25 @@ export class ProductsService {
       await repository.bumpVersion(productId);
     });
   }
-  async submitProduct(user: ProductActor, productId: string, input: ProductVersionDto): Promise<ProductDetailResponse> {
+  async publishProduct(user: ProductActor, productId: string, input: ProductVersionDto): Promise<ProductDetailResponse> {
+    const before = await this.products.readSnapshot(async repository => {
+      const value = await this.requireProduct(repository, productId);
+      if (!await repository.hasBrandMembership(value.product.brandId, user.id)) throw new ForbiddenException(PRODUCT_EDITING.failure.access);
+      return value;
+    });
+    const displays = await this.media.resolveImages(before.images.map(image => ({brandId: before.product.brandId, url: image.url})));
     return this.mutateProduct(user, productId, input.expectedVersion, async (repository, detail) => {
-      if (detail.product.status !== PRODUCT_STATUS.draft && detail.product.status !== PRODUCT_STATUS.rejected) throw new ConflictException(PRODUCT_EDITING.failure.state);
+      if (detail.product.status !== PRODUCT_STATUS.draft) throw new ConflictException(PRODUCT_EDITING.failure.state);
+      if (detail.brand.status !== PROFILE_STATUS.active) throw new ForbiddenException(PRODUCT_EDITING.failure.access);
       this.requireComplete(detail);
       await this.requireMedia(repository, detail.product.brandId, detail.images);
-      await repository.updateStatus(productId, PRODUCT_STATUS.underReview);
+      await repository.updateStatus(productId, PRODUCT_STATUS.active);
+    }, ProductMutationAccess.MemberOnly, displays);
+  }
+  async withdrawProduct(user: ProductActor, productId: string, input: ProductVersionDto): Promise<ProductDetailResponse> {
+    return this.mutateProduct(user, productId, input.expectedVersion, async (repository, detail) => {
+      if (detail.product.status !== PRODUCT_STATUS.active) throw new ConflictException(PRODUCT_EDITING.failure.state);
+      await repository.updateStatus(productId, PRODUCT_STATUS.draft);
     });
   }
   async archiveProduct(user: ProductActor, productId: string, input: ProductVersionDto): Promise<ProductDetailResponse> {
@@ -133,22 +146,6 @@ export class ProductsService {
       await repository.updateStatus(productId, PRODUCT_STATUS.draft);
     }, ProductMutationAccess.Moderation);
   }
-  async reviewProduct(productId: string, input: ReviewProductDto & {reviewerId: string}): Promise<ProductDetailResponse> {
-    const before = await this.products.readSnapshot(repository => this.requireProduct(repository, productId));
-    this.requireReviewable(before, input);
-    // Link creation must succeed before the decision commits and its existing controller audit runs.
-    const displays = await this.media.resolveImages(before.images.map(image => ({brandId: before.product.brandId, url: image.url})));
-    const reviewed = await this.write(async repository => {
-      const product = await repository.lockProduct(productId);
-      if (!product) throw new NotFoundException(PRODUCT_EDITING.failure.missing);
-      const detail = await this.requireProduct(repository, productId);
-      this.requireReviewable(detail, input);
-      if (input.decision === PRODUCT_STATUS.active) await this.requireMedia(repository, detail.product.brandId, detail.images);
-      await repository.updateStatus(productId, input.decision, input.reviewerId, input.rejectionReason ?? undefined);
-      return this.requireProduct(repository, productId);
-    });
-    return this.project([reviewed], displays)[PRODUCT_EDITING.limits.firstIndex];
-  }
   async getPublicProduct(productId: string): Promise<PublicProductDto | null> {
     const [detail] = await this.products.findActiveByIds([productId]);
     return detail ? this.toPublicProduct(detail) : null;
@@ -157,7 +154,7 @@ export class ProductsService {
     return {name: input.name, description: input.description, category: input.category, genderTarget: input.genderTarget ?? null,
       basePrice: input.basePrice, currency: input.currency, material: input.material ?? null, careInstructions: input.careInstructions ?? null};
   }
-  private async mutateProduct(user: ProductActor, productId: string, version: number, operation: (repository: ProductRepository, detail: ProductDetail) => Promise<void>, access = ProductMutationAccess.MemberOnly): Promise<ProductDetailResponse> {
+  private async mutateProduct(user: ProductActor, productId: string, version: number, operation: (repository: ProductRepository, detail: ProductDetail) => Promise<void>, access = ProductMutationAccess.MemberOnly, displays?: Map<string, string>): Promise<ProductDetailResponse> {
     const changed = await this.write(async repository => {
       const product = await repository.lockProduct(productId);
       if (!product) throw new NotFoundException(PRODUCT_EDITING.failure.missing);
@@ -166,7 +163,7 @@ export class ProductsService {
       await operation(repository, await this.requireProduct(repository, productId));
       return this.requireProduct(repository, productId);
     });
-    return (await this.present([changed]))[PRODUCT_EDITING.limits.firstIndex];
+    return (displays ? this.project([changed], displays) : await this.present([changed]))[PRODUCT_EDITING.limits.firstIndex];
   }
   private async requireMedia(repository: ProductRepository, brandId: string, images: Array<{url: string}>): Promise<void> {
     const ids = this.media.assetIDs(images.map(image => image.url));
@@ -178,20 +175,17 @@ export class ProductsService {
     return this.project(details, displays);
   }
   private project(details: ProductDetail[], displays: Map<string, string>): ProductDetailResponse[] {
-    return details.map(detail => ({...detail, images: detail.images.map(image => {
+    return details.map(detail => {
+      const {reviewedBy: _reviewer, reviewedAt: _reviewedAt, rejectionReason: _rejection, ...product} = detail.product;
+      return {...detail, product, images: detail.images.map(image => {
       const displayUrl = displays.get(image.url);
       if (!displayUrl) throw new ServiceUnavailableException(PRODUCT_MEDIA.failure.unavailable);
       return {...image, displayUrl};
-    })}));
+    })};
+    });
   }
   private requireVersion(product: Product, expected: number) {
     if (product.version !== expected) throw new ConflictException(PRODUCT_EDITING.failure.changed);
-  }
-  private requireReviewable(detail: ProductDetail, input: ReviewProductDto): void {
-    this.requireVersion(detail.product, input.expectedVersion);
-    if (detail.product.status !== PRODUCT_STATUS.underReview) throw new ConflictException(PRODUCT_EDITING.failure.state);
-    if (input.decision === PRODUCT_STATUS.rejected && !input.rejectionReason?.trim()) throw new BadRequestException(PRODUCT_EDITING.failure.reason);
-    if (input.decision === PRODUCT_STATUS.active) this.requireComplete(detail);
   }
   private requireComplete(detail: ProductDetail) {
     if (detail.variants.filter(variant => variant.status === PRODUCT_VARIANT_STATUS.active).length < PRODUCT_EDITING.limits.readyVariants ||
@@ -212,7 +206,7 @@ export class ProductsService {
     if (!detail) throw new NotFoundException(PRODUCT_EDITING.failure.missing);
     return detail;
   }
-  toPublicProduct(detail: ProductDetail): PublicProductDto | null {
+  toPublicProduct(detail: ProductDetail | ProductDetailResponse): PublicProductDto | null {
     if (detail.product.status !== PRODUCT_STATUS.active) {
       return null;
     }

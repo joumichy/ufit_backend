@@ -1,23 +1,21 @@
 import {CURRENCY_METADATA} from '../../../shared/domain/currencies';
 import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { AdminAuditService } from '../../admin-audit/application/admin-audit.service';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
 import { Roles } from '../../../shared/presentation/decorators/roles.decorator';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
 import { ProductsService } from '../application/products.service';
-import { CreateProductDto, ProductVersionDto, ReviewProductDto, UpdateProductDto, UpdateProductStockDto } from '../application/dto/product.dto';
+import { CreateProductDto, ProductVersionDto, UpdateProductDto, UpdateProductStockDto } from '../application/dto/product.dto';
 import { PRODUCT_WRITE_ROLES, PRODUCT_ADMIN_ROLES, PRODUCT_SELECTION } from '../domain/product-contract';
 
 const productRoutes = {root: 'products', creation: 'creation-requests/:requestId', requestId: 'requestId', brandId: 'brandId', metadata: 'metadata', private: ':id/private', id: 'id',
-  product: ':id', stock: ':id/stock', archive: ':id/archive', restore: ':id/restore', submit: ':id/submit', review: ':id/review', public: ':id/public'} as const;
+  product: ':id', stock: ':id/stock', archive: ':id/archive', restore: ':id/restore', publish: ':id/publish', withdraw: ':id/withdraw', public: ':id/public'} as const;
 
 @Controller(productRoutes.root)
 export class ProductsController {
   constructor(
-    @Inject(ProductsService) private readonly productsService: ProductsService,
-    @Inject(AdminAuditService) private readonly adminAuditService: AdminAuditService
+    @Inject(ProductsService) private readonly productsService: ProductsService
   ) {}
 
   @Post()
@@ -27,13 +25,19 @@ export class ProductsController {
     return this.productsService.createProduct(user, body);
   }
 
-  @Patch(productRoutes.submit)
+  @Patch(productRoutes.publish)
   @UseGuards(AuthGuard, RoleGuard)
   @Roles(...PRODUCT_WRITE_ROLES)
-  submitProduct(@CurrentUser() user: AuthenticatedUser, @Param(productRoutes.id, ParseUUIDPipe) id: string, @Body() body: ProductVersionDto) {
-    return this.productsService.submitProduct(user, id, body);
+  publishProduct(@CurrentUser() user: AuthenticatedUser, @Param(productRoutes.id, ParseUUIDPipe) id: string, @Body() body: ProductVersionDto) {
+    return this.productsService.publishProduct(user, id, body);
   }
 
+  @Patch(productRoutes.withdraw)
+  @UseGuards(AuthGuard, RoleGuard)
+  @Roles(...PRODUCT_WRITE_ROLES)
+  withdrawProduct(@CurrentUser() user: AuthenticatedUser, @Param(productRoutes.id, ParseUUIDPipe) id: string, @Body() body: ProductVersionDto) {
+    return this.productsService.withdrawProduct(user, id, body);
+  }
 
   @Get(PRODUCT_SELECTION.route)
   @UseGuards(AuthGuard, RoleGuard)
@@ -93,24 +97,6 @@ export class ProductsController {
   @Roles(...PRODUCT_WRITE_ROLES)
   restoreProduct(@CurrentUser() user: AuthenticatedUser, @Param(productRoutes.id, ParseUUIDPipe) id: string, @Body() body: ProductVersionDto) {
     return this.productsService.restoreProduct(user, id, body);
-  }
-
-  @Patch(productRoutes.review)
-  @UseGuards(AuthGuard, RoleGuard)
-  @Roles(...PRODUCT_ADMIN_ROLES)
-  async reviewProduct(@CurrentUser() user: AuthenticatedUser, @Param(productRoutes.id, ParseUUIDPipe) id: string, @Body() body: ReviewProductDto) {
-    const detail = await this.productsService.reviewProduct(id, { ...body, reviewerId: user.id });
-    await this.adminAuditService.record({
-      adminUserId: user.id,
-      action: 'product.reviewed',
-      targetType: 'product',
-      targetId: id,
-      payload: {
-        decision: body.decision,
-        rejectionReason: body.rejectionReason ?? null
-      }
-    });
-    return detail;
   }
 
   @Get(productRoutes.public)

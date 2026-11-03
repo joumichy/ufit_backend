@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {plainToInstance} from 'class-transformer';
 import {validate} from 'class-validator';
 import {describe,expect,it} from 'vitest';
-import {CreateProductDto,ReviewProductDto,UpdateProductDto,UpdateProductStockDto} from '../../src/modules/products/application/dto/product.dto';
+import {CreateProductDto,ProductVersionDto,UpdateProductDto,UpdateProductStockDto} from '../../src/modules/products/application/dto/product.dto';
 import {PRODUCT_EDITING,PRODUCT_STATUS} from '../../src/modules/products/domain/product-contract';
 import {productFixture} from './memory-product.repository';
 const validationCase={noErrors:0, padding:'  ', negative:-1, overflowStep:1, validVersion:1, invalidVersion:0, forgedSlug:'forged', unknownCurrency:'ZZZ'} as const;
@@ -30,9 +30,10 @@ describe('product editing input contracts',()=>{
    expect((await validate(plainToInstance(CreateProductDto,{...payload(),...extra}),options)).length).toBeGreaterThan(validationCase.noErrors);
   for(const example of currencyExamples)expect(CURRENCY_METADATA.find(row=>row.code===example.code)?.minorUnitDigits).toBe(example.digits);
  });
- it('does not accept a public reviewer identifier and requires a version',async()=>{
-  for(const input of [{decision:PRODUCT_STATUS.active},{decision:PRODUCT_STATUS.active,expectedVersion:validationCase.validVersion,reviewerId:randomUUID()},{decision:PRODUCT_STATUS.active,expectedVersion:null},{decision:PRODUCT_STATUS.active,expectedVersion:validationCase.invalidVersion}])
-   expect((await validate(plainToInstance(ReviewProductDto,input),options)).length).toBeGreaterThan(validationCase.noErrors);
+ it('publication requires a version and accepts no reviewer or decision',async()=>{
+  expect(await validate(plainToInstance(ProductVersionDto,{expectedVersion:validationCase.validVersion}),options)).toHaveLength(validationCase.noErrors);
+  for(const input of [{},{expectedVersion:validationCase.validVersion,reviewerId:randomUUID()},{expectedVersion:validationCase.validVersion,decision:PRODUCT_STATUS.active},{expectedVersion:null},{expectedVersion:validationCase.invalidVersion}])
+   expect((await validate(plainToInstance(ProductVersionDto,input),options)).length).toBeGreaterThan(validationCase.noErrors);
  });
  it('requires explicit stock preconditions and rejects null retained identifiers',async()=>{
   expect((await validate(plainToInstance(UpdateProductStockDto,{expectedVersion:validationCase.validVersion,variantId:randomUUID(),stockQuantity:productFixture.restockQuantity}),options)).length).toBeGreaterThan(validationCase.noErrors);

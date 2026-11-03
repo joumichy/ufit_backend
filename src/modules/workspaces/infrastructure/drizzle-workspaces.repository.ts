@@ -134,9 +134,9 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
       outfits: {
         total: outfitRows.reduce<number>((total, row) => total + row.value, FINANCE.zero),
         draft: outfitCounts.get(OUTFIT_STATUS.draft) ?? FINANCE.zero,
-        underReview: (outfitCounts.get(OUTFIT_STATUS.submitted) ?? FINANCE.zero) + (outfitCounts.get(OUTFIT_STATUS.underReview) ?? FINANCE.zero),
+        scheduled: outfitCounts.get(OUTFIT_STATUS.scheduled) ?? FINANCE.zero,
         published: outfitCounts.get(OUTFIT_STATUS.published) ?? FINANCE.zero,
-        rejected: outfitCounts.get(OUTFIT_STATUS.rejected) ?? FINANCE.zero
+        archived: outfitCounts.get(OUTFIT_STATUS.archived) ?? FINANCE.zero
       },
       commissions: commissionCurrencies,
       sales
@@ -221,9 +221,7 @@ export class DrizzleWorkspacesRepository implements WorkspacesRepository {
       products: {
         total: productRows.reduce<number>((total, row) => total + row.value, FINANCE.zero),
         draft: productCounts.get(PRODUCT_STATUS.draft) ?? FINANCE.zero,
-        underReview: productCounts.get(PRODUCT_STATUS.underReview) ?? FINANCE.zero,
         active: productCounts.get(PRODUCT_STATUS.active) ?? FINANCE.zero,
-        rejected: productCounts.get(PRODUCT_STATUS.rejected) ?? FINANCE.zero,
         archived: productCounts.get(PRODUCT_STATUS.archived) ?? FINANCE.zero
       },
       orders: {

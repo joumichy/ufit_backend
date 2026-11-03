@@ -53,7 +53,3 @@ export class UpdateOutfitDto extends OutfitFieldsDto {
   @IsArray() @ArrayMaxSize(limits.imagesMax) @ArrayUnique((image: EditOutfitImageDto) => image?.position)
   @IsObject({each: true}) @ValidateNested({each: true}) @Type(() => EditOutfitImageDto) images!: EditOutfitImageDto[];
 }
-export class ReviewOutfitDto extends OutfitVersionDto {
-  @IsIn([OUTFIT_STATUS.published, OUTFIT_STATUS.rejected]) decision!: Extract<OutfitStatus, 'published' | 'rejected'>;
-  @Transform(trimNullableText) @IsOptional() @IsString() @Length(limits.labelMin, limits.noteMax) rejectionReason?: string | null;
-}

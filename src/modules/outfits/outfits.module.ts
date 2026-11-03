@@ -2,7 +2,6 @@ import {OutfitPublicationsWorker} from './infrastructure/outfit-publications.wor
 import {MediaModule} from '../media/media.module';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
-import { AdminAuditModule } from '../admin-audit/admin-audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { ProductsModule } from '../products/products.module';
 import { OutfitsService } from './application/outfits.service';
@@ -11,7 +10,7 @@ import { DrizzleOutfitRepository } from './infrastructure/drizzle-outfit.reposit
 import { OutfitsController } from './presentation/outfits.controller';
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, ProductsModule, AdminAuditModule, MediaModule],
+  imports: [DatabaseModule, IdentityModule, ProductsModule, MediaModule],
   controllers: [OutfitsController],
   providers: [
     OutfitsService, OutfitPublicationsWorker,

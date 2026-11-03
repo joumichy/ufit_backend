@@ -33,9 +33,9 @@ const creatorMetrics: CreatorWorkspaceMetrics = {
   outfits: {
     total: 3,
     draft: 1,
-    underReview: 1,
+    scheduled: 1,
     published: 1,
-    rejected: 0
+    archived: 0
   },
   commissions: [{currency: 'CHF', originalAmount: 2000, adjustedAmount: 300, netAmount: 1700,
     estimatedAmount: 0, pendingAmount: 1000, validatedAmount: 400, paidAmount: 300, paidAdjustmentAmount: 0,
@@ -55,10 +55,8 @@ const brandProfile: BrandWorkspaceProfile = {
 const brandMetrics: BrandWorkspaceMetrics = {
   products: {
     total: 5,
-    draft: 1,
-    underReview: 1,
+    draft: 2,
     active: 3,
-    rejected: 0,
     archived: 0
   },
   orders: {

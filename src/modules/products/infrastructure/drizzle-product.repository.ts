@@ -124,7 +124,7 @@ export class DrizzleProductRepository implements ProductRepository {
     return rows.map(({product, brand}) => ({product, brand, variants: variants.filter(variant => variant.productId === product.id), images: images.filter(image => image.productId === product.id)}));
   }
   async replaceProduct(productId: string, input: ProductContentUpdate): Promise<void> {
-    await this.database.db.update(products).set({...input.fields, status: PRODUCT_STATUS.draft, reviewedBy: null, reviewedAt: null, rejectionReason: null,
+    await this.database.db.update(products).set({...input.fields, status: PRODUCT_STATUS.draft,
       version: sql`${products.version} + ${PRODUCT_EDITING.versionStep}`, updatedAt: new Date()}).where(eq(products.id, productId));
     const ordered = [...input.variants].sort((left, right) => (left.id ?? left.sku).localeCompare(right.id ?? right.sku));
     for (const variant of ordered) {
@@ -154,11 +154,10 @@ export class DrizzleProductRepository implements ProductRepository {
   async bumpVersion(productId: string): Promise<void> {
     await this.database.db.update(products).set({version: sql`${products.version} + ${PRODUCT_EDITING.versionStep}`, updatedAt: new Date()}).where(eq(products.id, productId));
   }
-  async updateStatus(productId: string, status: ProductStatus, reviewerId?: string, rejectionReason?: string): Promise<Product> {
-    const reviewed = status === PRODUCT_STATUS.active || status === PRODUCT_STATUS.rejected;
-    const [row] = await this.database.db.update(products).set({status, reviewedBy: reviewed ? reviewerId ?? null : null,
-      reviewedAt: reviewed ? new Date() : null, rejectionReason: status === PRODUCT_STATUS.rejected ? rejectionReason : null,
-      version: sql`${products.version} + ${PRODUCT_EDITING.versionStep}`, updatedAt: new Date()}).where(eq(products.id, productId)).returning(productProjection);
+  async updateStatus(productId: string, status: ProductStatus): Promise<Product> {
+    const [row] = await this.database.db.update(products).set({status,
+      version: sql`${products.version} + ${PRODUCT_EDITING.versionStep}`, updatedAt: new Date()})
+      .where(eq(products.id, productId)).returning(productProjection);
     return row;
   }
 }

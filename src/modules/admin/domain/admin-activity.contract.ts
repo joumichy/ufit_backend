@@ -1,14 +1,16 @@
 import {APPLICATION} from '../../applications/types/application-contract';
-import {PRODUCT_STATUS} from '../../products/domain/product-contract';
-import {OUTFIT_STATUS} from '../../outfits/domain/outfit-editing.contract';
 
-// These counts match the initial filters of the three moderation screens.
+// Only profile applications require approval; published content is supervised afterwards.
 export const ADMIN_ACTIVITY = {
-  route: 'activity',
+  route: 'activity', summaries: 'summaries', queues: 'queues/:queue', queueParam: 'queue',
+  roles: ['admin', 'super_admin'],
   applicationStatuses: [APPLICATION.status.submitted, APPLICATION.status.underReview],
-  productStatus: PRODUCT_STATUS.underReview,
-  outfitStatus: OUTFIT_STATUS.underReview,
   minimumCount: 0,
-  invalid: 'Invalid administration counters'
+  invalid: 'Invalid administration counters',
 } as const;
-export interface AdminActivity { applications: number; products: number; outfits: number; }
+export const ADMIN_QUEUE = {
+  kind: {applications: 'applications', orders: 'orders', commissions: 'commissions'},
+  page: {default: 20, maximum: 50, minimum: 1, zero: 0},
+  invalid: 'Unknown admin queue',
+} as const;
+export interface AdminActivity { applications: number; }

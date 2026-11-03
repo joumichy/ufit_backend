@@ -45,13 +45,13 @@ export interface BrandWorkspaceProfile {
 }
 
 export interface CreatorWorkspaceMetrics {
-  outfits: Record<'total' | 'draft' | 'underReview' | 'published' | 'rejected', number>;
+  outfits: Record<'total' | 'draft' | 'scheduled' | 'published' | 'archived', number>;
   commissions: WorkspaceCommissionCurrency[];
   sales: WorkspaceSales;
 }
 
 export interface BrandWorkspaceMetrics {
-  products: Record<'total' | 'draft' | 'underReview' | 'active' | 'rejected' | 'archived', number>;
+  products: Record<'total' | 'draft' | 'active' | 'archived', number>;
   orders: Record<'paid' | 'preparing' | 'shipped' | 'delivered' | 'cancelled' | 'refunded', number>;
   sales: WorkspaceSales;
   stock: {

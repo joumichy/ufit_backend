@@ -67,7 +67,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
   }
   async setPublication(id: string, scheduledFor: Date | null, timeZone: string | null) {
     const row = this.outfits.get(id)!;
-    this.outfits.set(id, {...row, scheduledFor, publicationTimeZone: timeZone, version: row.version + OUTFIT_EDITING.versionStep});
+    this.outfits.set(id, {...row, scheduledFor, publicationTimeZone: timeZone, status: scheduledFor === null ? OUTFIT_STATUS.draft : OUTFIT_STATUS.scheduled, visibility: OUTFIT_VISIBILITY.private, publishedAt: null, version: row.version + OUTFIT_EDITING.versionStep});
   }
   async publishScheduled(id: string, now: Date) {
     const row = this.outfits.get(id)!;
@@ -139,7 +139,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
       : null;
   }
 
-  async updateStatus(outfitId: string, status: OutfitStatus, visibility: OutfitVisibility, reviewerId?: string, rejectionReason?: string): Promise<Outfit> {
+  async updateStatus(outfitId: string, status: OutfitStatus, visibility: OutfitVisibility): Promise<Outfit> {
     const outfit = this.outfits.get(outfitId);
     if (!outfit) {
       throw new Error('missing outfit');
@@ -148,10 +148,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
       ...outfit,
       version: outfit.version + OUTFIT_EDITING.versionStep,
       status,
-      visibility,
-      reviewedBy: reviewerId ?? null,
-      reviewedAt: status === OUTFIT_STATUS.published || status === OUTFIT_STATUS.scheduled || status === OUTFIT_STATUS.rejected ? new Date('2026-05-20T00:00:00.000Z') : null,
-      rejectionReason: status === 'rejected' ? rejectionReason ?? null : null,
+      visibility, scheduledFor: null, publicationTimeZone: null,
       publishedAt: status === 'published' ? new Date('2026-05-20T00:00:00.000Z') : null
     };
     this.outfits.set(outfitId, updated);

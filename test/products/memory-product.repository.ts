@@ -109,11 +109,9 @@ export class MemoryProductRepository implements ProductRepository {
     const product = this.products.get(productId); if (!product) throw new Error(productFixture.invalid);
     this.products.set(productId, {...product, version: product.version + PRODUCT_EDITING.versionStep});
   }
-  async updateStatus(productId: string, status: ProductStatus, reviewerId?: string, rejectionReason?: string): Promise<Product> {
+  async updateStatus(productId: string, status: ProductStatus): Promise<Product> {
     const product = this.products.get(productId); if (!product) throw new Error(productFixture.invalid);
-    const reviewed = status === PRODUCT_STATUS.active || status === PRODUCT_STATUS.rejected;
-    const updated = {...product, status, version: product.version + PRODUCT_EDITING.versionStep, reviewedBy: reviewed ? reviewerId ?? null : null,
-      reviewedAt: reviewed ? productFixture.timestamp : null, rejectionReason: status === PRODUCT_STATUS.rejected ? rejectionReason ?? null : null};
+    const updated = {...product, status, version: product.version + PRODUCT_EDITING.versionStep};
     this.products.set(productId, updated); return updated;
   }
 }

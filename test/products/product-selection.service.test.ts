@@ -15,8 +15,8 @@ async function setup() {
       description: productFixture.description, category: productFixture.category, basePrice: data.price, currency,
       images: [productFixture.image], variants: [{sku: productFixture.skuPrefix + randomUUID(), stockQuantity: productFixture.stock}]});
     if (publish) {
-      detail = await service.submitProduct(productFixture.actor, detail.product.id, {expectedVersion: detail.product.version});
-      detail = await service.reviewProduct(detail.product.id, {expectedVersion: detail.product.version, decision: PRODUCT_STATUS.active, reviewerId: productFixture.adminID});
+      detail = await service.publishProduct(productFixture.actor, detail.product.id, {expectedVersion: detail.product.version});
+      detail = await service.getManagedProduct(productFixture.actor, detail.product.id);
     }
     return detail.product.id;
   }

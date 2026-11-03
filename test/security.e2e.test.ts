@@ -35,7 +35,7 @@ describe('security regressions', () => {
     listQueue: vi.fn()
   };
   const productsService = {
-    reviewProduct: vi.fn()
+    publishProduct: vi.fn()
   };
 
   beforeEach(async () => {
@@ -52,9 +52,9 @@ describe('security regressions', () => {
       })
     );
     adminService.getSummary.mockResolvedValue({
-      queues: { applications: 0, products: 0, outfits: 0, orders: 0, commissions: 0 }
+      queues: { applications: 0, orders: 0, commissions: 0 }
     });
-    productsService.reviewProduct.mockResolvedValue({
+    productsService.publishProduct.mockResolvedValue({
       product: {
         id: '33333333-3333-4333-8333-333333333333',
         brandId: '44444444-4444-4444-8444-444444444444',
@@ -153,7 +153,7 @@ describe('security regressions', () => {
       .set('Authorization', 'Bearer test.jwt.token')
       .set('x-user-id', '22222222-2222-4222-8222-222222222222')
       .send({
-        action: 'product.reviewed',
+        action: 'product.archived',
         targetType: 'product',
         targetId: '33333333-3333-4333-8333-333333333333'
       })
@@ -162,44 +162,28 @@ describe('security regressions', () => {
     expect(adminAuditService.record).toHaveBeenCalledWith(
       expect.objectContaining({
         adminUserId: adminUser.id,
-        action: 'product.reviewed',
+        action: 'product.archived',
         targetType: 'product'
       })
     );
   });
 
-  it('audits product reviews with the authenticated admin actor', async () => {
-    const adminUser: AuthenticatedUser = {
-      ...baseUser,
-      id: '11111111-1111-4111-8111-111111111111',
-      roles: ['admin']
-    };
-    identityService.resolveCurrentUser.mockResolvedValue(adminUser);
-
-    await request(app?.getHttpServer())
-      .patch('/products/33333333-3333-4333-8333-333333333333/review')
-      .set('Authorization', 'Bearer test.jwt.token')
-      .send({
-        decision: 'active',
-        reviewerId: '22222222-2222-4222-8222-222222222222'
-      })
-      .expect(200);
-
-    expect(productsService.reviewProduct).toHaveBeenCalledWith('33333333-3333-4333-8333-333333333333', {
-      decision: 'active',
-      reviewerId: adminUser.id
-    });
-    expect(adminAuditService.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        adminUserId: adminUser.id,
-        action: 'product.reviewed',
-        targetType: 'product',
-        targetId: '33333333-3333-4333-8333-333333333333',
-        payload: {
-          decision: 'active',
-          rejectionReason: null
-        }
-      })
-    );
+  it('removes content review and submission routes instead of retaining aliases', async () => {
+    identityService.resolveCurrentUser.mockResolvedValue({...baseUser, roles: ['admin']});
+    for (const resource of ['products', 'outfits']) {
+      for (const action of ['review', 'submit']) {
+        await request(app?.getHttpServer()).patch(`/${resource}/33333333-3333-4333-8333-333333333333/${action}`)
+          .set('Authorization', 'Bearer test.jwt.token').send({expectedVersion: 1}).expect(404);
+      }
+    }
+    expect(productsService.publishProduct).not.toHaveBeenCalled();
+  });
+  it('publishes as the authenticated brand member without a reviewer', async () => {
+    const member = {...baseUser, roles: ['brand_owner'] as AuthenticatedUser['roles']};
+    identityService.resolveCurrentUser.mockResolvedValue(member);
+    await request(app?.getHttpServer()).patch('/products/33333333-3333-4333-8333-333333333333/publish')
+      .set('Authorization', 'Bearer test.jwt.token').send({expectedVersion: 1}).expect(200);
+    expect(productsService.publishProduct).toHaveBeenCalledWith(member, '33333333-3333-4333-8333-333333333333', {expectedVersion: 1});
+    expect(adminAuditService.record).not.toHaveBeenCalled();
   });
 });

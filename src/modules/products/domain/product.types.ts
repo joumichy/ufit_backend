@@ -55,7 +55,7 @@ export interface ProductDetail {
 export interface ProductListQuery {brandId?: string; status?: ProductStatus; cursor?: string; limit: number;}
 export interface ProductSelectionQuery {brandId?: string; cursor?: string; search?: string; limit: number;}
 export interface ProductListPage {items: ProductDetail[]; nextCursor: string | null;}
-export interface ProductDetailResponse extends Omit<ProductDetail, 'images'> { images: Array<ProductImage & {displayUrl: string}>; }
+export interface ProductDetailResponse extends Omit<ProductDetail, 'images' | 'product'> { product: Omit<Product, 'reviewedBy' | 'reviewedAt' | 'rejectionReason'>; images: Array<ProductImage & {displayUrl: string}>; }
 export interface ProductListResponse {items: ProductDetailResponse[]; nextCursor: string | null;}
 export interface ProductRepository {
   transaction<T>(operation: (repository: ProductRepository) => Promise<T>): Promise<T>;
@@ -75,7 +75,7 @@ export interface ProductRepository {
   findById(productId: string): Promise<ProductDetail | null>;
   findSelectablePage(query: ProductSelectionQuery): Promise<ProductListPage>;
   findActiveByIds(productIds: string[]): Promise<ProductDetail[]>;
-  updateStatus(productId: string, status: ProductStatus, reviewerId?: string, rejectionReason?: string): Promise<Product>;
+  updateStatus(productId: string, status: ProductStatus): Promise<Product>;
 }
 
 export const PRODUCT_REPOSITORY = Symbol('PRODUCT_REPOSITORY');

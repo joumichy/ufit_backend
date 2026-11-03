@@ -6,7 +6,7 @@ import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, type PublicOutfitPage} from '
 import {PUBLIC_PROFILE} from '../src/shared/domain/public-profile.contract';
 import {MemoryProductRepository, productFixture} from './products/memory-product.repository';
 import {MemoryProductMediaReader} from './products/memory-product-media.reader';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { ProductsService } from '../src/modules/products/application/products.service';
 import type { Product, ProductDetail, ProductImage, ProductRepository, ProductStatus, ProductVariant } from '../src/modules/products/domain/product.types';
@@ -34,8 +34,7 @@ describe('Products and outfits services', () => {
       const detail = await outfitsService.createOutfit(outfitFixture.actor, {requestId: randomUUID(), tagIds: [],creatorId: publicCreator.id, title: publicProfileFixture.title,
         description: publicProfileFixture.description, images: [{url: publicProfileFixture.image, position: OUTFIT_EDITING.limits.first}],
         items: [{itemType: publicProfileFixture.itemType, externalLabel: publicProfileFixture.inspiration, position: publicProfileFixture.position, isRequired: true, isShoppable: false}]});
-      await outfitsService.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, detail.id)).version});
-      await outfitsService.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, detail.id)).version,decision: PUBLIC_OUTFIT.status});
+      await outfitsService.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, detail.id)).version});
       return detail.id;
     }
     const first = await publish(), second = await publish();
@@ -52,7 +51,7 @@ describe('Products and outfits services', () => {
     expect((await outfitsService.getPublicFeed({})).items).toHaveLength(publicProfileFixture.empty);
   });
 
-  it('moves product through submit and review statuses and only exposes active products publicly', async () => {
+  it('publishes products directly for members and only exposes active products publicly', async () => {
     const { productsService } = services();
     const detail = await productsService.createProduct(productFixture.actor, {requestId: randomUUID(), currency: productFixture.currency,
       brandId: productFixture.brandID,
@@ -65,12 +64,12 @@ describe('Products and outfits services', () => {
     });
 
     expect(productsService.toPublicProduct(detail)).toBeNull();
-    await expect(productsService.reviewProduct(detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(productsService.publishProduct({id: productFixture.adminID, roles: [...productFixture.adminRoles]}, detail.product.id, {expectedVersion: detail.product.version})).rejects.toBeInstanceOf(ForbiddenException);
 
-    const submitted = await productsService.submitProduct(productFixture.actor, detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version});
-    expect(submitted.product.status).toBe('under_review');
+    const published = await productsService.publishProduct(productFixture.actor, detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version});
+    expect(published.product.status).toBe('active');
 
-    const active = await productsService.reviewProduct(detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version,  decision: 'active', reviewerId: productFixture.adminID });
+    const active = await productsService.getManagedProduct(productFixture.actor, detail.product.id);
     expect(active.product.status).toBe('active');
     expect(productsService.toPublicProduct(active)?.price).toEqual({ min: 42000, max: 42000, currency: 'CHF' });
   });
@@ -85,8 +84,7 @@ describe('Products and outfits services', () => {
       basePrice: 26000,
       variants: [{ sku: 'LOAFER-42', stockQuantity: 2, priceOverride: 24000 }]
     });
-    await productsService.submitProduct(productFixture.actor, product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version});
-    await productsService.reviewProduct(product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
+    await productsService.publishProduct(productFixture.actor, product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version});
 
     const outfit = await outfitsService.createOutfit(outfitFixture.actor, {requestId: randomUUID(), tagIds: [],
       creatorId: id('creator'),
@@ -100,8 +98,7 @@ describe('Products and outfits services', () => {
     });
 
     expect(outfit.items).toHaveLength(2);
-    await outfitsService.submitOutfit(outfitFixture.actor, outfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, outfit.id)).version});
-    await outfitsService.reviewOutfit(outfitFixture.admin, outfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, outfit.id)).version, decision: 'published' });
+    await outfitsService.publishOutfit(outfitFixture.actor, outfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, outfit.id)).version});
     expect((await outfitsService.getPublicDetail(outfit.id)).prices).toEqual([{currency: 'CHF', min: 24000, max: 24000}]);
   });
 
@@ -114,14 +111,12 @@ describe('Products and outfits services', () => {
         description: 'International price contract', category: 'top',
         basePrice: definition.price, currency: definition.currency,
         variants: [{sku: definition.currency, stockQuantity: 2}] });
-      await productsService.submitProduct(productFixture.actor, detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version});
-      await productsService.reviewProduct(detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
+      await productsService.publishProduct(productFixture.actor, detail.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, detail.product.id)).product.version});
       items.push({productId: detail.product.id, itemType: 'top', position, isRequired: true, isShoppable: true});
     }
     const outfit = await outfitsService.createOutfit(outfitFixture.actor, {requestId: randomUUID(), tagIds: [], creatorId: id('creator'), title: 'International',
       description: 'Two independent currency totals', images: [{url: 'https://cdn.test/outfit.jpg', position: OUTFIT_EDITING.limits.first}], items });
-    await outfitsService.submitOutfit(outfitFixture.actor, outfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, outfit.id)).version});
-    await outfitsService.reviewOutfit(outfitFixture.admin, outfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, outfit.id)).version, decision: 'published' });
+    await outfitsService.publishOutfit(outfitFixture.actor, outfit.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, outfit.id)).version});
     const card = (await outfitsService.getPublicFeed({limit: 1})).items[0];
     expect(card.prices).toEqual([{currency: 'CHF', min: 10090, max: 10090}, {currency: 'EUR', min: 9000, max: 9000}]);
     expect(card).not.toHaveProperty('currency');
@@ -139,8 +134,7 @@ describe('Products and outfits services', () => {
       basePrice: 18000,
       variants: [{ sku: 'KNIT-M', stockQuantity: 5 }]
     });
-    await productsService.submitProduct(productFixture.actor, product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version});
-    await productsService.reviewProduct(product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version, reviewerId: productFixture.adminID,  decision: 'active' });
+    await productsService.publishProduct(productFixture.actor, product.product.id, {expectedVersion: (await productsService.getManagedProduct(productFixture.actor, product.product.id)).product.version});
 
     const draft = await outfitsService.createOutfit(outfitFixture.actor, {requestId: randomUUID(), tagIds: [],
       creatorId: id('creator'),
@@ -156,8 +150,7 @@ describe('Products and outfits services', () => {
       images: [{url: 'https://cdn.test/published.jpg', position: OUTFIT_EDITING.limits.first}],
       items: [{ productId: product.product.id, itemType: 'top', position: 0, isRequired: true, isShoppable: true }]
     });
-    await outfitsService.submitOutfit(outfitFixture.actor, published.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, published.id)).version});
-    await outfitsService.reviewOutfit(outfitFixture.admin, published.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, published.id)).version, decision: 'published' });
+    await outfitsService.publishOutfit(outfitFixture.actor, published.id, {expectedVersion: (await outfitsService.getManagedOutfit(outfitFixture.actor, published.id)).version});
 
     const feed = await outfitsService.getPublicFeed({ limit: 1 });
     expect(feed.items).toEqual([expect.objectContaining({ id: published.id, title: 'Published Fit' })]);

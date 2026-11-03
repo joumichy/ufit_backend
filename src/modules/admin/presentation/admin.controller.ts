@@ -7,20 +7,20 @@ import {ADMIN_ACTIVITY} from '../domain/admin-activity.contract';
 
 @Controller('admin')
 @UseGuards(AuthGuard, RoleGuard)
-@Roles('admin', 'super_admin')
+@Roles(...ADMIN_ACTIVITY.roles)
 export class AdminController {
   constructor(@Inject(AdminService) private readonly adminService: AdminService) {}
 
   @Get(ADMIN_ACTIVITY.route)
   getActivity() { return this.adminService.getActivity(); }
 
-  @Get('summaries')
+  @Get(ADMIN_ACTIVITY.summaries)
   getSummary() {
     return this.adminService.getSummary();
   }
 
-  @Get('validation/:queue')
-  listQueue(@Param('queue') queue: string, @Query('limit') limit?: string, @Query('offset') offset?: string) {
+  @Get(ADMIN_ACTIVITY.queues)
+  listQueue(@Param(ADMIN_ACTIVITY.queueParam) queue: string, @Query('limit') limit?: string, @Query('offset') offset?: string) {
     return this.adminService.listQueue(queue, {
       limit: limit === undefined ? undefined : Number(limit),
       offset: offset === undefined ? undefined : Number(offset)

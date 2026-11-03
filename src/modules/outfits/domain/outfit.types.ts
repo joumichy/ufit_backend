@@ -105,7 +105,7 @@ export interface OutfitRepository {
   addItems(outfitId: string, items: Array<Omit<OutfitItem, 'id' | 'outfitId'>>): Promise<OutfitItem[]>;
   addImages(outfitId: string, images: Array<Omit<OutfitImage, 'id' | 'outfitId'>>): Promise<OutfitImage[]>;
   findById(outfitId: string): Promise<OutfitDetail | null>;
-  updateStatus(outfitId: string, status: OutfitStatus, visibility: OutfitVisibility, reviewerId?: string, rejectionReason?: string): Promise<Outfit>;
+  updateStatus(outfitId: string, status: OutfitStatus, visibility: OutfitVisibility): Promise<Outfit>;
   updateTotals(outfitId: string, totalPriceMin: number, totalPriceMax: number): Promise<Outfit>;
   findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]>;
 }

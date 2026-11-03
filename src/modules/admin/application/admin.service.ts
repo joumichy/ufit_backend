@@ -1,9 +1,9 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import type {AdminActivity} from '../domain/admin-activity.contract';
+import {ADMIN_QUEUE, type AdminActivity} from '../domain/admin-activity.contract';
 
 export const ADMIN_REPOSITORY = Symbol('ADMIN_REPOSITORY');
 
-export type AdminQueueName = 'applications' | 'products' | 'outfits' | 'orders' | 'commissions';
+export type AdminQueueName = typeof ADMIN_QUEUE.kind[keyof typeof ADMIN_QUEUE.kind];
 
 export interface AdminPageInput {
   limit?: number;
@@ -41,7 +41,7 @@ export interface AdminRepository {
   listQueue(queue: AdminQueueName, page: Required<AdminPageInput>): Promise<AdminPage<AdminQueueItem>>;
 }
 
-const queueNames: AdminQueueName[] = ['applications', 'products', 'outfits', 'orders', 'commissions'];
+const queueNames = Object.values(ADMIN_QUEUE.kind);
 
 @Injectable()
 export class AdminService {
@@ -55,17 +55,17 @@ export class AdminService {
 
   async listQueue(queue: string, input: AdminPageInput): Promise<AdminPage<AdminQueueItem>> {
     if (!this.isQueueName(queue)) {
-      throw new BadRequestException('Unknown admin queue');
+      throw new BadRequestException(ADMIN_QUEUE.invalid);
     }
 
     return this.adminRepository.listQueue(queue, this.normalizePage(input));
   }
 
   private normalizePage(input: AdminPageInput): Required<AdminPageInput> {
-    const rawLimit = input.limit ?? 20;
-    const rawOffset = input.offset ?? 0;
-    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 20, 1), 50);
-    const offset = Math.max(Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : 0, 0);
+    const rawLimit = input.limit ?? ADMIN_QUEUE.page.default;
+    const rawOffset = input.offset ?? ADMIN_QUEUE.page.zero;
+    const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : ADMIN_QUEUE.page.default, ADMIN_QUEUE.page.minimum), ADMIN_QUEUE.page.maximum);
+    const offset = Math.max(Number.isFinite(rawOffset) ? Math.trunc(rawOffset) : ADMIN_QUEUE.page.zero, ADMIN_QUEUE.page.zero);
     return { limit, offset };
   }
 

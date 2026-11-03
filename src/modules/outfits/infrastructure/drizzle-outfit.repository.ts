@@ -75,6 +75,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
   }
   async setPublication(id: string, scheduledFor: Date | null, timeZone: string | null): Promise<void> {
     await this.database.db.update(outfits).set({scheduledFor, publicationTimeZone: timeZone,
+      status: scheduledFor === null ? OUTFIT_STATUS.draft : OUTFIT_STATUS.scheduled, visibility: OUTFIT_VISIBILITY.private, publishedAt: null,
       version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, updatedAt: new Date()}).where(eq(outfits.id, id));
   }
   listTags(): Promise<OutfitTag[]> { return this.database.db.select({id: tags.id, type: tags.type, slug: tags.slug, label: tags.label}).from(tags).orderBy(tags.type, tags.label, tags.id); }
@@ -120,8 +121,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     await this.replaceTags(id, input.tagIds);
     await this.replacePins(id, input.pins);
     await this.database.db.update(outfits).set({...input.fields, status: OUTFIT_STATUS.draft, visibility: OUTFIT_VISIBILITY.private,
-      version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, reviewedBy: null, reviewedAt: null, rejectionReason: null,
-      publishedAt: null, scheduledFor: null, publicationTimeZone: null, updatedAt: new Date()}).where(eq(outfits.id, id));
+      version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`, publishedAt: null, scheduledFor: null, publicationTimeZone: null, updatedAt: new Date()}).where(eq(outfits.id, id));
   }
 
   async createOutfit(input: Parameters<OutfitRepository['createOutfit']>[0]): Promise<Outfit> {
@@ -181,9 +181,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
   async updateStatus(
     outfitId: string,
     status: OutfitStatus,
-    visibility: OutfitVisibility,
-    reviewerId?: string,
-    rejectionReason?: string
+    visibility: OutfitVisibility
   ): Promise<Outfit> {
     const [row] = await this.database.db
       .update(outfits)
@@ -191,9 +189,7 @@ export class DrizzleOutfitRepository implements OutfitRepository {
         status,
         visibility,
         version: sql`${outfits.version} + ${OUTFIT_EDITING.versionStep}`,
-        reviewedBy: reviewerId ?? null,
-        reviewedAt: status === OUTFIT_STATUS.published || status === OUTFIT_STATUS.scheduled || status === OUTFIT_STATUS.rejected ? new Date() : null,
-        rejectionReason: status === OUTFIT_STATUS.rejected ? rejectionReason : null,
+        scheduledFor: null, publicationTimeZone: null,
         publishedAt: status === OUTFIT_STATUS.published ? new Date() : null,
         updatedAt: new Date()
       })

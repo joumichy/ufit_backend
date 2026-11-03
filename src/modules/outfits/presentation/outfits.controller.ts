@@ -5,19 +5,17 @@ import { CurrentUser } from '../../../shared/presentation/decorators/current-use
 import { Roles } from '../../../shared/presentation/decorators/roles.decorator';
 import { AuthGuard } from '../../../shared/presentation/guards/auth.guard';
 import { RoleGuard } from '../../../shared/presentation/guards/role.guard';
-import { AdminAuditService } from '../../admin-audit/application/admin-audit.service';
 import type { AuthenticatedUser } from '../../identity/domain/user.types';
-import { CreateOutfitDto, ReviewOutfitDto, UpdateOutfitDto, OutfitVersionDto } from '../application/dto/outfit.dto';
+import { CreateOutfitDto, UpdateOutfitDto, OutfitVersionDto } from '../application/dto/outfit.dto';
 import { OutfitsService } from '../application/outfits.service';
 
 const outfitRoutes = {root: 'outfits', id: 'id', requestId: 'requestId', managed: 'managed', metadata: 'metadata', private: ':id/private',
-  discovery: 'discovery', creation: 'creation-requests/:requestId', outfit: ':id', submit: ':id/submit', review: ':id/review', archive: ':id/archive', restore: ':id/restore'} as const;
+  discovery: 'discovery', creation: 'creation-requests/:requestId', outfit: ':id', publish: ':id/publish', withdraw: ':id/withdraw', archive: ':id/archive', restore: ':id/restore'} as const;
 
 @Controller(outfitRoutes.root)
 export class OutfitsController {
   constructor(
-    @Inject(OutfitsService) private readonly outfitsService: OutfitsService,
-    @Inject(AdminAuditService) private readonly adminAuditService: AdminAuditService
+    @Inject(OutfitsService) private readonly outfitsService: OutfitsService
   ) {}
 
   @Post()
@@ -27,29 +25,18 @@ export class OutfitsController {
     return this.outfitsService.createOutfit(user, body);
   }
 
-  @Patch(outfitRoutes.submit)
+  @Patch(outfitRoutes.publish)
   @UseGuards(AuthGuard, RoleGuard)
   @Roles(...OUTFIT_WRITE_ROLES)
-  submitOutfit(@CurrentUser() user: AuthenticatedUser, @Param(outfitRoutes.id, ParseUUIDPipe) id: string, @Body() body: OutfitVersionDto) {
-    return this.outfitsService.submitOutfit(user, id, body);
+  publishOutfit(@CurrentUser() user: AuthenticatedUser, @Param(outfitRoutes.id, ParseUUIDPipe) id: string, @Body() body: OutfitVersionDto) {
+    return this.outfitsService.publishOutfit(user, id, body);
   }
 
-  @Patch(outfitRoutes.review)
+  @Patch(outfitRoutes.withdraw)
   @UseGuards(AuthGuard, RoleGuard)
-  @Roles(...OUTFIT_ADMIN_ROLES)
-  async reviewOutfit(@CurrentUser() user: AuthenticatedUser, @Param(outfitRoutes.id, ParseUUIDPipe) id: string, @Body() body: ReviewOutfitDto) {
-    const detail = await this.outfitsService.reviewOutfit(user, id, body);
-    await this.adminAuditService.record({
-      adminUserId: user.id,
-      action: 'outfit.reviewed',
-      targetType: 'outfit',
-      targetId: id,
-      payload: {
-        decision: body.decision,
-        rejectionReason: body.rejectionReason ?? null
-      }
-    });
-    return detail;
+  @Roles(...OUTFIT_WRITE_ROLES)
+  withdrawOutfit(@CurrentUser() user: AuthenticatedUser, @Param(outfitRoutes.id, ParseUUIDPipe) id: string, @Body() body: OutfitVersionDto) {
+    return this.outfitsService.withdrawOutfit(user, id, body);
   }
 
   @Get(outfitRoutes.metadata)

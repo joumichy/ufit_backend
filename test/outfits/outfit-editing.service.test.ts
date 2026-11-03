@@ -60,30 +60,25 @@ describe('Owned outfit editing', () => {
     expect(repository.outfits.size).toBe(data.zero); expect(repository.items).toHaveLength(data.zero); expect(repository.images).toHaveLength(data.zero);
     await expect(service.recoverCreation(outfitFixture.actor, {creatorId: publicCreator.id}, input.requestId)).rejects.toBeInstanceOf(NotFoundException);
   });
-  it('keeps versioned decisions, correction identities and public visibility coherent', async () => {
+  it('publishes directly for its active owner, keeps identities and returns edits to private drafts', async () => {
     const {service, input} = setup(); let detail = await service.createOutfit(outfitFixture.actor, input);
-    const itemIDs = detail.items.map(item => item.id), imageIDs = detail.images.map(image => image.id);
-    detail = await service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
-    const submittedVersion = detail.version;
-    await expect(service.updateOutfit(outfitFixture.actor, detail.id, changes(detail))).rejects.toBeInstanceOf(ConflictException);
-    await expect(service.reviewOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.published})).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.rejected, rejectionReason: data.invalidReason})).rejects.toBeInstanceOf(BadRequestException);
-    detail = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.rejected, rejectionReason: data.reason});
-    expect(detail.rejectionReason).toBe(data.reason);
-    await expect(service.updateOutfit(outfitFixture.actor, detail.id, {...changes(detail), expectedVersion: submittedVersion})).rejects.toBeInstanceOf(ConflictException);
+    const itemIDs = detail.items.map(item => item.id), imageIDs = detail.images.map(image => image.id), originalVersion = detail.version;
+    await expect(service.publishOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version})).rejects.toBeInstanceOf(ForbiddenException);
+    detail = await service.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
+    expect(detail.status).toBe(OUTFIT_STATUS.published); expect((await service.getPublicDetail(detail.id)).id).toBe(detail.id);
+    await expect(service.updateOutfit(outfitFixture.actor, detail.id, {...changes(detail), expectedVersion: originalVersion})).rejects.toBeInstanceOf(ConflictException);
     detail = await service.updateOutfit(outfitFixture.actor, detail.id, {...changes(detail), title: data.changedTitle});
-    expect(detail.status).toBe(OUTFIT_STATUS.draft); expect(detail.rejectionReason).toBeNull();
-    detail = await service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
-    detail = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.published});
-    expect((await service.getPublicDetail(detail.id)).id).toBe(detail.id);
-    detail = await service.updateOutfit(outfitFixture.actor, detail.id, changes(detail));
-    expect(detail.status).toBe(OUTFIT_STATUS.draft); expect(detail.visibility).toBe(OUTFIT_VISIBILITY.private); expect(detail.reviewedAt).toBeNull();
+    expect(detail.status).toBe(OUTFIT_STATUS.draft); expect(detail.visibility).toBe(OUTFIT_VISIBILITY.private);
+    expect(detail).not.toHaveProperty('reviewedAt'); expect(detail).not.toHaveProperty('rejectionReason');
     await expect(service.getPublicDetail(detail.id)).rejects.toBeInstanceOf(NotFoundException);
+    detail = await service.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
+    detail = await service.withdrawOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
+    expect(detail.status).toBe(OUTFIT_STATUS.draft);
     detail = await service.archiveOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version});
     detail = await service.restoreOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
     expect(detail.status).toBe(OUTFIT_STATUS.draft); expect(detail.items.map(item => item.id)).toEqual(itemIDs); expect(detail.images.map(image => image.id)).toEqual(imageIDs);
   });
-  it('rejects foreign or pending owned media and prepares private links before committing a review', async () => {
+  it('rejects foreign or pending owned media and prepares private links before committing publication', async () => {
     const {service, repository, input, media} = setup(), assetID = randomUUID();
     const owner = {creatorId: publicCreator.id, brandId: null} as const;
     const displayUrl = outfitFixture.image.url;
@@ -95,15 +90,14 @@ describe('Owned outfit editing', () => {
     media.assets.set(assetID, {owner, displayUrl, status: OUTFIT_MEDIA.status.ready});
     let detail = await service.createOutfit(outfitFixture.actor, body);
     expect(detail.images[data.zero].displayUrl).toBe(displayUrl);
-    detail = await service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
     media.failReads = true;
-    await expect(service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.published})).rejects.toBeInstanceOf(ServiceUnavailableException);
-    expect(repository.outfits.get(detail.id)?.status).toBe(OUTFIT_STATUS.underReview);
+    await expect(service.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version})).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(repository.outfits.get(detail.id)?.status).toBe(OUTFIT_STATUS.draft);
     expect(repository.outfits.get(detail.id)?.version).toBe(detail.version);
   });
-  it('rejects incomplete submissions, foreign child IDs, unknown tags and unavailable products without changing the draft', async () => {
+  it('rejects incomplete publications, foreign child IDs, unknown tags and unavailable products without changing the draft', async () => {
     const {service, input} = setup(); const detail = await service.createOutfit(outfitFixture.actor, {...input, description: data.empty, images: []});
-    await expect(service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version})).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version})).rejects.toBeInstanceOf(BadRequestException);
     const base = {...changes(detail), description: data.description, images: [outfitFixture.image]};
     await expect(service.updateOutfit(outfitFixture.actor, detail.id, {...base, images: [{...outfitFixture.image, id: randomUUID()}]})).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.updateOutfit(outfitFixture.actor, detail.id, {...base, items: [{...base.items[data.zero], id: randomUUID()}]})).rejects.toBeInstanceOf(BadRequestException);

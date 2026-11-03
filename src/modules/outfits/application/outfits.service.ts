@@ -7,7 +7,7 @@ import {PROFILE_STATUS, canAuthorProfile} from '../../../shared/domain/profile-e
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PRODUCT_REPOSITORY, type ProductDetail, type ProductRepository } from '../../products/domain/product.types';
 import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitItem, type OutfitRepository, type OutfitActor, type OutfitOwner, type OutfitContentUpdate } from '../domain/outfit.types';
-import { CreateOutfitDto, ReviewOutfitDto, UpdateOutfitDto, OutfitVersionDto, EditOutfitItemDto, EditOutfitImageDto } from './dto/outfit.dto';
+import { CreateOutfitDto, UpdateOutfitDto, OutfitVersionDto, EditOutfitItemDto, EditOutfitImageDto } from './dto/outfit.dto';
 import {z} from 'zod';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, OUTFIT_DISCOVERY, OUTFIT_SEARCH_SCOPES} from '../domain/public-outfit.contract';
 
@@ -86,7 +86,7 @@ export class OutfitsService {
   async updateOutfit(user: OutfitActor, id: string, input: UpdateOutfitDto) {
     const content = this.content(input);
     const detail = await this.mutate(user, id, input, false, async (repository, before) => {
-      if (before.outfit.status === OUTFIT_STATUS.underReview || before.outfit.status === OUTFIT_STATUS.submitted || before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      if (before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
       const itemIds = content.items.flatMap(item => item.id ? [item.id] : []), imageIds = content.images.flatMap(image => image.id ? [image.id] : []);
       if (new Set(itemIds).size !== itemIds.length || itemIds.some(id => !before.items.some(item => item.id === id))) throw new BadRequestException(OUTFIT_EDITING.failure.items);
       if (new Set(imageIds).size !== imageIds.length || imageIds.some(id => !before.images.some(image => image.id === id))) throw new BadRequestException(OUTFIT_EDITING.failure.images);
@@ -95,38 +95,32 @@ export class OutfitsService {
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
-  async submitOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
-    const detail = await this.mutate(user, id, input, false, async (repository, before) => {
-      if (before.outfit.status !== OUTFIT_STATUS.draft && before.outfit.status !== OUTFIT_STATUS.rejected) throw new ConflictException(OUTFIT_EDITING.failure.state);
-      this.requireComplete(before);
-      await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id), pins: before.pins.map(pin => ({imagePosition: before.images.find(image => image.id === pin.imageId)!.position, itemPosition: before.items.find(item => item.id === pin.itemId)!.position, x: pin.x, y: pin.y}))});
-      await repository.updateStatus(id, OUTFIT_STATUS.underReview, OUTFIT_VISIBILITY.private);
+  async publishOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
+    const before = await this.outfits.readSnapshot(async repository => {
+      const value = await this.requireOutfit(id, repository);
+      await this.requireOwner(repository, this.owner(value.outfit), user, false);
+      return value;
     });
-    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
-  }
-  async reviewOutfit(user: OutfitActor, id: string, input: ReviewOutfitDto) {
-    this.requireAdmin(user);
-    const reason = input.rejectionReason?.trim();
-    if (input.decision === OUTFIT_STATUS.rejected && !reason) throw new BadRequestException(OUTFIT_EDITING.failure.reason);
-    const before = await this.outfits.readSnapshot(repository => this.requireOutfit(id, repository));
-    this.requireReviewable(before, input);
     const prepared = await this.prepareManaged([before]);
-    const detail = await this.mutate(user, id, input, true, async (repository, before) => {
-      this.requireReviewable(before, input);
-      if (input.decision === OUTFIT_STATUS.published) {
-        await this.validateContent(repository, this.owner(before.outfit), {fields: before.outfit, items: before.items, images: before.images, tagIds: before.tags.map(tag => tag.id), pins: before.pins.map(pin => ({imagePosition: before.images.find(image => image.id === pin.imageId)!.position, itemPosition: before.items.find(item => item.id === pin.itemId)!.position, x: pin.x, y: pin.y}))});
-      }
-      const status = input.decision === OUTFIT_STATUS.published && before.outfit.scheduledFor !== null && before.outfit.scheduledFor > new Date()
-        ? OUTFIT_STATUS.scheduled : input.decision;
-      await repository.updateStatus(id, status, status === OUTFIT_STATUS.published ? OUTFIT_VISIBILITY.public : OUTFIT_VISIBILITY.private, user.id, reason);
+    const detail = await this.mutate(user, id, input, false, async (repository, before) => {
+      if (before.outfit.status !== OUTFIT_STATUS.draft && before.outfit.status !== OUTFIT_STATUS.scheduled) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      this.requireComplete(before);
+      await this.validateExistingContent(repository, before);
+      await repository.updateStatus(id, OUTFIT_STATUS.published, OUTFIT_VISIBILITY.public);
     });
     return this.toManagedDetail(detail, prepared.products, prepared.displays);
+  }
+  async withdrawOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
+    const detail = await this.mutate(user, id, input, false, async (repository, before) => {
+      if (before.outfit.status !== OUTFIT_STATUS.published) throw new ConflictException(OUTFIT_EDITING.failure.state);
+      await repository.updateStatus(id, OUTFIT_STATUS.draft, OUTFIT_VISIBILITY.private);
+    });
+    return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
   async archiveOutfit(user: OutfitActor, id: string, input: OutfitVersionDto) {
     const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
       if (before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
       await repository.updateStatus(id, OUTFIT_STATUS.archived, OUTFIT_VISIBILITY.private);
-      if (before.outfit.scheduledFor !== null) await repository.setPublication(id, null, null);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
@@ -134,7 +128,6 @@ export class OutfitsService {
     const detail = await this.mutate(user, id, input, this.isAdmin(user), async (repository, before) => {
       if (before.outfit.status !== OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
       await repository.updateStatus(id, OUTFIT_STATUS.draft, OUTFIT_VISIBILITY.private);
-      if (before.outfit.scheduledFor !== null) await repository.setPublication(id, null, null);
     });
     return (await this.projectManaged([detail]))[OUTFIT_EDITING.limits.first];
   }
@@ -175,12 +168,9 @@ export class OutfitsService {
     if (scheduledFor !== null && scheduledFor <= new Date()) throw new BadRequestException(P.failure.input);
     const detail = await this.mutate(user, id, parsed.data, false, async (repository, before) => {
       if (before.outfit.status === OUTFIT_STATUS.published || before.outfit.status === OUTFIT_STATUS.archived) throw new ConflictException(OUTFIT_EDITING.failure.state);
-      if (scheduledFor === null) {
-        await repository.updateStatus(id, OUTFIT_STATUS.draft, OUTFIT_VISIBILITY.private);
-      } else {
+      if (scheduledFor !== null) {
         this.requireComplete(before);
         await this.validateExistingContent(repository, before);
-        if (before.outfit.status !== OUTFIT_STATUS.scheduled) await repository.updateStatus(id, OUTFIT_STATUS.underReview, OUTFIT_VISIBILITY.private);
       }
       await repository.setPublication(id, scheduledFor, parsed.data.timeZone);
     });
@@ -278,11 +268,6 @@ export class OutfitsService {
     const available = new Set((await repository.listTags()).map(tag => tag.id));
     if (new Set(content.tagIds).size !== content.tagIds.length || content.tagIds.some(id => !available.has(id))) throw new BadRequestException(OUTFIT_EDITING.failure.tags);
   }
-  private requireReviewable(detail: OutfitDetail, input: ReviewOutfitDto) {
-    if (detail.outfit.version !== input.expectedVersion) throw new ConflictException(OUTFIT_EDITING.failure.changed);
-    if (detail.outfit.status !== OUTFIT_STATUS.underReview) throw new ConflictException(OUTFIT_EDITING.failure.state);
-    if (input.decision === OUTFIT_STATUS.published) this.requireComplete(detail);
-  }
   private requireComplete(detail: OutfitDetail) {
     if (detail.owner?.status !== PROFILE_STATUS.active || detail.author === null || !detail.outfit.description.trim() ||
         detail.items.length < OUTFIT_EDITING.limits.readyItems || detail.images.length < OUTFIT_EDITING.limits.readyImages) throw new BadRequestException(OUTFIT_EDITING.failure.incomplete);
@@ -302,8 +287,8 @@ export class OutfitsService {
     const publicFields = this.toOutfitDetail(detail, products);
     const sourceById = new Map(detail.items.map(item => [item.id, item]));
     return {...publicFields, version: detail.outfit.version, status: detail.outfit.status, visibility: detail.outfit.visibility,
-      owner: detail.owner, genderTarget: detail.outfit.genderTarget, rejectionReason: detail.outfit.rejectionReason,
-      reviewedAt: detail.outfit.reviewedAt?.toISOString() ?? null, createdAt: detail.outfit.createdAt.toISOString(),
+      owner: detail.owner, genderTarget: detail.outfit.genderTarget,
+      createdAt: detail.outfit.createdAt.toISOString(),
       updatedAt: detail.outfit.updatedAt.toISOString(), scheduledFor: detail.outfit.scheduledFor?.toISOString() ?? null,
       publicationTimeZone: detail.outfit.publicationTimeZone, images: detail.images.map(image => {
         const displayUrl = displays.get(image.url);

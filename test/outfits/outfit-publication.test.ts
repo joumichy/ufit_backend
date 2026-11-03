@@ -24,18 +24,17 @@ async function setup() {
 }
 
 describe('Publication calendar', () => {
-  it('keeps a planned submission private until admin approval and its date', async () => {
+  it('schedules directly and stays private until its date', async () => {
     const {service, detail, plan} = await setup();
     const pending = await service.planPublication(outfitFixture.actor, detail.id, plan(detail.version));
-    expect(pending.status).toBe(S.underReview);
-    expect(await service.publishScheduledOutfit(detail.id, new Date(fixture.later))).toBe(false);
+    expect(pending.status).toBe(S.scheduled);
     await expect(service.getPublicDetail(detail.id)).rejects.toBeInstanceOf(NotFoundException);
-    const approved = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: pending.version, decision: S.published});
-    expect(approved.status).toBe(S.scheduled); expect(approved.visibility).toBe(V.private); expect(approved.publishedAt).toBeNull();
+    const scheduled = pending;
+    expect(scheduled.status).toBe(S.scheduled); expect(scheduled.visibility).toBe(V.private); expect(scheduled.publishedAt).toBeNull();
     expect(await service.publishScheduledOutfit(detail.id, new Date(fixture.past))).toBe(false);
     expect(await service.publishScheduledOutfit(detail.id, new Date(fixture.future))).toBe(true);
     const published = await service.getManagedOutfit(outfitFixture.actor, detail.id);
-    expect(published.status).toBe(S.published); expect(published.reviewedAt).toBe(approved.reviewedAt);
+    expect(published.status).toBe(S.published); expect(published).not.toHaveProperty('reviewedAt');
     expect(published.publishedAt).toBe(fixture.future);
     expect(await service.publishScheduledOutfit(detail.id, new Date(fixture.later))).toBe(false);
   });
@@ -53,34 +52,32 @@ describe('Publication calendar', () => {
     await service.planPublication(outfitFixture.actor, detail.id, plan(detail.version));
     await expect(service.planPublication(outfitFixture.actor, detail.id, plan(detail.version))).rejects.toBeInstanceOf(ConflictException);
   });
-  it('reschedules an approved unchanged outfit without losing approval; cancellation restores a private draft', async () => {
+  it('reschedules directly; cancellation restores a private draft', async () => {
     const {service, detail, plan} = await setup();
     const pending = await service.planPublication(outfitFixture.actor, detail.id, plan(detail.version));
-    const approved = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: pending.version, decision: S.published});
-    const later = await service.planPublication(outfitFixture.actor, detail.id, {...plan(approved.version), scheduledFor: fixture.later});
-    expect(later.status).toBe(S.scheduled); expect(later.reviewedAt).toBe(approved.reviewedAt);
+    const scheduled = pending;
+    const later = await service.planPublication(outfitFixture.actor, detail.id, {...plan(scheduled.version), scheduledFor: fixture.later});
+    expect(later.status).toBe(S.scheduled); expect(later).not.toHaveProperty('reviewedAt');
     const cancelled = await service.planPublication(outfitFixture.actor, detail.id, {expectedVersion: later.version, scheduledFor: null, timeZone: null});
     expect(cancelled.status).toBe(S.draft); expect(cancelled.scheduledFor).toBeNull(); expect(cancelled.publicationTimeZone).toBeNull();
-    expect(cancelled.reviewedAt).toBeNull(); expect(await service.publishScheduledOutfit(detail.id, new Date(fixture.end))).toBe(false);
+    expect(await service.publishScheduledOutfit(detail.id, new Date(fixture.end))).toBe(false);
   });
   it('archive and restoration remove the old date instead of silently scheduling a later submission', async () => {
     const {service, detail, plan} = await setup();
     const pending = await service.planPublication(outfitFixture.actor, detail.id, plan(detail.version));
-    const approved = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: pending.version, decision: S.published});
-    const archived = await service.archiveOutfit(outfitFixture.actor, detail.id, {expectedVersion: approved.version});
+    const scheduled = pending;
+    const archived = await service.archiveOutfit(outfitFixture.actor, detail.id, {expectedVersion: scheduled.version});
     expect(archived.scheduledFor).toBeNull(); expect(archived.publicationTimeZone).toBeNull();
     const calendar = await service.getPublicationCalendar(outfitFixture.actor, {creatorId: publicCreator.id, from: fixture.from, until: fixture.end});
     expect(calendar.items).toEqual([]);
     const restored = await service.restoreOutfit(outfitFixture.actor, detail.id, {expectedVersion: archived.version});
-    expect(restored.status).toBe(S.draft); expect(restored.scheduledFor).toBeNull(); expect(restored.reviewedAt).toBeNull();
-    const submitted = await service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: restored.version});
-    const published = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: submitted.version, decision: S.published});
+    expect(restored.status).toBe(S.draft); expect(restored.scheduledFor).toBeNull(); expect(restored).not.toHaveProperty('reviewedAt');
+    const published = await service.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: restored.version});
     expect(published.status).toBe(S.published); expect(published.scheduledFor).toBeNull(); expect(published.publishedAt).not.toBeNull();
   });
   it('does not publish a suspended author; a later pass rechecks eligibility', async () => {
     const {service, repository, detail, plan} = await setup();
     const pending = await service.planPublication(outfitFixture.actor, detail.id, plan(detail.version));
-    await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: pending.version, decision: S.published});
     repository.owners.get(publicCreator.id)!.status = PROFILE_STATUS.suspended;
     await expect(service.publishScheduledOutfit(detail.id, new Date(fixture.future))).rejects.toBeInstanceOf(BadRequestException);
     expect(repository.outfits.get(detail.id)?.status).toBe(S.scheduled);

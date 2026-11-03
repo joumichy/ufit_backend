@@ -32,8 +32,8 @@ describe('Outfit photo pins', () => {
     expect(detail.pins).toEqual(pins);
     expect((await service.createOutfit(outfitFixture.actor, input)).pins).toEqual(pins);
     await expect(service.createOutfit(outfitFixture.actor, {...input, pins: [{...input.pins[fixture.zero], x: fixture.y}]})).rejects.toBeInstanceOf(ConflictException);
-    detail = await service.submitOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
-    detail = await service.reviewOutfit(outfitFixture.admin, detail.id, {expectedVersion: detail.version, decision: OUTFIT_STATUS.published});
+    detail = await service.publishOutfit(outfitFixture.actor, detail.id, {expectedVersion: detail.version});
+    detail = await service.getManagedOutfit(outfitFixture.actor, detail.id);
     const feed = (await service.getPublicFeed({})).items[fixture.zero], published = await service.getPublicDetail(detail.id);
     expect(feed.pins).toEqual(pins); expect(feed.items).toEqual(published.items); expect(feed.images).toEqual(published.images);
     expect(feed.items[fixture.zero].itemType).toBe(input.items[fixture.zero].itemType);

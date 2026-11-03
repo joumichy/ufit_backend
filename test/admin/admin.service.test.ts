@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AdminService, type AdminRepository } from '../../src/modules/admin/application/admin.service';
 
 describe('AdminService', () => {
-  it('normalizes pagination and lists validation queues', async () => {
+  it('normalizes pagination and lists candidate queues', async () => {
     const repository: AdminRepository = {
       countQueues: vi.fn(),
       countReviewQueues: vi.fn(),
@@ -14,9 +14,9 @@ describe('AdminService', () => {
     };
     const service = new AdminService(repository);
 
-    await service.listQueue('products', { limit: 500, offset: -10 });
+    await service.listQueue('applications', { limit: 500, offset: -10 });
 
-    expect(repository.listQueue).toHaveBeenCalledWith('products', { limit: 50, offset: 0 });
+    expect(repository.listQueue).toHaveBeenCalledWith('applications', { limit: 50, offset: 0 });
   });
 
   it('rejects unknown queues', async () => {
@@ -26,6 +26,8 @@ describe('AdminService', () => {
       listQueue: vi.fn()
     });
 
-    await expect(service.listQueue('cart', {})).rejects.toBeInstanceOf(BadRequestException);
+    for (const name of ['cart', 'products', 'outfits']) {
+      await expect(service.listQueue(name, {})).rejects.toBeInstanceOf(BadRequestException);
+    }
   });
 });

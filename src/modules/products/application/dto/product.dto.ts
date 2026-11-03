@@ -60,7 +60,3 @@ export class UpdateProductStockDto extends ProductVersionDto {
   @IsInt() @Min(limits.integerMin) @Max(limits.integerMax) expectedStockQuantity!: number;
   @IsInt() @Min(limits.integerMin) @Max(limits.integerMax) stockQuantity!: number;
 }
-export class ReviewProductDto extends ProductVersionDto {
-  @IsIn([PRODUCT_STATUS.active, PRODUCT_STATUS.rejected]) decision!: typeof PRODUCT_STATUS.active | typeof PRODUCT_STATUS.rejected;
-  @Transform(trimNullableText) @IsOptional() @IsString() @Length(limits.descriptionMin, limits.detailMax) rejectionReason?: string | null;
-}

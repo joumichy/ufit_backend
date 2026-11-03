@@ -32,9 +32,9 @@ const F = {
     archive: 'archive_restore_does_not_reuse_date',
     brand: 'brand_calendar_uses_current_ownership', revokedMember: 'revoked_brand_member_denied',
     pagination: 'calendar_20_plus_3_and_distinct_ids', scoped: 'calendar_owner_isolation', version: 'schedule_version_conflict',
-    review: 'planned_requires_admin_review', private: 'approved_future_stays_private', early: 'no_early_publication',
-    due: 'due_publishes_once_with_review_preserved', cancel: 'cancel_returns_private_draft', reschedule: 'reschedule_preserves_approval',
-    suspended: 'suspended_author_stays_private', restored: 'reactivated_author_rechecked', edit: 'editing_clears_date_and_approval',
+    review: 'owner_schedules_without_review', private: 'scheduled_future_stays_private', early: 'no_early_publication',
+    due: 'due_publishes_once', cancel: 'cancel_returns_private_draft', reschedule: 'owner_reschedules_directly',
+    suspended: 'suspended_author_stays_private', restored: 'reactivated_author_rechecked', edit: 'editing_clears_date',
     constraint: 'database_rejects_scheduled_public', rollback: 'qualification_rows_absent_after_rollback',
   },
 } as const;
@@ -57,7 +57,7 @@ async function verify() {
         const repository = new DrizzleOutfitRepository({db}), products = new DrizzleProductRepository({db});
         const media: OutfitMediaReader = {assetIDs: () => [], resolveImages: async sources => new Map(sources.map(source => [source.url, source.url]))};
         const service = new OutfitsService(repository, products, media);
-        const actor: OutfitActor = {id: user.id, roles: [E.roles.creator]}, admin: OutfitActor = {id: user.id, roles: [U.role.admin]};
+        const actor: OutfitActor = {id: user.id, roles: [E.roles.creator]};
         const rows = [];
         for (let index = F.zero; index < F.count; index += F.one) {
           const created = await service.createOutfit(actor, {requestId: randomUUID(), creatorId: creator.id,
@@ -73,34 +73,29 @@ async function verify() {
         checks.push(F.check.pagination);
         await assert.rejects(service.getPublicationCalendar({...actor, id: randomUUID()}, query), ForbiddenException); checks.push(F.check.scoped);
         let row = rows[F.first];
-        assert.equal(row.status, S.underReview);
-        assert.equal(await service.publishScheduledOutfit(row.id, new Date(F.later)), false); checks.push(F.check.review);
+        assert.equal(row.status, S.scheduled); checks.push(F.check.review);
         await assert.rejects(service.planPublication(actor, row.id, {expectedVersion: E.versionInitial, scheduledFor: F.later, timeZone: F.zone}), ConflictException);
         checks.push(F.check.version);
-        row = await service.reviewOutfit(admin, row.id, {expectedVersion: row.version, decision: S.published});
         assert.equal(row.status, S.scheduled); assert.equal(row.visibility, V.private); assert.equal(row.publishedAt, null);
         await assert.rejects(service.getPublicDetail(row.id), NotFoundException); checks.push(F.check.private);
-        const review = row.reviewedAt;
+        assert.equal('reviewedAt' in row, false);
         row = await service.planPublication(actor, row.id, {expectedVersion: row.version, scheduledFor: F.later, timeZone: F.zone});
-        assert.equal(row.reviewedAt, review); assert.equal(row.status, S.scheduled); checks.push(F.check.reschedule);
+        assert.equal(row.status, S.scheduled); checks.push(F.check.reschedule);
         assert.equal(await service.publishScheduledOutfit(row.id, new Date(F.future)), false); checks.push(F.check.early);
         assert.equal(await service.publishScheduledOutfit(row.id, new Date(F.later)), true);
         const published = await service.getManagedOutfit(actor, row.id);
-        assert.equal(published.reviewedAt, review); assert.equal(published.publishedAt, F.later);
+        assert.equal(published.publishedAt, F.later);
         assert.equal(await service.publishScheduledOutfit(row.id, new Date(F.later)), false); checks.push(F.check.due);
         row = rows[F.next];
-        row = await service.reviewOutfit(admin, row.id, {expectedVersion: row.version, decision: S.published});
         const cancelled = await service.planPublication(actor, row.id, {expectedVersion: row.version, scheduledFor: null, timeZone: null});
-        assert.equal(cancelled.status, S.draft); assert.equal(cancelled.scheduledFor, null); assert.equal(cancelled.reviewedAt, null); checks.push(F.check.cancel);
+        assert.equal(cancelled.status, S.draft); assert.equal(cancelled.scheduledFor, null); checks.push(F.check.cancel);
         row = rows[F.remainder];
-        row = await service.reviewOutfit(admin, row.id, {expectedVersion: row.version, decision: S.published});
         await db.update(schema.creatorProfiles).set({status: PROFILE_STATUS.suspended}).where(eq(schema.creatorProfiles.id, creator.id));
         await assert.rejects(service.publishScheduledOutfit(row.id, new Date(F.later)), BadRequestException);
         assert.equal((await repository.findById(row.id))!.outfit.status, S.scheduled); checks.push(F.check.suspended);
         await db.update(schema.creatorProfiles).set({status: PROFILE_STATUS.active}).where(eq(schema.creatorProfiles.id, creator.id));
         assert.equal(await service.publishScheduledOutfit(row.id, new Date(F.later)), true); checks.push(F.check.restored);
         row = rows[F.page];
-        row = await service.reviewOutfit(admin, row.id, {expectedVersion: row.version, decision: S.published});
         await assert.rejects(db.transaction(async tx => {
           await tx.update(schema.outfits).set({visibility: V.public}).where(eq(schema.outfits.id, row.id));
         }), error => {
@@ -109,15 +104,13 @@ async function verify() {
         }); checks.push(F.check.constraint);
         const edited = await service.updateOutfit(actor, row.id, {expectedVersion: row.version, title: row.title, description: row.description,
           images: row.images, items: row.items, tagIds: []});
-        assert.equal(edited.status, S.draft); assert.equal(edited.scheduledFor, null); assert.equal(edited.reviewedAt, null); checks.push(F.check.edit);
+        assert.equal(edited.status, S.draft); assert.equal(edited.scheduledFor, null); checks.push(F.check.edit);
         row = rows[F.page + F.one];
-        row = await service.reviewOutfit(admin, row.id, {expectedVersion: row.version, decision: S.published});
         const archived = await service.archiveOutfit(actor, row.id, {expectedVersion: row.version});
         assert.equal(archived.scheduledFor, null); assert.equal(archived.publicationTimeZone, null);
         const restored = await service.restoreOutfit(actor, row.id, {expectedVersion: archived.version});
         assert.equal(restored.scheduledFor, null); assert.equal(restored.status, S.draft);
-        const resubmitted = await service.submitOutfit(actor, row.id, {expectedVersion: restored.version});
-        const republished = await service.reviewOutfit(admin, row.id, {expectedVersion: resubmitted.version, decision: S.published});
+        const republished = await service.publishOutfit(actor, row.id, {expectedVersion: restored.version});
         assert.equal(republished.status, S.published); assert.equal(republished.scheduledFor, null); checks.push(F.check.archive);
         const [brandApplication] = await db.insert(schema.brandApplications).values({userId: user.id, email: user.email,
           brandName: F.name + key, websiteUrl: F.site, productCategory: F.description, positioning: F.description}).returning();
