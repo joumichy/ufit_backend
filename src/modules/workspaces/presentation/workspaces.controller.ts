@@ -13,6 +13,7 @@ function pageFromQuery(limit?: string, offset?: string) {
   };
 }
 
+const WORKSPACE_REVENUE_ROUTE = {creator: 'creators/me/revenue', brand: 'brands/:brandProfileId/revenue'} as const;
 const MEMBERSHIPS_ROUTE = "me/workspaces";
 @Controller()
 @UseGuards(AuthGuard, RoleGuard)
@@ -28,6 +29,18 @@ export class WorkspacesController {
   @Roles('creator')
   getCreatorDashboard(@CurrentUser() user: AuthenticatedUser) {
     return this.workspacesService.getCreatorDashboard(user.id);
+  }
+
+  @Get(WORKSPACE_REVENUE_ROUTE.creator)
+  @Roles('creator')
+  getCreatorRevenue(@CurrentUser() user: AuthenticatedUser, @Query() raw: unknown) {
+    return this.workspacesService.getCreatorRevenue(user.id, raw);
+  }
+
+  @Get(WORKSPACE_REVENUE_ROUTE.brand)
+  @Roles('brand_owner', 'brand_manager')
+  getBrandRevenue(@CurrentUser() user: AuthenticatedUser, @Param('brandProfileId') brandProfileId: string, @Query() raw: unknown) {
+    return this.workspacesService.getBrandRevenue(brandProfileId, user.id, raw);
   }
 
   @Get('creators/me/outfits')

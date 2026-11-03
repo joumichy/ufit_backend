@@ -75,6 +75,7 @@ const brandMetrics: BrandWorkspaceMetrics = {
 };
 
 class FakeWorkspacesRepository implements WorkspacesRepository {
+  async getRevenue(): Promise<never> { throw new Error('Revenue projection not configured in this test'); }
   actor: IdentityAccess | undefined = {status: 'active', roles: ['creator', 'brand_owner']};
   inSnapshot = false;
   async snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T> {

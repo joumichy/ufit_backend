@@ -4,6 +4,9 @@ import {ORDER_STATUS} from '../../orders/domain/order-lifecycle';
 import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {findIdentityAccess, IdentityAccessMode} from '../../identity/infrastructure/persistence/identity-access';
 import {DrizzleWorkspaceFinanceReader} from './drizzle-workspace-finance.reader';
+import {DrizzleWorkspaceRevenueReader} from './drizzle-workspace-revenue.reader';
+import type {RevenuePeriod} from '../domain/workspace-revenue';
+import type {WorkspaceFinanceScope} from '../domain/workspace-finance';
 import {WORKSPACE_FINANCE as FINANCE} from '../domain/workspace-finance';
 import { Inject, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
@@ -38,6 +41,10 @@ const MEMBERSHIP_ACTIVE = "active";
 @Injectable()
 export class DrizzleWorkspacesRepository implements WorkspacesRepository {
   constructor(@Inject(DatabaseService) private readonly database: DatabaseSession) {}
+
+  getRevenue(scope: WorkspaceFinanceScope, period: RevenuePeriod) {
+    return new DrizzleWorkspaceRevenueReader(this.database).read(scope, period);
+  }
 
   snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T> {
     return this.database.db.transaction(tx => operation(new DrizzleWorkspacesRepository({db: tx})), READ_SNAPSHOT);

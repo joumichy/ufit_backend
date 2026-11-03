@@ -1,4 +1,5 @@
-import type {WorkspaceSales, WorkspaceCommissionCurrency} from '../domain/workspace-finance';
+import type {WorkspaceSales, WorkspaceCommissionCurrency, WorkspaceFinanceScope} from '../domain/workspace-finance';
+import {revenuePeriod, type RevenuePeriod, type WorkspaceRevenue} from '../domain/workspace-revenue';
 import {WORKSPACE_FINANCE} from '../domain/workspace-finance';
 import {canAuthorProfile, PROFILE_STATUS, type ProfileOwner} from '../../../shared/domain/profile-editing.contract';
 import {PUBLIC_PROFILE} from '../../../shared/domain/public-profile.contract';
@@ -123,6 +124,7 @@ export interface WorkspaceMemberships {
   brands: BrandWorkspaceProfile[];
 }
 export interface WorkspacesRepository {
+  getRevenue(scope: WorkspaceFinanceScope, period: RevenuePeriod): Promise<WorkspaceRevenue>;
   snapshot<T>(operation: (repository: WorkspacesRepository) => Promise<T>): Promise<T>;
   actorAccess(userId: string): Promise<IdentityAccess | undefined>;
   listBrandsForUser(
@@ -154,6 +156,24 @@ const WORKSPACE_ACCESS_MESSAGE = {
 @Injectable()
 export class WorkspacesService {
   constructor(@Inject(WORKSPACES_REPOSITORY) private readonly workspaces: WorkspacesRepository) {}
+
+  async getCreatorRevenue(userId: string, raw: unknown) {
+    const period = revenuePeriod(raw);
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireCreatorProfile(userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: profile.id, brandId: null});
+      return repository.getRevenue({kind: WORKSPACE_FINANCE.scope.creator, profileId: profile.id}, period);
+    });
+  }
+
+  async getBrandRevenue(brandProfileId: string, userId: string, raw: unknown) {
+    const period = revenuePeriod(raw);
+    return this.workspaces.snapshot(async repository => {
+      const profile = await this.requireBrandMember(brandProfileId, userId, repository);
+      await this.requireFinancialAccess(repository, userId, {creatorId: null, brandId: profile.id});
+      return repository.getRevenue({kind: WORKSPACE_FINANCE.scope.brand, profileId: profile.id}, period);
+    });
+  }
 
   async listForUser(
     userId: string,
