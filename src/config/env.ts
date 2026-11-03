@@ -38,6 +38,7 @@ const optionalNonEmptyString = z.preprocess(
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().positive().max(65535).default(4000),
+  API_HOST: z.union([z.ipv4(), z.ipv6()]).optional(),
   API_ORIGIN: z.string().url().optional(),
   MEDIA_PUBLIC_API_ORIGIN: z.string().url().optional(),
   WEB_ORIGIN: z.string().url().optional(),

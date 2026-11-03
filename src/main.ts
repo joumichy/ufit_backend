@@ -29,7 +29,8 @@ async function bootstrap(): Promise<void> {
     credentials: true
   });
 
-  await app.listen(env.API_PORT);
+  if (env.API_HOST) await app.listen(env.API_PORT, env.API_HOST);
+  else await app.listen(env.API_PORT);
   Logger.log(`UFit backend listening on port ${env.API_PORT}`, 'Bootstrap');
 }
 

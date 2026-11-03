@@ -5,16 +5,25 @@ const requiredEnv = {
   SUPABASE_URL: 'https://example.supabase.co',
   SUPABASE_DIRECT_CONNECTION_DB_URL: 'postgres://user:pass@localhost:5432/postgres'
 };
+const bindAddress = {loopback: '127.0.0.1', ipv6: '::1', hostname: 'localhost', url: 'http://127.0.0.1'} as const;
 
 describe('parseEnv', () => {
   it('uses safe defaults for the backend foundation', () => {
     const env = parseEnv(requiredEnv);
 
     expect(env.API_PORT).toBe(4000);
+    expect(env.API_HOST).toBeUndefined();
     expect(env.NODE_ENV).toBe('development');
     expect(env.UFIT_DB_SCHEMA).toBe('ufit');
     expect(env.SUPABASE_DB_SSL).toBe(true);
     expect(env.SUPABASE_DB_TLS_REJECT_UNAUTHORIZED).toBe(false);
+  });
+
+  it('accepts an explicit IP bind address without accepting a hostname or URL', () => {
+    expect(parseEnv({...requiredEnv, API_HOST: bindAddress.loopback}).API_HOST).toBe(bindAddress.loopback);
+    expect(parseEnv({...requiredEnv, API_HOST: bindAddress.ipv6}).API_HOST).toBe(bindAddress.ipv6);
+    expect(() => parseEnv({...requiredEnv, API_HOST: bindAddress.hostname})).toThrow(/API_HOST/);
+    expect(() => parseEnv({...requiredEnv, API_HOST: bindAddress.url})).toThrow(/API_HOST/);
   });
 
   it('rejects invalid schema names', () => {
