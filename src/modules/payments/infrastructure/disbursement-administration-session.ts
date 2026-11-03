@@ -3,6 +3,7 @@ import {and, desc, eq} from 'drizzle-orm';
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {orders,payments,paymentSettlements,paymentDisbursementJobs as jobs,paymentDisbursementTargets as targets,
   paymentTransferOperations as operations,paymentTransferReceipts as receipts} from '../../../shared/infrastructure/database/schema';
+import {DrizzlePaymentAllocationsRepository} from './drizzle-payment-allocations.repository';
 import {findIdentityAccess,IdentityAccessMode} from '../../identity/infrastructure/persistence/identity-access';
 import {DISBURSEMENT_EXECUTION as E} from '../domain/payment-disbursement.repository';
 import {DISBURSEMENT_ADMINISTRATION as C,disbursementDocumentSchema,type DisbursementAdministrationSession as AdministrationPort} from '../domain/payment-disbursement-administration';
@@ -18,11 +19,14 @@ export class DisbursementAdministrationSession implements AdministrationPort {
   async document(paymentId:string){
     const [source]=await this.database.db.select({orderId:payments.orderId}).from(payments).innerJoin(paymentSettlements,eq(paymentSettlements.paymentId,payments.id)).where(eq(payments.id,paymentId));
     if(!source)return undefined;
+    const allocation=await new DrizzlePaymentAllocationsRepository(this.database).document(paymentId);
+    if(!allocation)throw new ConflictException(C.failure.persisted);
+    const {state:allocationState,blockReason,context}=allocation;
     const [job]=await this.database.db.select().from(jobs).where(eq(jobs.paymentId,paymentId));
     const [target]=await this.database.db.select().from(targets).where(eq(targets.paymentId,paymentId)).orderBy(desc(targets.createdAt),desc(targets.id));
     const history=await this.database.db.select({operation:operations,receipt:receipts}).from(operations).leftJoin(receipts,eq(receipts.operationId,operations.id))
       .where(eq(operations.paymentId,paymentId)).orderBy(desc(operations.createdAt),desc(operations.id));
-    const parsed=disbursementDocumentSchema.safeParse({paymentId,orderId:source.orderId,asOf:new Date().toISOString(),state:job?.status??C.state.absent,
+    const parsed=disbursementDocumentSchema.safeParse({paymentId,orderId:source.orderId,asOf:new Date().toISOString(),state:job?.status??C.state.absent,allocation:{state:allocationState,blockReason,context},
       reason:job?job.failureCode:null,nextAttemptAt:job?.nextAttemptAt?job.nextAttemptAt.toISOString():null,assessment:target?target.assessment:null,assessmentRecordedAt:target?target.createdAt.toISOString():null,
       operations:history.map(({operation,receipt})=>{
         const instruction=operation.kind===E.operation.transfer?transferInstructionSchema.parse(operation.instruction):reversalInstructionSchema.parse(operation.instruction);
