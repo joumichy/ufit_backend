@@ -77,12 +77,23 @@ export const allocationPlanSchema = z.object({
 export type AllocationPlan = z.infer<typeof allocationPlanSchema>;
 export const allocationStoredPlanSchema = allocationPlanSchema.safeExtend({createdAt: z.iso.datetime()});
 export type StoredAllocationPlan = z.infer<typeof allocationStoredPlanSchema>;
+const label = z.string().trim().min(C.limit.one);
+export const allocationContextSchema = z.object({
+  orderNumber: label, brand: z.object({id: allocationIDSchema, name: label}).strict(), liveMode: z.boolean().nullable(),
+  creatorItems: z.array(z.object({commissionId: allocationIDSchema, creatorId: allocationIDSchema, creatorName: label, itemName: label}).strict()),
+}).strict();
 export const allocationDocumentSchema = z.object({
   paymentId: allocationIDSchema, orderId: allocationIDSchema, asOf: z.iso.datetime(),
+  context: allocationContextSchema,
   state: z.enum(Object.values(C.state)), blockReason: z.enum(Object.values(C.block)).nullable(), plan: allocationStoredPlanSchema.nullable(),
 }).strict().refine(value => (value.state === C.state.recorded) === (value.plan !== null)
   && (value.state === C.state.blocked) === (value.blockReason !== null)
-  && (value.plan === null || value.plan.paymentId === value.paymentId && value.plan.orderId === value.orderId), C.validation.sum);
+  && new Set(value.context.creatorItems.map(row => row.commissionId)).size === value.context.creatorItems.length
+  && (value.plan === null ? value.context.creatorItems.length === C.limit.zero : value.plan.paymentId === value.paymentId
+    && value.plan.orderId === value.orderId && value.plan.brandId === value.context.brand.id && value.context.liveMode !== null
+    && value.context.creatorItems.length === value.plan.lines.filter(row => row.recipient.kind === C.kind.creator).length
+    && value.plan.lines.every(row => row.recipient.kind !== C.kind.creator || value.context.creatorItems.some(item =>
+      row.recipient.kind === C.kind.creator && item.commissionId === row.recipient.commissionId && item.creatorId === row.recipient.beneficiaryId))), C.validation.sum);
 export type AllocationDocument = z.infer<typeof allocationDocumentSchema>;
 export function allocationRecipientKey(value: AllocationRecipient): string {
   const key = value.kind === C.kind.platform ? C.key.platform : value.kind + C.key.separator + value.beneficiaryId;
