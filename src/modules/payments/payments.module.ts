@@ -31,6 +31,12 @@ import {RefundSettlementsService} from './application/refund-settlements.service
 import {DrizzleRefundSettlementsRepository} from './infrastructure/drizzle-refund-settlements.repository';
 import {RefundSettlementsController} from './presentation/refund-settlements.controller';
 
+import {DISBURSEMENT_EXECUTION} from './domain/payment-disbursement.repository';
+import {PaymentDisbursementsService} from './application/payment-disbursements.service';
+import {DisbursementAdministrationService} from './application/disbursement-administration.service';
+import {DrizzleDisbursementExecutionRepository} from './infrastructure/drizzle-disbursement-execution.repository';
+import {PaymentDisbursementsController} from './presentation/payment-disbursements.controller';
+
 @Module({
   imports: [
     DatabaseModule,
@@ -39,7 +45,7 @@ import {RefundSettlementsController} from './presentation/refund-settlements.con
     IdentityModule,
     forwardRef(() => OrdersModule),
   ],
-  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController, PaymentDistributionController, PaymentAllocationsController, RefundSettlementsController],
+  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController, PaymentDistributionController, PaymentAllocationsController, RefundSettlementsController, PaymentDisbursementsController],
   providers: [
     PaymentsService,
     stripeClientProvider,
@@ -47,6 +53,8 @@ import {RefundSettlementsController} from './presentation/refund-settlements.con
     PaymentDistributionService,
     PaymentAllocationsService,
     RefundSettlementsService,
+    PaymentDisbursementsService, DisbursementAdministrationService,
+    {provide: DISBURSEMENT_EXECUTION.repository, useClass: DrizzleDisbursementExecutionRepository},
     {provide: REFUND_SETTLEMENT.repository, useClass: DrizzleRefundSettlementsRepository},
     {provide: PAYMENT_ALLOCATION.repository, useClass: DrizzlePaymentAllocationsRepository},
     {provide: PAYMENT_DISTRIBUTION.repository, useClass: DrizzlePaymentDistributionRepository},

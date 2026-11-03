@@ -26,7 +26,7 @@ export class DrizzlePaymentAllocationsRepository implements PaymentAllocationRep
       .innerJoin(orders, eq(orders.id, payments.orderId)).leftJoin(brandProfiles, eq(brandProfiles.id, orders.brandId))
       .leftJoin(paymentSettlements, eq(paymentSettlements.paymentId, payments.id)).where(eq(payments.id, paymentId));
     if (!payment) return undefined;
-    const plan = await this.stored(paymentId);
+    const plan = await this.storedPlan(paymentId);
     const creatorIDs = plan?.lines.flatMap(row => row.recipient.kind === C.kind.creator ? [row.recipient.commissionId] : []) ?? [];
     const creatorItems = creatorIDs.length ? await this.database.db.select({commissionId: commissions.id, creatorId: commissions.creatorId,
       creatorName: creatorProfiles.displayName, item: orderItems}).from(commissions)
@@ -44,7 +44,7 @@ export class DrizzlePaymentAllocationsRepository implements PaymentAllocationRep
     // The source reader locks the order shared with fulfillment/refunds before any write.
     const source = await readPaymentAllocationSource(this.database, paymentId, true);
     if (!source) return undefined;
-    const previous = await this.stored(paymentId);
+    const previous = await this.storedPlan(paymentId);
     if (previous) return previous;
     if (!source.plan) throw new ConflictException({...C.failure.unavailable, reason: source.blockReason});
     const {lines: components, ...plan} = source.plan;
@@ -57,7 +57,7 @@ export class DrizzlePaymentAllocationsRepository implements PaymentAllocationRep
       presentmentAmount: row.presentmentAmount, grossAmount: row.grossAmount, feeAmount: row.feeAmount, netAmount: row.netAmount})));
     return projection(allocationStoredPlanSchema, {...source.plan, createdAt: createdAt.toISOString()});
   }
-  private async stored(paymentId: string): Promise<StoredAllocationPlan | undefined> {
+  async storedPlan(paymentId: string): Promise<StoredAllocationPlan | undefined> {
     const [plan] = await this.database.db.select().from(plans).where(eq(plans.paymentId, paymentId));
     if (!plan) return undefined;
     const components = await this.database.db.select().from(lines).where(eq(lines.paymentId, paymentId));

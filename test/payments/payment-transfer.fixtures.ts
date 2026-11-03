@@ -33,17 +33,19 @@ export function transferFixture(kind: TransferInstruction['recipient']['kind'] =
   const profileId = kind === C.kind.brand ? F.id.brand : F.id.creator;
   const account = {id: F.id.account, kind, profileId, country: F.country, liveMode: false, stripeAccountId: F.provider.account, snapshot: null};
   const key = kind === C.kind.brand ? `${kind}/${profileId}` : `${kind}/${profileId}/${F.id.commission}`;
-  return {plan, capture, account, instruction: makeTransferInstruction(F.id.operation, F.provider.intent, plan, capture, key, account)};
+  const refunds = {source: {paymentId: F.id.payment, orderId: F.id.order, paymentIntentId: F.provider.intent, capture},
+    observedAt: F.date.created, amountRefunded: C.zero, disputed: false, items: []};
+  return {plan, capture, account, refunds, instruction: makeTransferInstruction(F.id.operation, F.provider.intent, plan, capture, key, account, refunds)};
 }
 export function providerTransfer(instruction: TransferInstruction) {
   return {id: F.provider.transfer as string, object: C.provider.transferObject, amount: instruction.amount,
     currency: instruction.currency.toLowerCase(), destination: instruction.account.stripeAccountId as string,
-    source_transaction: instruction.capture.chargeId, transfer_group: transferGroup(instruction), livemode: instruction.capture.liveMode,
+    source_transaction: instruction.funding === C.funding.charge ? instruction.capture.chargeId : null, transfer_group: transferGroup(instruction), livemode: instruction.capture.liveMode,
     created: Date.parse(F.date.created) / C.provider.millisecondsPerSecond, amount_reversed: C.zero as number, reversed: false,
     metadata: transferMetadata(instruction)};
 }
 export function reversalFixture(original: TransferInstruction): ReversalInstruction {
-  return {id: F.id.reversal, original, transferId: F.provider.transfer, amount: F.money.reversal};
+  return {id: F.id.reversal, original, transferId: F.provider.transfer, amount: F.money.reversal, expectedReversedAmount: C.zero};
 }
 export function providerReversal(instruction: ReversalInstruction) {
   return {id: F.provider.reversal as string, object: C.provider.reversalObject, amount: instruction.amount,
@@ -94,12 +96,13 @@ export function stripeFixture(instruction: TransferInstruction) {
         return page(state.pages, params.starting_after);
       },
       async retrieve(id: string, params: unknown, request: unknown) {
-        call(F.calls.retrieve, [id, params, request]); contract([id, params, request], [F.provider.transfer, {}, options]); return state.transfer;
+        call(F.calls.retrieve, [id, params, request]); contract([id, params, request], [state.transfer.id, {}, options]); return state.transfer;
       },
       async create(params: unknown, request: unknown) {
         call(F.calls.create, [params, request]);
-        contract(params, {amount: instruction.amount, currency: 'usd', destination: F.provider.account, source_transaction: F.provider.charge,
-          transfer_group: 'order:' + instruction.orderId, metadata: {ufit_transfer_operation_id: instruction.id, ufit_payment_id: instruction.paymentId, ufit_allocation_key: instruction.allocationKey}});
+        contract(params, {amount: instruction.amount, currency: 'usd', destination: F.provider.account,
+          ...(instruction.funding === C.funding.charge ? {source_transaction: F.provider.charge} : {}),
+          transfer_group: 'order:' + instruction.orderId, metadata: {ufit_transfer_operation_id: instruction.id, ufit_payment_id: instruction.paymentId, ufit_allocation_key: instruction.allocationKey, ufit_transfer_funding: instruction.funding}});
         contract(request, {...options, idempotencyKey: 'ufit-transfer:' + instruction.id});
         if (state.loseTransferResponse) { state.pages = [{data: [state.transfer], has_more: false}]; throw new Error(F.failure); }
         return state.transfer;
@@ -114,7 +117,7 @@ export function stripeFixture(instruction: TransferInstruction) {
       async createReversal(id: string, params: unknown, request: unknown) {
         call(F.calls.reversalCreate, [id, params, request]);
         contract([id, params, request], [F.provider.transfer, {amount: F.money.reversal, metadata: {ufit_transfer_operation_id: instruction.id,
-          ufit_payment_id: instruction.paymentId, ufit_allocation_key: instruction.allocationKey, ufit_reversal_operation_id: F.id.reversal}},
+          ufit_payment_id: instruction.paymentId, ufit_allocation_key: instruction.allocationKey, ufit_transfer_funding: instruction.funding, ufit_reversal_operation_id: F.id.reversal}},
         {...options, idempotencyKey: 'ufit-transfer-reversal:' + F.id.reversal}]);
         if (state.loseReversalResponse) { state.reversalPages = [{data: [state.reversal], has_more: false}]; throw new Error(F.failure); }
         return state.reversal;
@@ -126,9 +129,11 @@ export function stripeFixture(instruction: TransferInstruction) {
     charges: {async retrieve(id: string, params: unknown, request: unknown) {
       call(F.calls.charge, [id, params, request]); contract([id, params, request], [F.provider.charge, {expand: ['balance_transaction']}, options]); return state.charge;
     }},
-    refunds: {list(params: unknown, request: unknown) {
-      contract([params, request], [{charge: F.provider.charge, limit: 100}, options]);
-      return {[Symbol.asyncIterator]: async function* () { call(F.calls.refunds, [params, request]); for (const row of state.refunds) yield row; }};
+    refunds: {async list(params: unknown, request: unknown) {
+      call(F.calls.refunds, [params, request]);
+      contract([params, request], [{charge: F.provider.charge, limit: 100, starting_after: undefined,
+        expand: ['data.balance_transaction', 'data.failure_balance_transaction']}, options]);
+      return {data: state.refunds, has_more: false};
     }},
   };
   const authorize = async () => { call(F.calls.authorize, []); return {allowed: true as const}; };

@@ -16,12 +16,12 @@ describe('frozen transfer instruction', () => {
   it('uses the brand share after its frozen fee, without transferring the platform share', () => {
     const f = transferFixture(C.kind.brand); expect(f.instruction.amount).toBe(F.money.brandSettled);
     const platform = f.plan.lines.find(row => row.recipient.kind === 'platform')!;
-    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, f.plan, f.capture, allocationRecipientKey(platform.recipient), f.account)).toThrow();
+    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, f.plan, f.capture, allocationRecipientKey(platform.recipient), f.account, f.refunds)).toThrow();
   });
   it('rejects mixed capture currencies and balances rather than applying an inferred FX rate', () => {
     const f = transferFixture();
-    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, f.plan, {...f.capture, settlementCurrency: F.currency.different}, f.instruction.allocationKey, f.account)).toThrow();
-    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, {...f.plan, feeAmount: C.zero}, f.capture, f.instruction.allocationKey, f.account)).toThrow();
+    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, f.plan, {...f.capture, settlementCurrency: F.currency.different}, f.instruction.allocationKey, f.account, f.refunds)).toThrow();
+    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, {...f.plan, feeAmount: C.zero}, f.capture, f.instruction.allocationKey, f.account, f.refunds)).toThrow();
   });
   it('rejects wrong recipient, mode, allocation identity and client fields', () => {
     const {instruction: i} = transferFixture();
@@ -32,21 +32,45 @@ describe('frozen transfer instruction', () => {
     const {instruction: i} = transferFixture(), {currency, ...missing} = i;
     expect(transferInstructionSchema.safeParse(missing).success).toBe(false);
     for (const amount of [C.zero, -C.one, C.maximumAmount + C.one]) expect(transferInstructionSchema.safeParse({...i, amount}).success).toBe(false);
-    expect(reversalInstructionSchema.safeParse({id: i.id, original: i, transferId: F.provider.transfer, amount: F.money.reversal}).success).toBe(false);
+    expect(reversalInstructionSchema.safeParse({id: i.id, original: i, transferId: F.provider.transfer,
+      amount: F.money.reversal, expectedReversedAmount: C.zero}).success).toBe(false);
   });
   it('refuses transfers when any initial share fails to cover its fee', () => {
     const f = transferFixture(), deficit = {...calculatePaymentAllocation({paymentId: F.id.payment, orderId: F.id.order,
       brandId: F.id.brand, policyId: F.id.policy, platformRateBps: C.zero, feeBearer: 'platform', subtotal: F.money.subtotal,
       shipping: F.money.shipping, tax: F.money.tax, total: F.money.total, currency: F.currency.purchase,
       creatorCommissions: [{creatorId: F.id.creator, commissionId: F.id.commission, amount: F.money.creator}], receipt: f.capture}), createdAt: F.date.created};
-    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, deficit, f.capture, f.instruction.allocationKey, f.account)).toThrow();
+    expect(() => makeTransferInstruction(F.id.operation, F.provider.intent, deficit, f.capture, f.instruction.allocationKey, f.account, f.refunds)).toThrow();
   });
 });
 describe('transfer recovery and creation', () => {
   it('creates the exact source-linked transfer only after fresh provider reads and local authorization', async () => {
     const {instruction: i} = transferFixture(), s = stripeFixture(i);
     expect((await executeStripeTransfer(s.client, i, false, null, s.authorize)).kind).toBe(C.result.recorded);
-    expect(s.methods()).toEqual([F.calls.list, F.calls.account, F.calls.charge, F.calls.refunds, F.calls.authorize, F.calls.create]);
+    expect(s.methods()).toEqual([F.calls.list, F.calls.account, F.calls.charge, F.calls.refunds, F.calls.charge, F.calls.authorize, F.calls.create]);
+  });
+  it('uses explicitly available balance funding without claiming a source_transaction', async () => {
+    const f=transferFixture(),i={...f.instruction,funding:C.funding.balance},s=stripeFixture(i);
+    const result=await executeStripeTransfer(s.client,i,false,null,s.authorize);
+    expect(result.kind).toBe(C.result.recorded);
+    if(result.kind===C.result.recorded)expect(result.snapshot.sourceChargeId).toBe(null);
+    const creation=s.calls.find(row=>row.method===F.calls.create)!;
+    expect(creation.args[C.zero]).not.toHaveProperty('source_transaction');
+  });
+  it('permits an adjusted transfer only against the exact final refund balance checkpoint', async () => {
+    const f=transferFixture(),created=Date.parse(F.date.created)/C.provider.millisecondsPerSecond;
+    const observed={refundId:'re_TransferReturn',amount:5100,currency:F.currency.purchase,status:'succeeded' as const,createdAt:F.date.created,failure:null,
+      debit:{id:'txn_TransferReturn',refundId:'re_TransferReturn',kind:'refund' as const,amount:-6107,currency:F.currency.settlement,
+        feeAmount:0,netAmount:-6107,createdAt:F.date.created,availableAt:F.date.created}};
+    const i={...f.instruction,amount:600,refunds:{...f.refunds,amountRefunded:5100,items:[observed]}},s=stripeFixture(i);
+    s.state.charge.amount_refunded=5100;
+    s.state.refunds=[{id:observed.refundId,object:'refund',charge:F.provider.charge,payment_intent:F.provider.intent,amount:5100,currency:'chf',status:'succeeded',
+      created,balance_transaction:{id:observed.debit.id,source:observed.refundId,type:'refund',amount:-6107,currency:'usd',fee:0,net:-6107,created,available_on:created},failure_balance_transaction:null}];
+    expect((await executeStripeTransfer(s.client,i,false,null,s.authorize)).kind).toBe(C.result.recorded);
+    expect(s.count(F.calls.create)).toBe(1);
+    const changed={...i,refunds:{...i.refunds,items:[{...observed,debit:{...observed.debit,amount:-6108,netAmount:-6108}}]}};
+    expect(await executeStripeTransfer(s.client,changed,false,null,s.authorize)).toEqual({kind:C.result.blocked,reason:C.reason.refund});
+    expect(s.count(F.calls.create)).toBe(1);
   });
   it('recovers a lost accepted response without repeating a POST even when eligibility changed', async () => {
     const {instruction: i} = transferFixture(), s = stripeFixture(i); s.state.loseTransferResponse = true;
@@ -115,7 +139,8 @@ describe('transfer recovery and creation', () => {
   });
   it('blocks a pending refund even before amount_refunded changes', async () => {
     const {instruction: i} = transferFixture(), s = stripeFixture(i);
-    s.state.refunds = [{charge: F.provider.charge, currency: 'chf', status: 'pending'}];
+    s.state.refunds = [{id: 're_PendingFixture', object: 'refund', charge: F.provider.charge, payment_intent: F.provider.intent,
+      amount: F.money.reversal, currency: 'chf', status: 'pending', created: Date.parse(F.date.created) / C.provider.millisecondsPerSecond, balance_transaction: null}];
     expect(await executeStripeTransfer(s.client, i, false, null, s.authorize)).toEqual({kind: C.result.blocked, reason: C.reason.refund}); expect(s.count(F.calls.create)).toBe(C.zero);
   });
   it('rereads local eligibility immediately before POST and preserves its blocking reason', async () => {
@@ -181,6 +206,11 @@ describe('transfer reversal recovery and creation', () => {
   it('refuses more than the unreversed balance, including a fully reversed transfer', async () => {
     const {instruction: i} = transferFixture(), s = stripeFixture(i); s.state.transfer.amount_reversed = i.amount; s.state.transfer.reversed = true;
     expect(await executeStripeTransferReversal(s.client, s.reversal, false, null, s.authorize)).toEqual({kind: C.result.blocked, reason: C.reason.remaining});
+    expect(s.count(F.calls.reversalCreate)).toBe(C.zero);
+  });
+  it('does not repeat an unexpected external reversal even when enough provider balance remains', async () => {
+    const {instruction: i} = transferFixture(), s = stripeFixture(i); s.state.transfer.amount_reversed = C.one;
+    expect(await executeStripeTransferReversal(s.client, s.reversal, false, null, s.authorize)).toEqual({kind: C.result.review, reason: C.reason.mismatch});
     expect(s.count(F.calls.reversalCreate)).toBe(C.zero);
   });
   it('rejects transfer metadata or mode drift and never creates a replacement', async () => {

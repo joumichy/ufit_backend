@@ -27,7 +27,7 @@ export function projectTransfer(value: unknown, instruction: TransferInstruction
   if (!parsed.success) return undefined;
   const row = parsed.data;
   return row.amount === instruction.amount && row.currency === instruction.currency && row.destination === instruction.account.stripeAccountId
-    && row.sourceChargeId === instruction.capture.chargeId && row.transferGroup === transferGroup(instruction)
+    && row.sourceChargeId === (instruction.funding === C.funding.charge ? instruction.capture.chargeId : null) && row.transferGroup === transferGroup(instruction)
     && row.liveMode === instruction.capture.liveMode && value.reversed === (row.reversedAmount === row.amount) ? row : undefined;
 }
 export function projectReversal(value: unknown, instruction: ReversalInstruction): ReversalSnapshot | undefined {

@@ -16,6 +16,7 @@ export async function executeStripeTransferReversal(stripe: StripeTransferClient
     const transfer = projectTransfer(await stripe.transfers.retrieve(instruction.transferId, {}, transferRequestOptions), instruction.original);
     if (!transfer || transfer.id !== instruction.transferId) return {kind: C.result.review, reason: C.reason.mismatch};
     if (transfer.amount - transfer.reversedAmount < instruction.amount) return {kind: C.result.blocked, reason: C.reason.remaining};
+    if (transfer.reversedAmount !== instruction.expectedReversedAmount) return {kind: C.result.review, reason: C.reason.mismatch};
     let authorization;
     try { authorization = transferAuthorizationSchema.safeParse(await revalidate()); } catch { return {kind: C.result.retry, reason: C.reason.local}; }
     if (!authorization.success) return {kind: C.result.review, reason: C.reason.local};

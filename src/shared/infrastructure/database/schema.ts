@@ -11,6 +11,7 @@ export {notifications, notificationEmailDeliveries} from './schema.notifications
 export {paymentSettlementJobs, paymentSettlements} from './schema.payment-settlements';
 export {paymentDistributionPolicies, orderDistributionTerms} from './schema.payment-distribution';
 export {paymentAllocations, paymentAllocationLines} from './schema.payment-allocations';
+export {paymentDisbursementJobs, paymentDisbursementTargets, paymentTransferOperations, paymentTransferReceipts} from './schema.payment-disbursements';
 export {paymentRefundJobs, paymentRefundScans, paymentRefundScanItems, paymentRefundBalances} from './schema.refund-payment-settlements';
 import {CREATOR_GRADE} from '../../../modules/creators/grades/creator-grade.contract';
 import {USER_ADMINISTRATION} from '../../../modules/identity/domain/user-administration.contract';

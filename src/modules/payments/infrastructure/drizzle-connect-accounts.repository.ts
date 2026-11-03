@@ -1,6 +1,7 @@
 import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { DatabaseService } from "../../../shared/infrastructure/database/database.service";
+import type { DatabaseSession } from "../../../shared/infrastructure/database/database-session";
 import { connectAccounts } from "../../../shared/infrastructure/database/schema";
 import {
   CONNECT,
@@ -15,7 +16,7 @@ export class DrizzleConnectAccountsRepository
   implements ConnectAccountsRepository
 {
   constructor(
-    @Inject(DatabaseService) private readonly database: DatabaseService,
+    @Inject(DatabaseService) private readonly database: DatabaseSession,
   ) {}
   private scopePredicate(scope: ConnectScope) {
     return eq(
