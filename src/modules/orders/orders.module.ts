@@ -19,6 +19,10 @@ import {BrandOrdersController} from './presentation/brand-orders.controller';
 import {BrandOrdersService} from './application/brand-orders.service';
 import {DrizzleBrandOrdersRepository} from './infrastructure/drizzle-brand-orders.repository';
 import {BRAND_ORDERS} from './domain/brand-order.contract';
+import {ADMIN_ORDERS} from './domain/admin-orders.contract';
+import {AdminOrdersService} from './application/admin-orders.service';
+import {DrizzleAdminOrdersRepository} from './infrastructure/drizzle-admin-orders.repository';
+import {AdminOrdersController} from './presentation/admin-orders.controller';
 import { Module, forwardRef } from "@nestjs/common";
 import { CartModule } from "../cart/cart.module";
 import { CommissionsModule } from "../commissions/commissions.module";
@@ -51,8 +55,9 @@ import {RETURN_REFUND} from './domain/return-refund';
     CommissionsModule,
     forwardRef(() => PaymentsModule),
   ],
-  controllers: [RefundProofReviewController,AdminRefundProofController,PrivateRefundProofController,AdminRefundOrganizationController, PrivateRefundOrganizationController, RefundRecoveryController, OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
+  controllers: [AdminOrdersController,RefundProofReviewController,AdminRefundProofController,PrivateRefundProofController,AdminRefundOrganizationController, PrivateRefundOrganizationController, RefundRecoveryController, OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
   providers: [
+    AdminOrdersService,{provide: ADMIN_ORDERS.repository, useClass: DrizzleAdminOrdersRepository},
     RefundProofReviewService,{provide:REFUND_PROOF_REVIEW.repository,useClass:DrizzleRefundProofReviewRepository},
     RefundProofService,{provide:REFUND_PROOF.repository,useClass:DrizzleRefundProofRepository},{provide:REFUND_PROOF.storage,useFactory:()=>new SupabaseRefundProofStorage()},
     RefundOrganizationService, DrizzleRefundOrganizationRepository, {provide: REFUND_ORGANIZATION.repository, useExisting: DrizzleRefundOrganizationRepository},

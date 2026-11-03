@@ -86,7 +86,7 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
     return rows;
   }
   async list(scope: ReturnScope, actorId: string, query: OrderReturnQuery) {
-    const scoped = scopeCondition(scope, actorId);
+    const scoped = and(scopeCondition(scope, actorId), query.orderId ? eq(orderReturns.orderId, query.orderId) : undefined);
     let anchor: {id: string; createdAt: Date} | undefined;
     if (query.cursor) {
       [anchor] = await this.database.db.select({id: orderReturns.id, createdAt: orderReturns.createdAt}).from(orderReturns)
@@ -96,7 +96,8 @@ export class DrizzleOrderReturnRepository implements OrderReturnRepository {
     const rows = await this.database.db.select({record: orderReturns, orderNumber: orders.orderNumber, brandId: orders.brandId, currency: orders.currency})
       .from(orderReturns).innerJoin(orders, eq(orders.id, orderReturns.orderId))
       .where(and(scoped, query.status ? eq(orderReturns.status, query.status) : undefined,
-        anchor ? or(lt(orderReturns.createdAt, anchor.createdAt), and(eq(orderReturns.createdAt, anchor.createdAt), lt(orderReturns.id, anchor.id))) : undefined))
+        anchor ? sql`(${orderReturns.createdAt},${orderReturns.id}) <
+          (select anchor.created_at,anchor.id from ${orderReturns} anchor where anchor.id=${anchor.id})` : undefined))
       .orderBy(desc(orderReturns.createdAt), desc(orderReturns.id)).limit(query.limit + ORDER_RETURN.persistence.overflow);
     const selected = rows.slice(ORDER_RETURN.limit.firstRow, query.limit);
     const quantities = selected.length ? await this.database.db.select({returnId: orderReturnItems.returnId, quantity: sql<number>`sum(${orderReturnItems.quantity})::integer`})

@@ -29,7 +29,7 @@ export interface OrderReturnSummary {
   requestedAt: string; itemCount: number; totalAmount: number; currency: string;
 }
 export interface OrderReturnPage {items: OrderReturnSummary[]; nextCursor: string | null;}
-export interface OrderReturnQuery {limit: number; cursor?: string; status?: ReturnStatus;}
+export interface OrderReturnQuery {limit: number; cursor?: string; status?: ReturnStatus; orderId?: string;}
 export interface OrderReturnRepository {
   transaction<T>(operation: (repository: OrderReturnRepository) => Promise<T>): Promise<T>;
   snapshot<T>(operation: (repository: OrderReturnRepository) => Promise<T>): Promise<T>;
