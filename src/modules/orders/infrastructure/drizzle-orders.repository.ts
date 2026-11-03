@@ -2,6 +2,7 @@ import {cancellationSettlementMap} from './refund-proof-projection';
 import type {ExternalRefundSettlement} from '../domain/refund-proof-review';
 import {projectCancellation, projectCancellationRefund} from './cancellation-projection';
 import {COMMISSION_RULE} from '../../commissions/domain/commission-rule.contract';
+import {captureOrderDistributionTerms} from '../../payments/infrastructure/order-distribution-terms';
 import type {ShippingAddressSnapshot} from '../domain/shipping-address';
 import {
   BadRequestException,
@@ -122,6 +123,7 @@ export class DrizzleOrderRepository implements OrderRepository {
         );
       }
 
+      await captureOrderDistributionTerms({db: tx}, order.id);
       await tx.insert(orderStatusHistory).values({
         orderId: order.id,
         fromStatus: null,

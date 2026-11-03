@@ -38,6 +38,7 @@ import {refundStripeReturn, STRIPE_RETURN} from '../infrastructure/stripe-order-
 import type {ReturnRefundClaim} from '../../orders/domain/return-refund';
 import {RETURN_REFUND} from '../../orders/domain/return-refund';
 import {ReturnRefundsService} from '../../orders/application/return-refunds.service';
+import {PaymentDistributionService} from './payment-distribution.service';
 import {z} from 'zod';
 const cancellationReferenceSchema = z.object({orderId: z.uuid(), cancellationId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 const refundReferenceSchema = z.object({orderId: z.uuid(), returnId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
@@ -70,6 +71,8 @@ export class PaymentsService {
     private readonly connect: ConnectAccountsService,
     @Inject(forwardRef(() => ReturnRefundsService))
     private readonly returnRefunds: ReturnRefundsService,
+    @Inject(PaymentDistributionService)
+    private readonly distribution: PaymentDistributionService,
   ) {}
 
   async reverseCancellation(
@@ -95,6 +98,7 @@ export class PaymentsService {
       throw new ServiceUnavailableException(
         STRIPE_COMMERCE.configuration.paymentsUnavailable,
       );
+    await this.distribution.assertOrderTerms(order.id);
     await this.connect.assertSaleRecipients(
       order.brandId,
       order.items.flatMap((item) =>

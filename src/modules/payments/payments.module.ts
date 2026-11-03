@@ -18,6 +18,10 @@ import {PaymentSettlementsService} from './application/payment-settlements.servi
 import {DrizzlePaymentSettlementsRepository} from './infrastructure/drizzle-payment-settlements.repository';
 import {PaymentSettlementsWorker} from './infrastructure/payment-settlements.worker';
 import {PaymentSettlementsController} from './presentation/payment-settlements.controller';
+import {PAYMENT_DISTRIBUTION} from './domain/payment-distribution';
+import {PaymentDistributionService} from './application/payment-distribution.service';
+import {DrizzlePaymentDistributionRepository} from './infrastructure/drizzle-payment-distribution.repository';
+import {PaymentDistributionController} from './presentation/payment-distribution.controller';
 
 @Module({
   imports: [
@@ -27,11 +31,13 @@ import {PaymentSettlementsController} from './presentation/payment-settlements.c
     IdentityModule,
     forwardRef(() => OrdersModule),
   ],
-  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController],
+  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController, PaymentDistributionController],
   providers: [
     PaymentsService,
     stripeClientProvider,
     PaymentSettlementsService, PaymentSettlementsWorker,
+    PaymentDistributionService,
+    {provide: PAYMENT_DISTRIBUTION.repository, useClass: DrizzlePaymentDistributionRepository},
     {provide: PAYMENT_SETTLEMENT.repository, useClass: DrizzlePaymentSettlementsRepository},
     ConnectAccountsService,
     DrizzleConnectAccountsRepository,

@@ -2,9 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetEnvCacheForTests } from "../../src/config/env";
 import { PaymentsService } from "../../src/modules/payments/application/payments.service";
 import type { Order } from "../../src/modules/orders/application/orders.service";
+const PAYMENT_ORDER = {id: '88888888-8888-4888-8888-888888888888', group: 'order:88888888-8888-4888-8888-888888888888', key: 'payment-intent:88888888-8888-4888-8888-888888888888', unexpectedIdentity: 'Unexpected order identity', unconfigured: 'distribution conditions absent'} as const;
 function makeOrder(): Order {
   return {
-    id: "order-1",
+    id: PAYMENT_ORDER.id,
     orderNumber: "UF-1",
     customerId: "customer-1",
     brandId: "brand-1",
@@ -79,6 +80,7 @@ describe("PaymentsService", () => {
     const orders = { attachPaymentIntent: vi.fn() };
     const cancellations = { recoverOrder: vi.fn(), reconcile: vi.fn().mockResolvedValue(true) };
     const connect = { assertSaleRecipients: vi.fn(), accountUpdated: vi.fn() };
+    const distribution = {assertOrderTerms: vi.fn(async (id: string) => {if(id !== PAYMENT_ORDER.id) throw new Error(PAYMENT_ORDER.unexpectedIdentity);})};
     const returnRefunds = {reconcile: vi.fn().mockResolvedValue(true)};
     return {
       stripe,
@@ -87,6 +89,7 @@ describe("PaymentsService", () => {
       cancellations,
       connect,
       returnRefunds,
+      distribution,
       service: new PaymentsService(
         stripe as never,
         finalizer,
@@ -94,14 +97,25 @@ describe("PaymentsService", () => {
         cancellations as never,
         connect as never,
         returnRefunds as never,
+        distribution as never,
       ),
     };
   }
+  it("refuses missing frozen distribution conditions before Connect, Stripe or order attachment", async () => {
+    const {service,distribution,connect,stripe,orders} = setup();
+    distribution.assertOrderTerms.mockRejectedValueOnce(new Error(PAYMENT_ORDER.unconfigured));
+    await expect(service.createPaymentIntent(makeOrder())).rejects.toThrow(PAYMENT_ORDER.unconfigured);
+    expect(distribution.assertOrderTerms).toHaveBeenCalledWith(PAYMENT_ORDER.id);
+    expect(connect.assertSaleRecipients).not.toHaveBeenCalled();
+    expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
+    expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled();
+    expect(orders.attachPaymentIntent).not.toHaveBeenCalled();
+  });
   it("creates a card-only PaymentIntent from the persisted total, with a stable idempotency key", async () => {
     const { service, stripe, orders } = setup();
     const result = await service.createPaymentIntent(makeOrder());
     expect(result).toMatchObject({
-      orderId: "order-1",
+      orderId: PAYMENT_ORDER.id,
       paymentIntentId: "pi_test",
     });
     expect(stripe.paymentIntents.create).toHaveBeenCalledWith(
@@ -109,13 +123,13 @@ describe("PaymentsService", () => {
         amount: 5900,
         currency: "chf",
         payment_method_types: ["card"],
-        metadata: { order_id: "order-1" },
-        transfer_group: "order:order-1",
+        metadata: { order_id: PAYMENT_ORDER.id },
+        transfer_group: PAYMENT_ORDER.group,
       },
-      { idempotencyKey: "payment-intent:order-1" },
+      { idempotencyKey: PAYMENT_ORDER.key },
     );
     expect(orders.attachPaymentIntent).toHaveBeenCalledWith(
-      "order-1",
+      PAYMENT_ORDER.id,
       "pi_test",
     );
   });
@@ -157,7 +171,7 @@ describe("PaymentsService", () => {
       data: {
         object: {
           id: "pi_test",
-          metadata: { order_id: "order-1" },
+          metadata: { order_id: PAYMENT_ORDER.id },
           amount_received: 5900,
           currency: "chf",
         },
@@ -168,7 +182,7 @@ describe("PaymentsService", () => {
     ).resolves.toEqual({ received: true, duplicate: false });
     expect(finalizer.confirm).toHaveBeenCalledWith({
       eventId: "evt_test",
-      orderId: "order-1",
+      orderId: PAYMENT_ORDER.id,
       paymentIntentId: "pi_test",
       amount: 5900,
       currency: "CHF",
@@ -182,7 +196,7 @@ describe("PaymentsService", () => {
       data: {
         object: {
           id: "pi_test",
-          metadata: { order_id: "order-1" },
+          metadata: { order_id: PAYMENT_ORDER.id },
           amount_received: 5900,
           currency: "chf",
         },
@@ -217,7 +231,7 @@ describe("PaymentsService", () => {
       data: {
         object: {
           id: "pi_test",
-          metadata: { order_id: "order-1" },
+          metadata: { order_id: PAYMENT_ORDER.id },
           amount_received: 5900,
           currency: "chf",
         },
@@ -230,7 +244,7 @@ describe("PaymentsService", () => {
     await expect(
       service.handleStripeWebhook(Buffer.from("signed payload"), "signature"),
     ).resolves.toEqual({ received: true, duplicate: true });
-    expect(cancellations.recoverOrder).toHaveBeenCalledWith("order-1");
+    expect(cancellations.recoverOrder).toHaveBeenCalledWith(PAYMENT_ORDER.id);
     cancellations.recoverOrder.mockRejectedValueOnce(
       new Error("Provider temporarily unavailable"),
     );
