@@ -846,3 +846,4 @@ export * from './schema.notification-push';
 
 export {profileMediaAssets,profileImageChanges} from './schema.profile-media';
 export {refundOrganizationCases, refundOrganizationRevisions} from './schema.refund-organizations';
+export {refundPaymentProofs} from './schema.refund-proofs';

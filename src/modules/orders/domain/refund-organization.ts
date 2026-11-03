@@ -1,3 +1,4 @@
+import type {RefundProofMetadata} from './refund-proof.contract';
 import {createHash} from 'node:crypto';
 import {BadRequestException, ConflictException, ForbiddenException} from '@nestjs/common';
 import {z} from 'zod';
@@ -43,7 +44,7 @@ export const refundOrganizationSchema = z.object({
   updatedAt: z.iso.datetime(),
 }).strict().refine(value => (value.status === REFUND_ORGANIZATION.status.awaitingCustomer) === (value.customerDetails === null));
 export type RefundOrganization = z.infer<typeof refundOrganizationSchema>;
-export interface RefundOrganizationDocument {summary: RefundRecoverySummary; organization: RefundOrganization | null; actions: RefundOrganizationAction[];}
+export interface RefundOrganizationDocument {summary: RefundRecoverySummary; organization: RefundOrganization | null; proof: RefundProofMetadata | null; actions: RefundOrganizationAction[];}
 export interface RefundOrganizationReceipt {requestId: string; version: number;}
 export interface RefundOrganizationResult {document: RefundOrganizationDocument; receipt: RefundOrganizationReceipt;}
 export interface RefundOrganizationAccess {scope: RefundOrganizationScope; actorId: string;}
@@ -53,7 +54,8 @@ export interface RefundOrganizationRepository {
   apply(access: RefundOrganizationAccess, reference: RefundOrganizationReference, command: RefundOrganizationCommand): Promise<RefundOrganizationResult>;
   receipt(access: RefundOrganizationAccess, reference: RefundOrganizationReference, requestId: string): Promise<RefundOrganizationResult | undefined>;
 }
-export function organizationActions(scope: RefundOrganizationScope, organization: RefundOrganization | null): RefundOrganizationAction[] {
+export function organizationActions(scope: RefundOrganizationScope, organization: RefundOrganization | null, hasProof = false): RefundOrganizationAction[] {
+  if (hasProof) return [];
   if (organization && organization.version >= REFUND_ORGANIZATION.revision.maximum) return [];
   if (scope === REFUND_ORGANIZATION.scope.administrator) return [REFUND_ORGANIZATION.action.arrange];
   return scope === REFUND_ORGANIZATION.scope.customer && organization !== null ? [REFUND_ORGANIZATION.action.provideDetails] : [];

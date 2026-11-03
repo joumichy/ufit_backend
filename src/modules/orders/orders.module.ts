@@ -1,3 +1,8 @@
+import {AdminRefundProofController,PrivateRefundProofController} from './presentation/refund-proof.controller';
+import {RefundProofService} from './application/refund-proof.service';
+import {DrizzleRefundProofRepository} from './infrastructure/drizzle-refund-proof.repository';
+import {SupabaseRefundProofStorage} from './infrastructure/supabase-refund-proof.storage';
+import {REFUND_PROOF} from './domain/refund-proof.contract';
 import {AdminRefundOrganizationController, PrivateRefundOrganizationController} from './presentation/refund-organization.controller';
 import {RefundOrganizationService} from './application/refund-organization.service';
 import {DrizzleRefundOrganizationRepository} from './infrastructure/drizzle-refund-organization.repository';
@@ -42,8 +47,9 @@ import {RETURN_REFUND} from './domain/return-refund';
     CommissionsModule,
     forwardRef(() => PaymentsModule),
   ],
-  controllers: [AdminRefundOrganizationController, PrivateRefundOrganizationController, RefundRecoveryController, OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
+  controllers: [AdminRefundProofController,PrivateRefundProofController,AdminRefundOrganizationController, PrivateRefundOrganizationController, RefundRecoveryController, OrdersController, BrandOrdersController, CustomerReturnsController, BrandReturnsController, AdminReturnsController],
   providers: [
+    RefundProofService,{provide:REFUND_PROOF.repository,useClass:DrizzleRefundProofRepository},{provide:REFUND_PROOF.storage,useFactory:()=>new SupabaseRefundProofStorage()},
     RefundOrganizationService, DrizzleRefundOrganizationRepository, {provide: REFUND_ORGANIZATION.repository, useExisting: DrizzleRefundOrganizationRepository},
     RefundRecoveryService, DrizzleRefundRecoveryRepository, {provide: REFUND_RECOVERY.repository, useExisting: DrizzleRefundRecoveryRepository},
     OrdersService,

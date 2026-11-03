@@ -1,0 +1,26 @@
+create table ufit.refund_payment_proofs (
+  id uuid primary key,
+  case_id uuid not null,
+  organization_version integer not null,
+  uploaded_by uuid references ufit.users(id),
+  request_id uuid not null,
+  request_fingerprint text not null,
+  amount integer not null,
+  currency text not null,
+  transfer_reference text not null,
+  transferred_on date not null,
+  object_path text not null,
+  content_type text not null,
+  byte_size integer not null,
+  sha256 text not null,
+  state text not null,
+  submitted_at timestamptz,
+  constraint refund_proof_organization_revision_fk foreign key(case_id,organization_version) references ufit.refund_organization_revisions(case_id,version),
+  constraint refund_proof_request_unique unique(case_id,request_id),
+  constraint refund_proof_object_unique unique(object_path),
+  constraint refund_proof_state_valid check(((state='pending' and submitted_at is null) or (state='submitted' and submitted_at is not null)) is true),
+  constraint refund_proof_amount_valid check(amount>0 and currency ~ '^[A-Z]{3}$'),
+  constraint refund_proof_reference_valid check(char_length(btrim(transfer_reference)) between 1 and 160),
+  constraint refund_proof_file_valid check(content_type in ('application/pdf','image/jpeg') and byte_size between 5 and 8388608 and sha256 ~ '^[a-f0-9]{64}$' and request_fingerprint ~ '^[a-f0-9]{64}$')
+);
+create unique index refund_proof_submitted_unique on ufit.refund_payment_proofs(case_id) where state='submitted';

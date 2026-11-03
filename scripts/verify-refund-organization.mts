@@ -1,3 +1,5 @@
+import {DrizzleRefundProofRepository} from '../src/modules/orders/infrastructure/drizzle-refund-proof.repository';
+import {REFUND_PROOF as P,prepareRefundProof,type RefundProofCommand} from '../src/modules/orders/domain/refund-proof.contract';
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -87,6 +89,39 @@ async function main(){
         assert.equal(history.length,fixture.four);assert.equal(history[fixture.two].customerDetails,fixture.updatedDetails);
         assert.equal((await repository.read(customer,reference)).organization?.customerDetails,null);
         checks.push(kind+': persisted roles/ownership, exact replay and receipts, stale conflicts, current document after lost response, private customer/brand reads, immutable history and fresh response after new instructions');
+        const proofs=new DrizzleRefundProofRepository({db:tx}),pdf=Buffer.from('%PDF-1.4\nSPECIMEN — no transfer\n%%EOF');
+        const prepared=prepareRefundProof({buffer:pdf,mimetype:P.mime.pdf,size:pdf.length});
+        const response=await repository.apply(customer,reference,{...reply,requestId:randomUUID(),expectedVersion:fixture.four});
+        const proofCommand:RefundProofCommand={requestId:randomUUID(),expectedVersion:response.document.organization!.version,transferReference:fixture.details,transferredOn:'2026-11-01'};
+        await assert.rejects(proofs.reserve(customer,reference,proofCommand,prepared),e=>(e as {status:number}).status===fixture.status.denied);
+        const pending=await proofs.reserve(brand,reference,proofCommand,prepared);
+        assert.deepEqual(await proofs.reserve(brand,reference,proofCommand,prepared),pending);
+        assert.equal((await proofs.receipt(brand,reference,proofCommand.requestId))?.state,P.state.pending);
+        assert.equal((await repository.read(customer,reference)).proof,null);
+        await assert.rejects(proofs.file(customer,reference,pending.id));
+        await assert.rejects(proofs.reserve(brand,reference,{...proofCommand,transferReference:fixture.updatedDetails},prepared),e=>(e as {status:number}).status===fixture.status.conflict);
+        const changed=await repository.apply(customer,reference,{...reply,requestId:randomUUID(),expectedVersion:proofCommand.expectedVersion,details:fixture.updatedDetails});
+        await assert.rejects(proofs.submit(brand,reference,pending),e=>(e as {status:number}).status===fixture.status.conflict);
+        const currentCommand={...proofCommand,requestId:randomUUID(),expectedVersion:changed.document.organization!.version};
+        const current=await proofs.reserve(brand,reference,currentCommand,prepared);
+        await tx.update(users).set({status:'suspended'}).where(eq(users.id,brandId));
+        await assert.rejects(proofs.submit(brand,reference,current),e=>(e as {status:number}).status===fixture.status.denied);
+        await tx.update(users).set({status:'active'}).where(eq(users.id,brandId));
+        const submitted=await proofs.submit(brand,reference,current);
+        assert.equal(submitted.state,P.state.submitted);assert.equal(submitted.proof?.amount,fixture.amount);assert.equal(submitted.proof?.currency,fixture.currency);
+        assert.deepEqual(await proofs.submit(brand,reference,current),submitted);
+        assert.deepEqual(await proofs.receipt(brand,reference,currentCommand.requestId),submitted);
+        for(const access of [admin,brand,customer]){
+          const doc=await repository.read(access,reference);assert.deepEqual(doc.proof,submitted.proof);assert.deepEqual(doc.actions,[]);
+          assert.equal((await proofs.file(access,reference,current.id)).sha256,prepared.sha256);
+        }
+        await assert.rejects(proofs.file({scope:O.scope.customer,actorId:creatorId},reference,current.id),e=>(e as {status:number}).status===fixture.status.denied);
+        await assert.rejects(repository.apply(admin,reference,{...arrange,requestId:randomUUID(),expectedVersion:currentCommand.expectedVersion}),e=>(e as {status:number}).status===fixture.status.conflict);
+        await assert.rejects(repository.apply(customer,reference,{...reply,requestId:randomUUID(),expectedVersion:currentCommand.expectedVersion}),e=>(e as {status:number}).status===fixture.status.conflict);
+        await assert.rejects(proofs.reserve(brand,reference,{...currentCommand,requestId:randomUUID()},prepared),e=>(e as {status:number}).status===fixture.status.conflict);
+        assert.equal(await proofs.receipt(brand,reference,randomUUID()),undefined);
+        checks.push(kind+': immutable proof reservation/replay, stale and revoked submission rejected, exact receipt, private reads across scopes, submitted evidence freezes instructions/details without financial success');
+
       }
       await tx.execute(sql.raw(fixture.constraintValidation));checks.push('deferred current-revision foreign keys resolve inside the real PostgreSQL transaction');
       throw new VerificationRollback();
