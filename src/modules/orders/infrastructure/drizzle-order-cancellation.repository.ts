@@ -9,11 +9,12 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { alias } from "drizzle-orm/pg-core";
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { DatabaseService } from "../../../shared/infrastructure/database/database.service";
 import {
   commissions,
   orderCancellations,
+  orderCancellationRefunds,
   orderItems,
   orders,
   orderStatusHistory,
@@ -22,7 +23,8 @@ import {
   shipments,
 } from "../../../shared/infrastructure/database/schema";
 import {
-  CANCELLATION,
+  CANCELLATION, CANCELLATION_REFUND, acceptsCancellationRefund, cancellationRefundOutcome,
+  type CancellationRefundAttempt, type CancellationRefundReference, type CancellationRefundResult,
   ORDER_COMMISSION,
   ORDER_LIMIT,
   ORDER_PAYMENT,
@@ -86,6 +88,16 @@ export class DrizzleOrderCancellationRepository
           reason: CANCELLATION.reasons.requested,
         });
       }
+      let refund = await this.latestRefund(tx, cancellation.id);
+      if (cancellation.status === CANCELLATION.status.failed && refund?.providerStatus === CANCELLATION_REFUND.providerStatus.cancelled) {
+        const [inserted] = await tx.insert(orderCancellationRefunds).values({
+          cancellationId: cancellation.id, attemptNumber: refund.attemptNumber + CANCELLATION_REFUND.attempt.step,
+          paymentIntentId: refund.paymentIntentId, amount: refund.amount, currency: refund.currency, state: CANCELLATION_REFUND.state.queued,
+        }).returning();
+        refund = this.toRefund(inserted);
+        [cancellation] = await tx.update(orderCancellations).set({status: CANCELLATION.status.requested, paymentOutcome: null, nextRecoveryAt: new Date(), updatedAt: new Date()})
+          .where(eq(orderCancellations.id, cancellation.id)).returning();
+      }
       return {
         id: cancellation.id,
         orderId: order.id,
@@ -95,7 +107,7 @@ export class DrizzleOrderCancellationRepository
         amount: order.totalAmount,
         currency: order.currency,
         paymentIntentId: order.stripePaymentIntentId ?? undefined,
-        refundId: cancellation.stripeRefundId ?? undefined,
+        refund,
       };
     });
   }
@@ -111,7 +123,7 @@ export class DrizzleOrderCancellationRepository
         ),
       )
       .limit(ORDER_LIMIT.singleRow);
-    return row ? this.toClaim(row) : null;
+    return row ? this.toClaim(row, await this.latestRefund(this.database.db, row.cancellation.id)) : null;
   }
   async claimRecoverable(): Promise<CancellationClaim[]> {
     const queue = alias(orderCancellations, RECOVERY_ROW);
@@ -143,16 +155,12 @@ export class DrizzleOrderCancellationRepository
               rows.map((row) => row.cancellation.id),
             ),
           );
-      return rows.map((row) => this.toClaim(row));
+      return Promise.all(rows.map(async row => this.toClaim(row, await this.latestRefund(tx, row.cancellation.id))));
     });
   }
-  private toClaim({
-    order,
-    cancellation,
-  }: {
-    order: typeof orders.$inferSelect;
-    cancellation: typeof orderCancellations.$inferSelect;
-  }): CancellationClaim {
+  private toClaim({order, cancellation}: {
+    order: typeof orders.$inferSelect; cancellation: typeof orderCancellations.$inferSelect;
+  }, refund: CancellationRefundAttempt | null): CancellationClaim {
     return {
       id: cancellation.id,
       orderId: order.id,
@@ -162,26 +170,74 @@ export class DrizzleOrderCancellationRepository
       amount: order.totalAmount,
       currency: order.currency,
       paymentIntentId: order.stripePaymentIntentId ?? undefined,
-      refundId: cancellation.stripeRefundId ?? undefined,
+      refund,
     };
   }
-  async rememberRefund(
-    claim: CancellationClaim,
-    refundId: string,
-  ): Promise<void> {
-    await this.database.db
-      .update(orderCancellations)
-      .set({ stripeRefundId: refundId, updatedAt: new Date() })
-      .where(
-        and(
-          eq(orderCancellations.id, claim.id),
-          eq(orderCancellations.status, CANCELLATION.status.requested),
-        ),
-      );
+  private toRefund(row: typeof orderCancellationRefunds.$inferSelect): CancellationRefundAttempt {
+    return {id: row.id, cancellationId: row.cancellationId, attemptNumber: row.attemptNumber,
+      paymentIntentId: row.paymentIntentId, amount: row.amount, currency: row.currency,
+      state: row.state as CancellationRefundAttempt['state'], providerStatus: row.providerStatus as CancellationRefundAttempt['providerStatus'], refundId: row.stripeRefundId};
+  }
+  private async latestRefund(db: DatabaseSession['db'], cancellationId: string): Promise<CancellationRefundAttempt | null> {
+    const [row] = await db.select().from(orderCancellationRefunds).where(eq(orderCancellationRefunds.cancellationId, cancellationId))
+      .orderBy(desc(orderCancellationRefunds.attemptNumber)).limit(ORDER_LIMIT.singleRow);
+    return row ? this.toRefund(row) : null;
+  }
+  async prepareRefund(claim: CancellationClaim): Promise<CancellationRefundAttempt> {
+    return this.database.db.transaction(async tx => {
+      const [order] = await tx.select().from(orders).where(eq(orders.id, claim.orderId)).limit(ORDER_LIMIT.singleRow).for(ROW_LOCK);
+      const [cancellation] = await tx.select().from(orderCancellations).where(and(eq(orderCancellations.id, claim.id), eq(orderCancellations.orderId, claim.orderId))).limit(ORDER_LIMIT.singleRow);
+      if (!order || !cancellation || !claim.paymentIntentId || order.stripePaymentIntentId !== claim.paymentIntentId || order.totalAmount !== claim.amount || order.currency !== claim.currency)
+        throw new ConflictException(CANCELLATION_REFUND.failure.mismatch);
+      if (claim.refund) {
+        const [row] = await tx.select().from(orderCancellationRefunds).where(and(eq(orderCancellationRefunds.id, claim.refund.id), eq(orderCancellationRefunds.cancellationId, claim.id))).limit(ORDER_LIMIT.singleRow);
+        if (!row || (row.stripeRefundId !== null && row.stripeRefundId !== claim.refund.refundId)) throw new ConflictException(CANCELLATION_REFUND.failure.mismatch);
+        return {...this.toRefund(row), refundId: claim.refund.refundId};
+      }
+      const latest = await this.latestRefund(tx, claim.id);
+      if (latest) return latest;
+      if (cancellation.status !== CANCELLATION.status.requested) throw new ConflictException(CANCELLATION.failures.changed);
+      const [row] = await tx.insert(orderCancellationRefunds).values({cancellationId: claim.id, attemptNumber: CANCELLATION_REFUND.attempt.initial,
+        paymentIntentId: claim.paymentIntentId, amount: claim.amount, currency: claim.currency, state: CANCELLATION_REFUND.state.queued}).returning();
+      return this.toRefund(row);
+    });
+  }
+  async findRefund(reference: CancellationRefundReference): Promise<CancellationClaim> {
+    const [row] = await this.database.db.select({order: orders, cancellation: orderCancellations, refund: orderCancellationRefunds})
+      .from(orders).innerJoin(orderCancellations, eq(orderCancellations.orderId, orders.id))
+      .innerJoin(orderCancellationRefunds, eq(orderCancellationRefunds.cancellationId, orderCancellations.id))
+      .where(and(eq(orders.id, reference.orderId), eq(orderCancellations.id, reference.cancellationId), eq(orderCancellationRefunds.id, reference.attemptId))).limit(ORDER_LIMIT.singleRow);
+    if (!row || (row.refund.stripeRefundId !== null && row.refund.stripeRefundId !== reference.refundId)) throw new ConflictException(CANCELLATION_REFUND.failure.mismatch);
+    return this.toClaim(row, {...this.toRefund(row.refund), refundId: reference.refundId});
+  }
+  async recordRefund(claim: CancellationClaim, attempt: CancellationRefundAttempt, result: CancellationRefundResult): Promise<boolean> {
+    return this.database.db.transaction(async tx => {
+      const [order] = await tx.select().from(orders).where(eq(orders.id, claim.orderId)).limit(ORDER_LIMIT.singleRow).for(ROW_LOCK);
+      const [cancellation] = await tx.select().from(orderCancellations).where(and(eq(orderCancellations.id, claim.id), eq(orderCancellations.orderId, claim.orderId))).limit(ORDER_LIMIT.singleRow);
+      const [row] = await tx.select().from(orderCancellationRefunds).where(and(eq(orderCancellationRefunds.id, attempt.id), eq(orderCancellationRefunds.cancellationId, claim.id))).limit(ORDER_LIMIT.singleRow);
+      if (!order || !cancellation || !row || row.paymentIntentId !== order.stripePaymentIntentId || row.amount !== order.totalAmount || row.currency !== order.currency
+        || (row.stripeRefundId !== null && row.stripeRefundId !== result.refundId)) throw new ConflictException(CANCELLATION_REFUND.failure.mismatch);
+      const current = this.toRefund(row);
+      if (!acceptsCancellationRefund(current, result) || (current.state === result.state && current.providerStatus === result.providerStatus && current.refundId === result.refundId)) return false;
+      await tx.update(orderCancellationRefunds).set({state: result.state, providerStatus: result.providerStatus, stripeRefundId: result.refundId, updatedAt: new Date()}).where(eq(orderCancellationRefunds.id, row.id));
+      const latest = await this.latestRefund(tx, claim.id);
+      if (latest?.id !== row.id) return true;
+      const outcome = cancellationRefundOutcome(result);
+      const status = !cancellation.effectsApplied || outcome === null ? CANCELLATION.status.requested
+        : result.state === CANCELLATION_REFUND.state.succeeded ? CANCELLATION.status.succeeded : CANCELLATION.status.failed;
+      await tx.update(orderCancellations).set({status, paymentOutcome: outcome, updatedAt: new Date()}).where(eq(orderCancellations.id, claim.id));
+      const [payment] = await tx.select().from(payments).where(and(eq(payments.provider, ORDER_PAYMENT.provider), eq(payments.providerPaymentIntentId, row.paymentIntentId))).limit(ORDER_LIMIT.singleRow);
+      if (payment && (payment.orderId !== order.id || payment.amount !== order.totalAmount || payment.currency !== order.currency)) throw new ConflictException(CANCELLATION_REFUND.failure.mismatch);
+      await tx.insert(payments).values({orderId: order.id, provider: ORDER_PAYMENT.provider, providerPaymentIntentId: row.paymentIntentId,
+        status: result.state === CANCELLATION_REFUND.state.succeeded ? ORDER_PAYMENT.status.refunded : ORDER_PAYMENT.status.succeeded,
+        amount: order.totalAmount, currency: order.currency}).onConflictDoUpdate({target: [payments.provider, payments.providerPaymentIntentId],
+        targetWhere: sql`${payments.providerPaymentIntentId} is not null`, set: {status: result.state === CANCELLATION_REFUND.state.succeeded ? ORDER_PAYMENT.status.refunded : ORDER_PAYMENT.status.succeeded, updatedAt: new Date()}});
+      return true;
+    });
   }
   async complete(
     claim: CancellationClaim,
-    settlement: CancellationSettlement,
+    settlement?: CancellationSettlement,
   ): Promise<void> {
     await this.database.db.transaction(async (tx) => {
       const [order] = await tx
@@ -195,9 +251,17 @@ export class DrizzleOrderCancellationRepository
         .from(orderCancellations)
         .where(eq(orderCancellations.id, claim.id))
         .limit(ORDER_LIMIT.singleRow);
-      if (cancellation?.status === CANCELLATION.status.succeeded) return;
+      if (cancellation?.effectsApplied) return;
       if (!order || !cancellation || order.status !== ORDER_STATUS.cancelling)
         throw new ConflictException(CANCELLATION.failures.changed);
+      const refund = await this.latestRefund(tx, claim.id);
+      const outcome = refund ? cancellationRefundOutcome(refund) : settlement?.outcome;
+      if (!outcome) return;
+      if (outcome === CANCELLATION.outcome.notCharged) {
+        const [captured] = await tx.select({id: payments.id}).from(payments).where(eq(payments.orderId, order.id)).limit(ORDER_LIMIT.singleRow);
+        // A captured webhook may race with the provider cancellation response.
+        if (captured || cancellation.originalStatus === ORDER_STATUS.paid) throw new ConflictException(CANCELLATION.failures.changed);
+      }
       const items = await tx
         .select()
         .from(orderItems)
@@ -244,29 +308,6 @@ export class DrizzleOrderCancellationRepository
             .where(eq(productVariants.id, variantId));
         }
       }
-      if (
-        settlement.outcome === CANCELLATION.outcome.refunded &&
-        order.stripePaymentIntentId
-      ) {
-        await tx
-          .insert(payments)
-          .values({
-            orderId: order.id,
-            provider: ORDER_PAYMENT.provider,
-            providerPaymentIntentId: order.stripePaymentIntentId,
-            status: ORDER_PAYMENT.status.refunded,
-            amount: order.totalAmount,
-            currency: order.currency,
-          })
-          .onConflictDoUpdate({
-            target: [payments.provider, payments.providerPaymentIntentId],
-            targetWhere: sql`${payments.providerPaymentIntentId} is not null`,
-            set: {
-              status: ORDER_PAYMENT.status.refunded,
-              updatedAt: new Date(),
-            },
-          });
-      }
       await tx
         .update(shipments)
         .set({ status: SHIPMENT_STATUS.cancelled, version: sql`${shipments.version} + ${SHIPPING.revision.step}`, updatedAt: new Date() })
@@ -284,13 +325,13 @@ export class DrizzleOrderCancellationRepository
       await tx
         .update(orderCancellations)
         .set({
-          status: CANCELLATION.status.succeeded,
-          paymentOutcome: settlement.outcome,
-          stripeRefundId: settlement.refundId,
+          status: outcome === CANCELLATION.outcome.notCharged || outcome === CANCELLATION.outcome.refunded ? CANCELLATION.status.succeeded : CANCELLATION.status.failed,
+          paymentOutcome: outcome,
+          effectsApplied: true,
           updatedAt: new Date(),
         })
         .where(eq(orderCancellations.id, claim.id));
-      await new DrizzleOrderNotifications({db: tx}).record(cancelledOrderNotification(order.id, settlement.outcome === CANCELLATION.outcome.refunded), true);
+      await new DrizzleOrderNotifications({db: tx}).record(cancelledOrderNotification(order.id, outcome === CANCELLATION.outcome.refunded), true);
     });
   }
 }

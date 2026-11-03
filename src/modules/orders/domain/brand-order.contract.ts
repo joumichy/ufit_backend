@@ -1,4 +1,4 @@
-import {ORDER_STATUS, type OrderStatus} from './order-lifecycle';
+import {ORDER_STATUS, type OrderStatus, type CancellationProjection} from './order-lifecycle';
 import type {ShippingAddressSnapshot} from './shipping-address';
 import type {FrozenOrderItem} from './frozen-order-item';
 import type {Shipment, ShipmentActionName, ShipmentStatus} from '../../shipping/domain/shipping.contract';
@@ -21,6 +21,7 @@ export interface BrandOrderSummary {
 }
 export interface BrandOrderDetail extends BrandOrderSummary {
   subtotalAmount: number; shippingAmount: number; taxAmount: number;
+  cancellation: CancellationProjection | null;
   shippingAddress: ShippingAddressSnapshot; items: FrozenOrderItem[]; shipment: Shipment | null; actions: ShipmentActionName[];
 }
 export interface BrandOrderPage {items: BrandOrderSummary[]; nextCursor: string | null}

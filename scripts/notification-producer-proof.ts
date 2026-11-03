@@ -15,7 +15,7 @@ import {applyShipmentAction,SHIPMENT_ACTION} from '../src/modules/shipping/domai
 import {DrizzleOrderCancellationRepository} from '../src/modules/orders/infrastructure/drizzle-order-cancellation.repository';
 import {DrizzleOrderReturnRepository} from '../src/modules/orders/infrastructure/drizzle-order-return.repository';
 import {DrizzleReturnRefundRepository} from '../src/modules/orders/infrastructure/drizzle-return-refund.repository';
-import {ORDER_STATUS,CANCELLATION} from '../src/modules/orders/domain/order-lifecycle';
+import {ORDER_STATUS,CANCELLATION_REFUND} from '../src/modules/orders/domain/order-lifecycle';
 import {RETURN_STATUS,ORDER_RETURN,RETURN_ACTION} from '../src/modules/orders/domain/order-return.contract';
 import {applyReturnAction,type OrderReturn} from '../src/modules/orders/domain/order-return';
 import {RETURN_REFUND} from '../src/modules/orders/domain/return-refund';
@@ -115,9 +115,12 @@ export async function verifyNotificationProducers(database:DatabaseSession):Prom
     await refunds.settle(refundClaim,refundResult);assert.equal((await messages(document.id)).length,10);cases++;
     const cancelled=await order();await finalizer.confirm({...paidInput,orderId:cancelled.row.id,paymentIntentId:cancelled.row.stripePaymentIntentId!,eventId:FIXTURE.prefix+randomUUID()});
     const cancellationRepository=new DrizzleOrderCancellationRepository(session),claim=await cancellationRepository.claim(customer.id,cancelled.row.id);
-    await cancellationRepository.complete(claim,{outcome:CANCELLATION.outcome.refunded,refundId:FIXTURE.refunded+randomUUID()});
+    const cancellationAttempt=await cancellationRepository.prepareRefund(claim);
+    await cancellationRepository.recordRefund(claim,cancellationAttempt,{state:CANCELLATION_REFUND.state.succeeded,
+      providerStatus:CANCELLATION_REFUND.providerStatus.succeeded,refundId:FIXTURE.refunded+randomUUID()});
+    await cancellationRepository.complete(claim);
     assert.equal((await messages(cancelled.row.id)).length,4);cases++;
-    await cancellationRepository.complete(claim,{outcome:CANCELLATION.outcome.refunded,refundId:FIXTURE.refunded+randomUUID()});
+    await cancellationRepository.complete(claim);
     assert.equal((await messages(cancelled.row.id)).length,4);cases++;
     const reader=new DrizzleNotificationReader(session);
     async function readable(resourceId:string,recipientId:string){

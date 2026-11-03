@@ -26,7 +26,7 @@ import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnu
 import {ufitSchema,timestamps} from './schema-base';
 export {ufitSchema} from './schema-base';
 import {orders,orderItems} from './schema.orders';
-export {orders,orderItems,orderStatusHistory,orderCancellations} from './schema.orders';
+export {orders,orderItems,orderStatusHistory,orderCancellations,orderCancellationRefunds} from './schema.orders';
 export {orderReturns,orderReturnItems,orderReturnRefunds,returnCommissionAdjustments} from './schema.returns';
 
 export const schemaMigrations = ufitSchema.table('schema_migrations', {

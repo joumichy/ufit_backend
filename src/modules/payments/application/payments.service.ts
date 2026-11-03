@@ -21,7 +21,8 @@ import {
 } from "./stripe-payment-finalizer";
 
 import {
-  CANCELLATION,
+  CANCELLATION, CANCELLATION_REFUND,
+  type CancellationRefundAttempt,
   type CancellationClaim,
 } from "../../orders/domain/order-lifecycle";
 import {
@@ -38,6 +39,7 @@ import type {ReturnRefundClaim} from '../../orders/domain/return-refund';
 import {RETURN_REFUND} from '../../orders/domain/return-refund';
 import {ReturnRefundsService} from '../../orders/application/return-refunds.service';
 import {z} from 'zod';
+const cancellationReferenceSchema = z.object({orderId: z.uuid(), cancellationId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 const refundReferenceSchema = z.object({orderId: z.uuid(), returnId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 export type StripePaymentsClient = Pick<
   StripeSDK,
@@ -72,6 +74,7 @@ export class PaymentsService {
 
   async reverseCancellation(
     claim: CancellationClaim,
+    prepareRefund: () => Promise<CancellationRefundAttempt>,
   ): Promise<StripeCancellationResult> {
     if (!claim.paymentIntentId)
       return { settlement: { outcome: CANCELLATION.outcome.notCharged } };
@@ -79,7 +82,7 @@ export class PaymentsService {
       throw new ServiceUnavailableException(
         STRIPE_COMMERCE.configuration.paymentsUnavailable,
       );
-    return reverseStripeCancellation(this.stripe, claim);
+    return reverseStripeCancellation(this.stripe, claim, prepareRefund);
   }
 
   async refundReturn(claim: ReturnRefundClaim) {
@@ -146,10 +149,23 @@ export class PaymentsService {
       return { received: true, duplicate: false };
     }
     if (STRIPE_COMMERCE.refundEvents.some(type => type === event.type)) {
-      const refund = event.data.object as Awaited<ReturnType<StripePaymentsClient['refunds']['retrieve']>>;
+      const payloadRefund = event.data.object as Awaited<ReturnType<StripePaymentsClient['refunds']['retrieve']>>;
+      const refund = await this.stripe.refunds.retrieve(payloadRefund.id);
+      if (refund.id !== payloadRefund.id) throw new BadRequestException(CANCELLATION_REFUND.failure.mismatch);
       const returnId = refund.metadata?.[STRIPE_RETURN.metadata.returnId];
       const attemptId = refund.metadata?.[STRIPE_RETURN.metadata.attemptId];
-      if (returnId === undefined && attemptId === undefined) return {received: true, duplicate: false};
+      const cancellationId = refund.metadata?.[STRIPE_ORDER_METADATA.cancellationId];
+      const cancellationAttempt = refund.metadata?.[STRIPE_ORDER_METADATA.cancellationAttemptId];
+      const hasReturn = returnId !== undefined || attemptId !== undefined;
+      const hasCancellation = cancellationId !== undefined || cancellationAttempt !== undefined;
+      if (hasReturn && hasCancellation) throw new BadRequestException(CANCELLATION_REFUND.failure.mismatch);
+      if (hasCancellation) {
+        const reference = cancellationReferenceSchema.safeParse({orderId: refund.metadata?.[STRIPE_ORDER_METADATA.orderId], cancellationId, attemptId: cancellationAttempt, refundId: refund.id});
+        if (!reference.success) throw new BadRequestException(CANCELLATION_REFUND.failure.mismatch);
+        const changed = await this.cancellations.reconcile(reference.data);
+        return {received: true, duplicate: !changed};
+      }
+      if (!hasReturn) return {received: true, duplicate: false};
       const reference = refundReferenceSchema.safeParse({orderId: refund.metadata?.[STRIPE_ORDER_METADATA.orderId], returnId, attemptId, refundId: refund.id});
       if (!reference.success) throw new BadRequestException(RETURN_REFUND.failure.mismatch);
       const changed = await this.returnRefunds.reconcile(reference.data);

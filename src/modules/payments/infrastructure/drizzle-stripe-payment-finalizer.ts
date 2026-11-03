@@ -108,9 +108,13 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
         .from(orderCancellations)
         .where(eq(orderCancellations.orderId, order.id))
         .limit(ORDER_LIMIT.singleRow);
+      const capturedAfterCancellation = cancellation?.paymentOutcome === CANCELLATION.outcome.notCharged;
+      // A captured payment reopens compensation without repeating physical effects.
+      if (capturedAfterCancellation) await tx.update(orderCancellations).set({status: CANCELLATION.status.requested,
+        paymentOutcome: null, nextRecoveryAt: new Date(), updatedAt: new Date()}).where(eq(orderCancellations.id, cancellation!.id));
       if (previous) {
         if (
-          previous.orderId !== order.id ||
+          previous.orderId !== order.id || previous.amount !== input.amount || previous.currency !== input.currency ||
           !(
             [
               ORDER_PAYMENT.status.succeeded,
@@ -122,7 +126,7 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
         return {
           duplicate: true,
           reversalRequired:
-            cancellation?.status === CANCELLATION.status.requested,
+            capturedAfterCancellation || cancellation?.status === CANCELLATION.status.requested,
         };
       }
       if (
@@ -142,11 +146,7 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
           amount: input.amount,
           currency: input.currency,
         });
-        return {
-          duplicate: !event,
-          reversalRequired:
-            cancellation.status === CANCELLATION.status.requested,
-        };
+        return {duplicate: !event, reversalRequired: capturedAfterCancellation || cancellation.status === CANCELLATION.status.requested};
       }
       if (order.status !== ORDER_STATUS.pendingPayment)
         throw new ConflictException(FULFILLMENT.unavailable);

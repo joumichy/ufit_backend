@@ -11,8 +11,8 @@ export const ORDER_STATUS = {
 export type OrderStatus = (typeof ORDER_STATUS)[keyof typeof ORDER_STATUS];
 export const CANCELLATION = {
   repository: Symbol("OrderCancellationRepository"),
-  status: { requested: "requested", succeeded: "succeeded" },
-  outcome: { notCharged: "not_charged", refunded: "refunded" },
+  status: { requested: "requested", succeeded: "succeeded", failed: "failed" },
+  outcome: { notCharged: "not_charged", refunded: "refunded", refundFailed: "refund_failed", refundCancelled: "refund_canceled", refundBlocked: "refund_blocked" },
   reason: {
     customer: "customer_requested",
     stockUnavailable: "stock_unavailable",
@@ -72,33 +72,33 @@ export interface CancellationClaim {
   amount: number;
   currency: string;
   paymentIntentId?: string;
-  refundId?: string;
+  refund: CancellationRefundAttempt | null;
 }
-export type CancellationSettlement = {
-  outcome: (typeof CANCELLATION.outcome)[keyof typeof CANCELLATION.outcome];
-  refundId?: string;
-};
+export type CancellationOutcome = (typeof CANCELLATION.outcome)[keyof typeof CANCELLATION.outcome];
+export type CancellationSettlement = {outcome: typeof CANCELLATION.outcome.notCharged};
 export interface OrderCancellationRepository {
   claim(customerId: string, orderId: string): Promise<CancellationClaim>;
   findPending(orderId: string): Promise<CancellationClaim | null>;
   claimRecoverable(): Promise<CancellationClaim[]>;
-  rememberRefund(claim: CancellationClaim, refundId: string): Promise<void>;
+  prepareRefund(claim: CancellationClaim): Promise<CancellationRefundAttempt>;
+  findRefund(reference: CancellationRefundReference): Promise<CancellationClaim>;
+  recordRefund(claim: CancellationClaim, attempt: CancellationRefundAttempt, result: CancellationRefundResult): Promise<boolean>;
   complete(
     claim: CancellationClaim,
-    settlement: CancellationSettlement,
+    settlement?: CancellationSettlement,
   ): Promise<void>;
 }
 
 export function customerOrderActions(
   status: OrderStatus,
   reason?: CancellationClaim["reason"],
+  refund?: CancellationRefundSummary | null,
 ) {
   return {
     cancel:
-      reason !== CANCELLATION.reason.stockUnavailable &&
-      (status === ORDER_STATUS.pendingPayment ||
-        status === ORDER_STATUS.paid ||
-        status === ORDER_STATUS.cancelling),
+      (reason !== CANCELLATION.reason.stockUnavailable &&
+        (status === ORDER_STATUS.pendingPayment || status === ORDER_STATUS.paid)) ||
+      (status === ORDER_STATUS.cancelled && refund?.providerStatus === CANCELLATION_REFUND.providerStatus.cancelled),
     resumePayment: status === ORDER_STATUS.pendingPayment,
   };
 }
@@ -109,3 +109,41 @@ export const ORDER_FAILURE = {
     message: "The order no longer accepts payment",
   },
 } as const;
+
+export const CANCELLATION_REFUND = {
+  state: {queued: 'queued', pending: 'pending', succeeded: 'succeeded', failed: 'failed', blocked: 'blocked'},
+  providerStatus: {pending: 'pending', requiresAction: 'requires_action', succeeded: 'succeeded', failed: 'failed', cancelled: 'canceled'},
+  attempt: {initial: 1, step: 1, maximumMatches: 1},
+  failure: {
+    mismatch: {code: 'order_cancellation_refund_mismatch', message: 'The refund does not match this cancellation'},
+    unknown: {code: 'order_cancellation_refund_status_unknown', message: 'The refund provider returned an unsupported state'},
+  },
+} as const;
+export type CancellationRefundState = typeof CANCELLATION_REFUND.state[keyof typeof CANCELLATION_REFUND.state];
+export type CancellationProviderStatus = typeof CANCELLATION_REFUND.providerStatus[keyof typeof CANCELLATION_REFUND.providerStatus];
+export interface CancellationRefundSummary {
+  state: CancellationRefundState; providerStatus: CancellationProviderStatus | null;
+}
+export interface CancellationRefundAttempt extends CancellationRefundSummary {
+  id: string; cancellationId: string; attemptNumber: number; paymentIntentId: string;
+  amount: number; currency: string; refundId: string | null;
+}
+export interface CancellationRefundReference {orderId: string; cancellationId: string; attemptId: string; refundId: string;}
+export interface CancellationRefundResult extends CancellationRefundSummary {refundId: string | null;}
+export interface CancellationProjection {
+  status: CancellationClaim['status']; reason: CancellationClaim['reason'];
+  outcome: CancellationOutcome | null; refund: CancellationRefundSummary | null;
+}
+export function cancellationRefundOutcome(result: CancellationRefundSummary): CancellationOutcome | null {
+  switch (result.state) {
+    case CANCELLATION_REFUND.state.succeeded: return CANCELLATION.outcome.refunded;
+    case CANCELLATION_REFUND.state.failed: return result.providerStatus === CANCELLATION_REFUND.providerStatus.cancelled ? CANCELLATION.outcome.refundCancelled : CANCELLATION.outcome.refundFailed;
+    case CANCELLATION_REFUND.state.blocked: return CANCELLATION.outcome.refundBlocked;
+    default: return null;
+  }
+}
+export function acceptsCancellationRefund(current: CancellationRefundSummary, next: CancellationRefundResult): boolean {
+  return current.state !== CANCELLATION_REFUND.state.failed && current.state !== CANCELLATION_REFUND.state.blocked
+    && (current.state !== CANCELLATION_REFUND.state.succeeded || next.state === CANCELLATION_REFUND.state.failed
+      || next.providerStatus === CANCELLATION_REFUND.providerStatus.requiresAction);
+}

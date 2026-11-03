@@ -1,7 +1,9 @@
+import {CANCELLATION_REFUND} from '../../../modules/orders/domain/order-lifecycle';
 import {BRAND_ORDERS} from '../../../modules/orders/domain/brand-order.contract';
 import {ORDER_RETURN} from '../../../modules/orders/domain/order-return.contract';
 import {sql} from 'drizzle-orm';
 import {
+  boolean,
   index,
   check,
   integer,
@@ -144,6 +146,30 @@ export const orderCancellations = ufitSchema.table("order_cancellations", {
     .defaultNow(),
   status: text("status").notNull(),
   paymentOutcome: text("payment_outcome"),
-  stripeRefundId: text("stripe_refund_id").unique(),
+  effectsApplied: boolean("effects_applied").notNull().default(false),
   ...timestamps,
 });
+
+
+export const orderCancellationRefunds = ufitSchema.table('order_cancellation_refunds', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  cancellationId: uuid('cancellation_id').notNull().references(() => orderCancellations.id, {onDelete: 'cascade'}),
+  attemptNumber: integer('attempt_number').notNull(), paymentIntentId: text('payment_intent_id').notNull(),
+  amount: integer('amount').notNull(), currency: text('currency').notNull(),
+  state: text('state').notNull(), providerStatus: text('provider_status'), stripeRefundId: text('stripe_refund_id').unique(),
+  ...timestamps,
+}, table => ({
+  attemptUnique: uniqueIndex('order_cancellation_refunds_attempt_unique').on(table.cancellationId, table.attemptNumber),
+  amountCheck: check('order_cancellation_refunds_amount_valid', sql`${table.amount} > 0 and ${table.attemptNumber} >= ${CANCELLATION_REFUND.attempt.initial}`),
+  currencyCheck: check('order_cancellation_refunds_currency_valid', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+  oneActive: uniqueIndex('order_cancellation_refunds_one_active').on(table.cancellationId).where(sql`${table.state} in (${sql.raw("'" + CANCELLATION_REFUND.state.queued + "','" + CANCELLATION_REFUND.state.pending + "'")})`),
+  stateCheck: check('order_cancellation_refunds_state_valid', sql`${table.state} in (${sql.raw(Object.values(CANCELLATION_REFUND.state).map(value => `'${value}'`).join(','))})`),
+  providerCheck: check('order_cancellation_refunds_provider_valid', sql`(
+    (${table.state} in (${CANCELLATION_REFUND.state.queued}, ${CANCELLATION_REFUND.state.blocked}) and ${table.stripeRefundId} is null and ${table.providerStatus} is null)
+    or (${table.stripeRefundId} is not null and (
+      (${table.state} = ${CANCELLATION_REFUND.state.pending} and ${table.providerStatus} in (${CANCELLATION_REFUND.providerStatus.pending}, ${CANCELLATION_REFUND.providerStatus.requiresAction}))
+      or (${table.state} = ${CANCELLATION_REFUND.state.succeeded} and ${table.providerStatus} = ${CANCELLATION_REFUND.providerStatus.succeeded})
+      or (${table.state} = ${CANCELLATION_REFUND.state.failed} and ${table.providerStatus} in (${CANCELLATION_REFUND.providerStatus.failed}, ${CANCELLATION_REFUND.providerStatus.cancelled}))
+    ))
+  ) is true`),
+}));

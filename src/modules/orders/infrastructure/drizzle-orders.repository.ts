@@ -1,3 +1,4 @@
+import {projectCancellation, projectCancellationRefund} from './cancellation-projection';
 import {COMMISSION_RULE} from '../../commissions/domain/commission-rule.contract';
 import type {ShippingAddressSnapshot} from '../domain/shipping-address';
 import {
@@ -13,6 +14,7 @@ import {
   orderItems,
   shipments,
   orderCancellations,
+  orderCancellationRefunds,
   type OrderRow,
   type OrderItemRow,
   type ShipmentRow,
@@ -202,13 +204,15 @@ export class DrizzleOrderRepository implements OrderRepository {
       const selected = rows.slice(ORDER_LIMIT.firstRow, limit);
       const ids = selected.map((row) => row.id);
       if (!ids.length) return { items: [], nextCursor: null };
-      const [items, shipping, cancellations] = await Promise.all([
+      const [items, shipping, cancellations, refunds] = await Promise.all([
         tx.select().from(orderItems).where(inArray(orderItems.orderId, ids)),
         tx.select().from(shipments).where(inArray(shipments.orderId, ids)),
         tx
           .select()
           .from(orderCancellations)
           .where(inArray(orderCancellations.orderId, ids)),
+        tx.select().from(orderCancellationRefunds).innerJoin(orderCancellations, eq(orderCancellations.id, orderCancellationRefunds.cancellationId))
+          .where(inArray(orderCancellations.orderId, ids)).orderBy(desc(orderCancellationRefunds.attemptNumber)),
       ]);
       return {
         items: selected.map((row) =>
@@ -217,6 +221,7 @@ export class DrizzleOrderRepository implements OrderRepository {
             items.filter((item) => item.orderId === row.id),
             shipping.find((value) => value.orderId === row.id),
             cancellations.find((value) => value.orderId === row.id),
+            refunds.find(value => value.order_cancellations.orderId === row.id)?.order_cancellation_refunds,
           ),
         ),
         nextCursor:
@@ -233,7 +238,7 @@ export class DrizzleOrderRepository implements OrderRepository {
         .where(eq(orders.id, orderId))
         .limit(ORDER_LIMIT.singleRow);
       if (!order) return undefined;
-      const [items, [shipment], [cancellation]] = await Promise.all([
+      const [items, [shipment], [cancellation], [refund]] = await Promise.all([
         tx.select().from(orderItems).where(eq(orderItems.orderId, orderId)),
         tx
           .select()
@@ -245,8 +250,10 @@ export class DrizzleOrderRepository implements OrderRepository {
           .from(orderCancellations)
           .where(eq(orderCancellations.orderId, orderId))
           .limit(ORDER_LIMIT.singleRow),
+        tx.select().from(orderCancellationRefunds).innerJoin(orderCancellations, eq(orderCancellations.id, orderCancellationRefunds.cancellationId))
+          .where(eq(orderCancellations.orderId, orderId)).orderBy(desc(orderCancellationRefunds.attemptNumber)).limit(ORDER_LIMIT.singleRow),
       ]);
-      return projectOrder(order, items, shipment, cancellation);
+      return projectOrder(order, items, shipment, cancellation, refund?.order_cancellation_refunds);
     }, ORDER_READ.snapshot);
   }
 }
@@ -256,6 +263,7 @@ function projectOrder(
   items: OrderItemRow[],
   shipment?: ShipmentRow,
   cancellation?: typeof orderCancellations.$inferSelect,
+  refund?: typeof orderCancellationRefunds.$inferSelect,
 ): Order {
   return {
     id: order.id,
@@ -269,6 +277,7 @@ function projectOrder(
     actions: customerOrderActions(
       order.status as OrderStatus,
       cancellation?.reason as CancellationClaim["reason"] | undefined,
+      refund ? projectCancellationRefund(refund) : null,
     ),
     shipment: shipment
       ? {
@@ -283,13 +292,7 @@ function projectOrder(
           incidentAt: shipment.incidentAt?.toISOString(),
         }
       : undefined,
-    cancellation: cancellation
-      ? {
-          status: cancellation.status,
-          reason: cancellation.reason as CancellationClaim["reason"],
-          outcome: cancellation.paymentOutcome ?? undefined,
-        }
-      : undefined,
+    cancellation: cancellation ? projectCancellation(cancellation, refund) : undefined,
     subtotalAmount: order.subtotalAmount,
     shippingAmount: order.shippingAmount,
     taxAmount: order.taxAmount,
