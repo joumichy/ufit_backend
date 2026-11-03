@@ -82,6 +82,7 @@ describe("PaymentsService", () => {
     const connect = { assertSaleRecipients: vi.fn(), accountUpdated: vi.fn() };
     const distribution = {assertOrderTerms: vi.fn(async (id: string) => {if(id !== PAYMENT_ORDER.id) throw new Error(PAYMENT_ORDER.unexpectedIdentity);})};
     const returnRefunds = {reconcile: vi.fn().mockResolvedValue(true)};
+    const refundSettlements = {requestCharge: vi.fn().mockResolvedValue(false)};
     return {
       stripe,
       finalizer,
@@ -90,6 +91,7 @@ describe("PaymentsService", () => {
       connect,
       returnRefunds,
       distribution,
+      refundSettlements,
       service: new PaymentsService(
         stripe as never,
         finalizer,
@@ -98,6 +100,7 @@ describe("PaymentsService", () => {
         connect as never,
         returnRefunds as never,
         distribution as never,
+        refundSettlements as never,
       ),
     };
   }
@@ -285,6 +288,22 @@ describe("PaymentsService", () => {
     events: ['refund.created', 'refund.updated', 'refund.failed'], payload: 'signed refund payload', signature: 'signature',
     metadata: {order: 'order_id', return: 'return_id', attempt: 'return_refund_attempt_id'},
   } as const;
+  it('durably requests a source refund scan for a signed charge.refunded event without creating a refund', async () => {
+    const {service, stripe, refundSettlements, finalizer} = setup();
+    const charge = 'ch_RefundSettlementEvent';
+    stripe.webhooks.constructEvent.mockReturnValue({type: 'charge.refunded', livemode: false, data: {object: {id: charge}}});
+    await service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature);
+    expect(refundSettlements.requestCharge).toHaveBeenCalledWith(charge, false);
+    expect(stripe.refunds.retrieve).not.toHaveBeenCalled(); expect(finalizer.confirm).not.toHaveBeenCalled();
+  });
+  it('also requests a refund source scan for an unmanaged refund after retrieving its current provider identity', async () => {
+    const {service, stripe, refundSettlements, returnRefunds} = setup();
+    const charge = 'ch_RefundSettlementEvent';
+    stripe.webhooks.constructEvent.mockReturnValue({type: 'refund.updated', livemode: false, data: {object: {id: refundFixture.refundId}}});
+    stripe.refunds.retrieve.mockResolvedValue({id: refundFixture.refundId, charge, metadata: {}});
+    await service.handleStripeWebhook(Buffer.from(refundFixture.payload), refundFixture.signature);
+    expect(refundSettlements.requestCharge).toHaveBeenCalledWith(charge, false); expect(returnRefunds.reconcile).not.toHaveBeenCalled();
+  });
   it('routes verified refund facts to the owned durable attempt and reports idempotent replay', async () => {
     for (const type of refundFixture.events) {
       const {service, stripe, returnRefunds, finalizer} = setup();

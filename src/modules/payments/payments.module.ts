@@ -26,6 +26,10 @@ import {PAYMENT_ALLOCATION} from './domain/payment-allocation';
 import {PaymentAllocationsService} from './application/payment-allocations.service';
 import {DrizzlePaymentAllocationsRepository} from './infrastructure/drizzle-payment-allocations.repository';
 import {PaymentAllocationsController} from './presentation/payment-allocations.controller';
+import {REFUND_SETTLEMENT} from './domain/refund-settlement';
+import {RefundSettlementsService} from './application/refund-settlements.service';
+import {DrizzleRefundSettlementsRepository} from './infrastructure/drizzle-refund-settlements.repository';
+import {RefundSettlementsController} from './presentation/refund-settlements.controller';
 
 @Module({
   imports: [
@@ -35,13 +39,15 @@ import {PaymentAllocationsController} from './presentation/payment-allocations.c
     IdentityModule,
     forwardRef(() => OrdersModule),
   ],
-  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController, PaymentDistributionController, PaymentAllocationsController],
+  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController, PaymentDistributionController, PaymentAllocationsController, RefundSettlementsController],
   providers: [
     PaymentsService,
     stripeClientProvider,
     PaymentSettlementsService, PaymentSettlementsWorker,
     PaymentDistributionService,
     PaymentAllocationsService,
+    RefundSettlementsService,
+    {provide: REFUND_SETTLEMENT.repository, useClass: DrizzleRefundSettlementsRepository},
     {provide: PAYMENT_ALLOCATION.repository, useClass: DrizzlePaymentAllocationsRepository},
     {provide: PAYMENT_DISTRIBUTION.repository, useClass: DrizzlePaymentDistributionRepository},
     {provide: PAYMENT_SETTLEMENT.repository, useClass: DrizzlePaymentSettlementsRepository},

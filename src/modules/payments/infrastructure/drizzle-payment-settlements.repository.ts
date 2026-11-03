@@ -10,6 +10,7 @@ import {PAYMENT_SETTLEMENT as C, captureReceiptSchema, paymentSettlementDocument
   type CaptureReadResult, type CaptureReservation, type CaptureReceipt, type SettlementPayment} from '../domain/payment-settlement';
 import type {PaymentSettlementRepository} from '../domain/payment-settlement.repository';
 import {enqueuePaymentSettlement} from './stripe-capture-recording';
+import {requestRefundSettlement} from './refund-settlement-queue';
 
 const releasing = {leaseToken: null, leaseUntil: null};
 @Injectable()
@@ -102,6 +103,7 @@ export class DrizzlePaymentSettlementsRepository implements PaymentSettlementRep
         }
       }
       if (result.kind === C.result.receipt) {
+        await requestRefundSettlement({db: tx}, claim.payment.id);
         await tx.update(jobs).set({...releasing, status: C.state.recorded, nextAttemptAt: null, failureCode: null, updatedAt: now})
           .where(eq(jobs.paymentId, claim.payment.id));
       } else {

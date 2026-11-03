@@ -40,6 +40,9 @@ import {RETURN_REFUND} from '../../orders/domain/return-refund';
 import {ReturnRefundsService} from '../../orders/application/return-refunds.service';
 import {PaymentDistributionService} from './payment-distribution.service';
 import {z} from 'zod';
+import {RefundSettlementsService} from './refund-settlements.service';
+import {REFUND_SETTLEMENT} from '../domain/refund-settlement';
+import {captureReceiptSchema} from '../domain/payment-settlement';
 const cancellationReferenceSchema = z.object({orderId: z.uuid(), cancellationId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 const refundReferenceSchema = z.object({orderId: z.uuid(), returnId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 export type StripePaymentsClient = Pick<
@@ -73,6 +76,8 @@ export class PaymentsService {
     private readonly returnRefunds: ReturnRefundsService,
     @Inject(PaymentDistributionService)
     private readonly distribution: PaymentDistributionService,
+    @Inject(RefundSettlementsService)
+    private readonly refundSettlements: RefundSettlementsService,
   ) {}
 
   async reverseCancellation(
@@ -152,10 +157,16 @@ export class PaymentsService {
       await this.connect.accountUpdated(event.data.object.id, event.livemode);
       return { received: true, duplicate: false };
     }
+    if (event.type === REFUND_SETTLEMENT.event.chargeRefunded) {
+      await this.refundSettlements.requestCharge(event.data.object.id, event.livemode);
+      return {received: true, duplicate: false};
+    }
     if (STRIPE_COMMERCE.refundEvents.some(type => type === event.type)) {
       const payloadRefund = event.data.object as Awaited<ReturnType<StripePaymentsClient['refunds']['retrieve']>>;
       const refund = await this.stripe.refunds.retrieve(payloadRefund.id);
       if (refund.id !== payloadRefund.id) throw new BadRequestException(CANCELLATION_REFUND.failure.mismatch);
+      const charge = captureReceiptSchema.shape.chargeId.safeParse(refund.charge);
+      if (charge.success) await this.refundSettlements.requestCharge(charge.data, event.livemode);
       const returnId = refund.metadata?.[STRIPE_RETURN.metadata.returnId];
       const attemptId = refund.metadata?.[STRIPE_RETURN.metadata.attemptId];
       const cancellationId = refund.metadata?.[STRIPE_ORDER_METADATA.cancellationId];
