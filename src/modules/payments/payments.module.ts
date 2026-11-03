@@ -13,6 +13,11 @@ import { STRIPE_PAYMENT_FINALIZER } from "./application/stripe-payment-finalizer
 import { DrizzleStripePaymentFinalizer } from "./infrastructure/drizzle-stripe-payment-finalizer";
 import { stripeClientProvider } from "./infrastructure/stripe-client.provider";
 import { PaymentsWebhookController } from "./presentation/payments-webhook.controller";
+import {PAYMENT_SETTLEMENT} from './domain/payment-settlement';
+import {PaymentSettlementsService} from './application/payment-settlements.service';
+import {DrizzlePaymentSettlementsRepository} from './infrastructure/drizzle-payment-settlements.repository';
+import {PaymentSettlementsWorker} from './infrastructure/payment-settlements.worker';
+import {PaymentSettlementsController} from './presentation/payment-settlements.controller';
 
 @Module({
   imports: [
@@ -22,10 +27,12 @@ import { PaymentsWebhookController } from "./presentation/payments-webhook.contr
     IdentityModule,
     forwardRef(() => OrdersModule),
   ],
-  controllers: [PaymentsWebhookController, ConnectAccountsController],
+  controllers: [PaymentsWebhookController, ConnectAccountsController, PaymentSettlementsController],
   providers: [
     PaymentsService,
     stripeClientProvider,
+    PaymentSettlementsService, PaymentSettlementsWorker,
+    {provide: PAYMENT_SETTLEMENT.repository, useClass: DrizzlePaymentSettlementsRepository},
     ConnectAccountsService,
     DrizzleConnectAccountsRepository,
     {

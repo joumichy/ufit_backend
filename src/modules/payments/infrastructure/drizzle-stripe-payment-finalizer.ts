@@ -1,5 +1,6 @@
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
 import {DrizzleOrderNotifications} from '../../orders/infrastructure/drizzle-order-notifications';
+import {enqueuePaymentSettlement, recordStripeCapture} from './stripe-capture-recording';
 import {paidOrderNotification} from '../../orders/domain/order-notification';
 import {calculateCommissionAmount, parseStoredRate} from '../../commissions/domain/commission-rule.contract';
 import {
@@ -123,6 +124,7 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
           ).includes(previous.status)
         )
           throw new ConflictException(FULFILLMENT.linked);
+        await enqueuePaymentSettlement({db: tx}, previous.id);
         return {
           duplicate: true,
           reversalRequired:
@@ -135,17 +137,8 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
       ) {
         if (!cancellation)
           throw new ConflictException(CANCELLATION.failures.changed);
-        await tx.insert(payments).values({
-          orderId: order.id,
-          provider: ORDER_PAYMENT.provider,
-          providerPaymentIntentId: input.paymentIntentId,
-          status:
-            cancellation.paymentOutcome === CANCELLATION.outcome.refunded
-              ? ORDER_PAYMENT.status.refunded
-              : ORDER_PAYMENT.status.succeeded,
-          amount: input.amount,
-          currency: input.currency,
-        });
+        await recordStripeCapture({db: tx}, input, cancellation.paymentOutcome === CANCELLATION.outcome.refunded
+          ? ORDER_PAYMENT.status.refunded : ORDER_PAYMENT.status.succeeded);
         return {duplicate: !event, reversalRequired: capturedAfterCancellation || cancellation.status === CANCELLATION.status.requested};
       }
       if (order.status !== ORDER_STATUS.pendingPayment)
@@ -207,24 +200,10 @@ export class DrizzleStripePaymentFinalizer implements StripePaymentFinalizer {
           toStatus: ORDER_STATUS.cancelling,
           reason: CANCELLATION.reasons.stockUnavailable,
         });
-        await tx.insert(payments).values({
-          orderId: order.id,
-          provider: ORDER_PAYMENT.provider,
-          providerPaymentIntentId: input.paymentIntentId,
-          status: ORDER_PAYMENT.status.succeeded,
-          amount: input.amount,
-          currency: input.currency,
-        });
+        await recordStripeCapture({db: tx}, input);
         return { duplicate: !event, reversalRequired: true };
       }
-      await tx.insert(payments).values({
-        orderId: order.id,
-        provider: ORDER_PAYMENT.provider,
-        providerPaymentIntentId: input.paymentIntentId,
-        status: ORDER_PAYMENT.status.succeeded,
-        amount: input.amount,
-        currency: input.currency,
-      });
+      await recordStripeCapture({db: tx}, input);
       await tx.insert(shipments).values({
         orderId: order.id,
         brandId: order.brandId,

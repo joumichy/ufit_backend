@@ -3,6 +3,9 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Includes cold transformation and import of the complete backend before startup.
+const HEALTH_BOOTSTRAP_TIMEOUT_MS = 15_000;
+
 describe('GET /health', () => {
   let app: INestApplication | undefined;
 
@@ -52,5 +55,5 @@ describe('GET /health', () => {
       }
     });
     expect(JSON.stringify(response.body)).not.toContain('postgres://');
-  });
+  }, HEALTH_BOOTSTRAP_TIMEOUT_MS);
 });

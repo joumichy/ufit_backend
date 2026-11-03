@@ -8,6 +8,7 @@ export {notificationInstallations,notificationDeviceAssociations,notificationIns
 import {users, userRoles} from './schema.identity';
 export {users, userRoles, userStatusEnum, userRoleEnum, userAccessChanges} from './schema.identity';
 export {notifications, notificationEmailDeliveries} from './schema.notifications';
+export {paymentSettlementJobs, paymentSettlements} from './schema.payment-settlements';
 import {CREATOR_GRADE} from '../../../modules/creators/grades/creator-grade.contract';
 import {USER_ADMINISTRATION} from '../../../modules/identity/domain/user-administration.contract';
 import {SHIPPING, SHIPMENT_STATUS} from '../../../modules/shipping/domain/shipping.contract';
