@@ -43,6 +43,9 @@ import {z} from 'zod';
 import {RefundSettlementsService} from './refund-settlements.service';
 import {REFUND_SETTLEMENT} from '../domain/refund-settlement';
 import {captureReceiptSchema} from '../domain/payment-settlement';
+import {CUSTOMER_PAYMENT as CUSTOMER, customerPaymentResumable, customerPaymentSessionSchema, type CustomerPaymentSession} from '../domain/customer-payment';
+import {customerPaymentDocument, readCustomerPaymentIntent} from '../infrastructure/customer-payment-status';
+import {ORDER_STATUS} from '../../orders/domain/order-lifecycle';
 const cancellationReferenceSchema = z.object({orderId: z.uuid(), cancellationId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 const refundReferenceSchema = z.object({orderId: z.uuid(), returnId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 export type StripePaymentsClient = Pick<
@@ -54,11 +57,6 @@ export type StripePaymentsClient = Pick<
   | "accountLinks"
   | "countrySpecs"
 >;
-export interface NativePaymentIntentResult {
-  orderId: string;
-  paymentIntentId: string;
-  clientSecret: string;
-}
 
 @Injectable()
 export class PaymentsService {
@@ -98,40 +96,64 @@ export class PaymentsService {
     return refundStripeReturn(this.stripe, claim);
   }
 
-  async createPaymentIntent(order: Order): Promise<NativePaymentIntentResult> {
+  private paymentMode(): boolean {
+    const key = getEnv().STRIPE_SECRET_KEY;
+    if (key && CONNECT.key.live.some(prefix => key.startsWith(prefix))) return true;
+    if (key && CONNECT.key.test.some(prefix => key.startsWith(prefix))) return false;
+    throw new ServiceUnavailableException(CUSTOMER.failure.unavailable);
+  }
+
+  async paymentStatus(order: Order) {
+    if (order.status !== ORDER_STATUS.pendingPayment) return customerPaymentDocument(order, CUSTOMER.state.orderUpdated, null);
+    if (order.stripePaymentIntentId === undefined) return customerPaymentDocument(order, CUSTOMER.state.notStarted, null);
+    const intent = await this.readPaymentIntent(order.stripePaymentIntentId);
+    return readCustomerPaymentIntent(order, intent, this.paymentMode()).payment;
+  }
+
+  private async readPaymentIntent(id: string) {
+    if (!this.stripe) throw new ServiceUnavailableException(CUSTOMER.failure.unavailable);
+    try { return await this.stripe.paymentIntents.retrieve(id); }
+    catch { throw new ServiceUnavailableException(CUSTOMER.failure.unavailable); }
+  }
+
+  async createPaymentIntent(order: Order): Promise<CustomerPaymentSession> {
+    if (order.status !== ORDER_STATUS.pendingPayment) {
+      return customerPaymentSessionSchema.parse({payment: customerPaymentDocument(order, CUSTOMER.state.orderUpdated, null), clientSecret: null});
+    }
     if (!this.stripe || !getEnv().STRIPE_SECRET_KEY)
       throw new ServiceUnavailableException(
         STRIPE_COMMERCE.configuration.paymentsUnavailable,
       );
-    await this.distribution.assertOrderTerms(order.id);
-    await this.connect.assertSaleRecipients(
-      order.brandId,
-      order.items.flatMap((item) =>
-        item.sourceCreatorId ? [item.sourceCreatorId] : [],
-      ),
-    );
-    const intent = order.stripePaymentIntentId
-      ? await this.stripe.paymentIntents.retrieve(order.stripePaymentIntentId)
-      : await this.stripe.paymentIntents.create(
+    const liveMode = this.paymentMode();
+    let intent = order.stripePaymentIntentId === undefined ? undefined : await this.readPaymentIntent(order.stripePaymentIntentId);
+    const resumable = intent === undefined || customerPaymentResumable(readCustomerPaymentIntent(order, intent, liveMode).payment.state);
+    if (resumable) {
+      await this.distribution.assertOrderTerms(order.id);
+      await this.connect.assertSaleRecipients(order.brandId, order.items.flatMap(item => item.sourceCreatorId ? [item.sourceCreatorId] : []));
+    }
+    if (intent === undefined) {
+      intent = await this.stripe.paymentIntents.create(
           {
             amount: order.totalAmount,
             currency: order.currency.toLowerCase(),
-            payment_method_types: ["card"],
+            payment_method_types: [CUSTOMER.provider.card],
             metadata: { [STRIPE_ORDER_METADATA.orderId]: order.id },
-            transfer_group: `order:${order.id}`,
+            transfer_group: CUSTOMER.provider.groupPrefix + order.id,
           },
-          { idempotencyKey: `payment-intent:${order.id}` },
+          { idempotencyKey: CUSTOMER.provider.keyPrefix + order.id },
         );
-    if (!intent.client_secret)
-      throw new ServiceUnavailableException(
-        "Stripe did not return a payment client secret",
-      );
-    await this.orders.attachPaymentIntent(order.id, intent.id);
-    return {
-      orderId: order.id,
-      paymentIntentId: intent.id,
-      clientSecret: intent.client_secret,
-    };
+    }
+    readCustomerPaymentIntent(order, intent, liveMode);
+    const current = await this.orders.getForCustomer(order.customerId, order.id);
+    if (current.status !== ORDER_STATUS.pendingPayment) {
+      return customerPaymentSessionSchema.parse({payment: customerPaymentDocument(current, CUSTOMER.state.orderUpdated, null), clientSecret: null});
+    }
+    if (current.stripePaymentIntentId === undefined) await this.orders.attachPaymentIntent(order.id, intent.id);
+    const result = readCustomerPaymentIntent({...current, stripePaymentIntentId: current.stripePaymentIntentId ?? intent.id}, intent, liveMode);
+    const parsed = customerPaymentSessionSchema.safeParse({payment: result.payment,
+      clientSecret: customerPaymentResumable(result.payment.state) ? result.clientSecret : null});
+    if (!parsed.success) throw new ServiceUnavailableException(CUSTOMER.failure.invalid);
+    return parsed.data;
   }
 
   async handleStripeWebhook(

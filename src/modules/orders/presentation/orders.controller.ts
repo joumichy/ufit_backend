@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -16,8 +17,7 @@ import type { AuthenticatedUser } from "../../identity/domain/user.types";
 import { OrderPageQuery } from "./dto/order-page.query";
 import { OrderCancellationService } from "../application/order-cancellation.service";
 import { PaymentsService } from "../../payments/application/payments.service";
-import { ORDER_STATUS, ORDER_FAILURE } from "../domain/order-lifecycle";
-import { ConflictException } from "@nestjs/common";
+import {CUSTOMER_PAYMENT} from '../../payments/domain/customer-payment';
 import { OrdersService } from "../application/orders.service";
 
 @Controller("orders")
@@ -58,17 +58,24 @@ export class OrdersController {
   }
 
   @Post(":id/payment")
+  @Header(CUSTOMER_PAYMENT.cache.header, CUSTOMER_PAYMENT.cache.value)
   async resume(
     @CurrentUser() user: AuthenticatedUser,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
     const order = await this.ordersService.getForCustomer(user.id, id);
-    if (order.status !== ORDER_STATUS.pendingPayment)
-      throw new ConflictException(ORDER_FAILURE.paymentUnavailable);
     return this.payments.createPaymentIntent(order);
   }
 
+  @Get(CUSTOMER_PAYMENT.route.status)
+  @Header(CUSTOMER_PAYMENT.cache.header, CUSTOMER_PAYMENT.cache.value)
+  async paymentStatus(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    const order = await this.ordersService.getForCustomer(user.id, id);
+    return this.payments.paymentStatus(order);
+  }
+
   @Post("checkout")
+  @Header(CUSTOMER_PAYMENT.cache.header, CUSTOMER_PAYMENT.cache.value)
   checkout(@CurrentUser() user: AuthenticatedUser, @Body() body: unknown) {
     return this.checkoutService.checkout(user.id, body);
   }

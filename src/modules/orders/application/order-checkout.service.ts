@@ -31,10 +31,6 @@ const CHECKOUT_FAILURE = {
     code: "checkout_request_conflict",
     message: "Checkout request was already used for another purchase",
   },
-  state: {
-    code: "checkout_order_closed",
-    message: "This order no longer accepts payment",
-  },
 } as const;
 @Injectable()
 export class OrderCheckoutService {
@@ -75,8 +71,6 @@ export class OrderCheckoutService {
         { quote, requestId: input.requestId, fingerprint },
       );
     }
-    if (order.status !== "pending_payment")
-      throw new ConflictException(CHECKOUT_FAILURE.state);
     return this.payments.createPaymentIntent(order);
   }
 }

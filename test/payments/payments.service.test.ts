@@ -1,44 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetEnvCacheForTests } from "../../src/config/env";
 import { PaymentsService } from "../../src/modules/payments/application/payments.service";
-import type { Order } from "../../src/modules/orders/application/orders.service";
-const PAYMENT_ORDER = {id: '88888888-8888-4888-8888-888888888888', group: 'order:88888888-8888-4888-8888-888888888888', key: 'payment-intent:88888888-8888-4888-8888-888888888888', unexpectedIdentity: 'Unexpected order identity', unconfigured: 'distribution conditions absent'} as const;
-function makeOrder(): Order {
-  return {
-    id: PAYMENT_ORDER.id,
-    orderNumber: "UF-1",
-    customerId: "customer-1",
-    brandId: "brand-1",
-    status: "pending_payment",
-    createdAt: "2026-10-31T12:00:00.000Z",
-    actions: { cancel: true, resumePayment: true },
-    taxAmount: 0,
-    subtotalAmount: 5000,
-    shippingAmount: 900,
-    totalAmount: 5900,
-    currency: "CHF",
-    shippingAddress: {
-      fullName: "A Customer",
-      line1: "1 Test Street",
-      postalCode: "8000",
-      city: "Zurich",
-      country: "CH",
-    },
-    paymentProvider: "stripe",
-    items: [
-      {
-        id: "item-1",
-        productId: "product-1",
-        productVariantId: "variant-1",
-        productSnapshot: { name: "Wool Coat" },
-        quantity: 1,
-        unitPrice: 5000,
-        totalPrice: 5000,
-        commissionRate: 0.12,
-      },
-    ],
-  };
-}
+import {PAYMENT_ORDER, customerOrder as makeOrder, customerIntent} from "./customer-payment.fixture";
+import {CUSTOMER_PAYMENT as CUSTOMER} from '../../src/modules/payments/domain/customer-payment';
 
 describe("PaymentsService", () => {
   const originalEnv = { ...process.env };
@@ -60,14 +24,8 @@ describe("PaymentsService", () => {
   function setup() {
     const stripe = {
       paymentIntents: {
-        create: vi.fn().mockResolvedValue({
-          id: "pi_test",
-          client_secret: "test_client_secret",
-        }),
-        retrieve: vi.fn().mockResolvedValue({
-          id: "pi_test",
-          client_secret: "test_client_secret",
-        }),
+        create: vi.fn().mockResolvedValue(customerIntent()),
+        retrieve: vi.fn().mockResolvedValue(customerIntent()),
       },
       webhooks: { constructEvent: vi.fn() },
       refunds: {retrieve: vi.fn()},
@@ -77,7 +35,7 @@ describe("PaymentsService", () => {
         .fn()
         .mockResolvedValue({ duplicate: false, reversalRequired: false }),
     };
-    const orders = { attachPaymentIntent: vi.fn() };
+    const orders = { attachPaymentIntent: vi.fn(), getForCustomer: vi.fn().mockResolvedValue(makeOrder()) };
     const cancellations = { recoverOrder: vi.fn(), reconcile: vi.fn().mockResolvedValue(true) };
     const connect = { assertSaleRecipients: vi.fn(), accountUpdated: vi.fn() };
     const distribution = {assertOrderTerms: vi.fn(async (id: string) => {if(id !== PAYMENT_ORDER.id) throw new Error(PAYMENT_ORDER.unexpectedIdentity);})};
@@ -117,10 +75,7 @@ describe("PaymentsService", () => {
   it("creates a card-only PaymentIntent from the persisted total, with a stable idempotency key", async () => {
     const { service, stripe, orders } = setup();
     const result = await service.createPaymentIntent(makeOrder());
-    expect(result).toMatchObject({
-      orderId: PAYMENT_ORDER.id,
-      paymentIntentId: "pi_test",
-    });
+    expect(result.payment).toMatchObject({orderId: PAYMENT_ORDER.id, paymentIntentId: "pi_test", state: "ready"});
     expect(stripe.paymentIntents.create).toHaveBeenCalledWith(
       {
         amount: 5900,
@@ -144,6 +99,31 @@ describe("PaymentsService", () => {
     });
     expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
     expect(stripe.paymentIntents.retrieve).toHaveBeenCalledWith("pi_test");
+  });
+  it.each([CUSTOMER.provider.processing, CUSTOMER.provider.succeeded, CUSTOMER.provider.cancelled, CUSTOMER.provider.capture])(
+    'returns the existing %s state without a secret or another Connect prerequisite', async status => {
+      const {service,stripe,connect,distribution,finalizer} = setup();
+      stripe.paymentIntents.retrieve.mockResolvedValueOnce(customerIntent(makeOrder(), status));
+      const result = await service.createPaymentIntent({...makeOrder(), stripePaymentIntentId: 'pi_test'});
+      expect(result.clientSecret).toBeNull();
+      expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
+      expect(connect.assertSaleRecipients).not.toHaveBeenCalled();
+      expect(distribution.assertOrderTerms).not.toHaveBeenCalled();
+      expect(finalizer.confirm).not.toHaveBeenCalled();
+    });
+  it('rechecks the local order after Stripe responds and never returns a secret after fulfillment wins', async () => {
+    const {service,orders} = setup();
+    orders.getForCustomer.mockResolvedValueOnce({...makeOrder(), status: 'paid'});
+    const result = await service.createPaymentIntent({...makeOrder(), stripePaymentIntentId: 'pi_test'});
+    expect(result.payment.state).toBe(CUSTOMER.state.orderUpdated); expect(result.clientSecret).toBeNull();
+    expect(orders.attachPaymentIntent).not.toHaveBeenCalled();
+  });
+  it('reads payment status without creating, attaching or fulfilling a payment', async () => {
+    const {service,stripe,orders,finalizer,connect} = setup();
+    const result = await service.paymentStatus({...makeOrder(), stripePaymentIntentId: 'pi_test'});
+    expect(result.state).toBe(CUSTOMER.state.ready); expect(result).not.toHaveProperty('clientSecret');
+    expect(stripe.paymentIntents.create).not.toHaveBeenCalled(); expect(orders.attachPaymentIntent).not.toHaveBeenCalled();
+    expect(finalizer.confirm).not.toHaveBeenCalled(); expect(connect.assertSaleRecipients).not.toHaveBeenCalled();
   });
   it("requires a configured secret, raw body and valid signature before fulfillment", async () => {
     const { service, stripe, finalizer } = setup();
