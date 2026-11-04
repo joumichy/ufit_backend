@@ -72,6 +72,51 @@ projet. Vérifier les données avant d’actualiser le profil. Aucun lanceur tem
 ni substitution automatique de connexion n’est nécessaire. Voir la
 [documentation Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres).
 
+## Paquet backend autonome
+
+Le `Dockerfile` construit le code depuis le lockfile, puis prépare un runtime
+Node22 avec les dépendances de production. `.dockerignore` limite le contexte
+aux manifests, à la configuration de compilation et aux sources requises.
+L’image finale exclut les sources TypeScript, les profils et les scripts locaux ;
+elle n’utilise ni `node_modules` ni `dist` préexistants sur le poste. Le chemin compilé
+`dist/src/main.js` est fixé par `rootDir` dans `tsconfig.build.json`.
+La séparation compilation/runtime suit le [guide Docker Node.js](https://docs.docker.com/guides/nodejs/).
+
+Depuis `code/UFit_backend` :
+
+```bash
+docker build --tag ufit-backend:local .
+```
+
+Pour le profil local actuellement qualifié `code/.env`, arrêter d’abord le
+processus Ufit précédent pour conserver une seule instance de ses traitements.
+Monter ce même fichier en lecture seule ; l’utilisateur local permet de lire
+son mode privé sans changer ses permissions :
+
+```bash
+ufit_profile="$(cd .. && pwd)/.env"
+ufit_runtime_user="$(id -u):$(id -g)"
+docker run --init --name ufit-api --user "$ufit_runtime_user" \
+  --publish 127.0.0.1:4014:4014 \
+  --mount "type=bind,src=$ufit_profile,dst=/app/.env,readonly" \
+  ufit-backend:local
+```
+
+Dans un autre terminal, vérifier `/health` comme ci-dessus ; `docker stop ufit-api`
+arrête cette instance et libère le port avant de reprendre `npm run dev`.
+L’option `--init` transmet les signaux au processus Node et supervise ses enfants,
+selon les [bonnes pratiques de l’image Node](https://github.com/nodejs/docker-node/blob/main/docs/BestPractices.md#handling-kernel-signals).
+Le port interne suit `API_PORT` du profil. En hébergement, fournir la configuration
+au processus ou par un unique fichier accessible au runtime. `NODE_ENV`, les
+fournisseurs et leurs clés appartiennent à cette configuration, pas à l’image.
+
+Les migrations SQL versionnées sont emballées à côté de l’outil compilé
+`dist/src/shared/infrastructure/database/migrate.js`. Leur application reste une
+opération explicite, après revue ; le démarrage normal ne les exécute pas.
+Cette image utilise la base et les fournisseurs déjà configurés. Le domaine,
+le TLS, les callbacks et la signature/distribution iOS restent à raccorder à
+la cible d’hébergement retenue.
+
 ## Vérifications backend
 
 ```bash
