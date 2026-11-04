@@ -4,7 +4,14 @@ export const OUTFIT_STATUS = {draft: 'draft', scheduled: 'scheduled', published:
 export const OUTFIT_STATUSES = [OUTFIT_STATUS.draft, OUTFIT_STATUS.scheduled, OUTFIT_STATUS.published, OUTFIT_STATUS.archived] as const;
 export const OUTFIT_VISIBILITY = {public: 'public', private: 'private', featured: 'featured'} as const;
 export const OUTFIT_VISIBILITIES = [OUTFIT_VISIBILITY.public, OUTFIT_VISIBILITY.private, OUTFIT_VISIBILITY.featured] as const;
-export const OUTFIT_ITEM_TYPES = ['top', 'bottom', 'shoes', 'bag', 'accessory', 'outerwear', 'eyewear', 'headwear'] as const;
+export const OUTFIT_ITEM_TYPES = [
+  'top', 'bottom', 'shoes', 'bag', 'accessory', 'outerwear', 'eyewear',
+  'headwear', 'shirt', 'knitwear', 'hoodie', 'vest', 'skirt', 'shorts',
+  'dress', 'jumpsuit', 'swimwear', 'underwear', 'sneakers', 'boots', 'sandals',
+  'heels', 'socks', 'tights', 'backpack', 'clutch', 'hat', 'beanie',
+  'scarf', 'belt', 'gloves', 'watch', 'necklace', 'earrings', 'bracelet',
+  'ring', 'tie', 'bowtie', 'hairclip', 'brooch', 'umbrella',
+] as const;
 export const OUTFIT_TAG_TYPES = ['style', 'occasion', 'season'] as const;
 export const OUTFIT_ADMIN_ROLES = ['admin', 'super_admin'] as const;
 export const OUTFIT_WRITE_ROLES = ['creator', 'brand_owner', 'brand_manager', ...OUTFIT_ADMIN_ROLES] as const;

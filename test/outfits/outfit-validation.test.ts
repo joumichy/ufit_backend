@@ -17,6 +17,11 @@ describe('Outfit input contract', () => {
     const value = plainToInstance(CreateOutfitDto, {...payload(), title: data.padding + data.title + data.padding});
     expect(await validate(value, options)).toHaveLength(data.zero); expect(value.title).toBe(data.title);
   });
+  it.each(OUTFIT_ITEM_TYPES)('accepts the explicit canonical piece type %s', async (itemType) => {
+    const body = payload();
+    const value = plainToInstance(CreateOutfitDto, {...body, items: [{...body.items[data.zero], itemType}]});
+    expect(await validate(value, options)).toHaveLength(data.zero);
+  });
   it('rejects forged authority and alternative cover fields, missing requests and null collections', async () => {
     for (const patch of [{status: OUTFIT_STATUS.published}, {reviewedBy: randomUUID()}, {coverImageUrl: outfitFixture.image.url}, {requestId: null}, {items: null}, {images: null}, {tagIds: null}, {items: [null]}, {images: [null]}, {pins: null}, {pins: [null]}, {pins: [{imagePosition: data.zero, itemPosition: data.zero, x: data.negative, y: data.zero}]}]) {
       expect((await validate(plainToInstance(CreateOutfitDto, {...payload(), ...patch}), options)).length).toBeGreaterThan(data.zero);
