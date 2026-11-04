@@ -3,35 +3,13 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  ServiceUnavailableException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { z } from "zod";
 import { CartQuoteService } from "../../cart/application/cart-quote.service";
-import {shippingAddressSchema} from "../domain/shipping-address";
 import { PaymentsService } from "../../payments/application/payments.service";
 import { OrdersService } from "./orders.service";
-
-export const checkoutRequestSchema = z
-  .object({
-    requestId: z.uuid(),
-    quoteFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-    shippingAddress: shippingAddressSchema,
-  })
-  .strict();
-const CHECKOUT_FAILURE = {
-  input: {
-    code: "checkout_input_invalid",
-    message: "Invalid checkout request",
-  },
-  changed: {
-    code: "checkout_quote_changed",
-    message: "Review the updated order total before payment",
-  },
-  reused: {
-    code: "checkout_request_conflict",
-    message: "Checkout request was already used for another purchase",
-  },
-} as const;
+import {CHECKOUT_REQUEST as C, checkoutRequestSchema, checkoutOutcomeSchema} from '../domain/checkout-request';
 @Injectable()
 export class OrderCheckoutService {
   constructor(
@@ -40,31 +18,41 @@ export class OrderCheckoutService {
     @Inject(PaymentsService) private readonly payments: PaymentsService,
   ) {}
 
+  async outcome(customerId: string, requestId: string) {
+    const key = checkoutRequestSchema.shape.requestId.safeParse(requestId);
+    if (!key.success) throw new BadRequestException(C.failure.input);
+    const order = await this.orders.findCheckoutRequest(customerId, key.data);
+    const parsed = checkoutOutcomeSchema.safeParse({requestId: key.data, orderId: order?.id ?? null});
+    if (!parsed.success || order !== undefined && order.checkoutRequestId !== key.data)
+      throw new ServiceUnavailableException(C.failure.outcome);
+    return parsed.data;
+  }
+
   async checkout(customerId: string, raw: unknown) {
     const parsed = checkoutRequestSchema.safeParse(raw);
-    if (!parsed.success) throw new BadRequestException(CHECKOUT_FAILURE.input);
+    if (!parsed.success) throw new BadRequestException(C.failure.input);
     const input = parsed.data;
-    const fingerprint = createHash("sha256")
+    const fingerprint = createHash(C.fingerprint.algorithm)
       .update(
         JSON.stringify({
           quote: input.quoteFingerprint,
           address: input.shippingAddress,
         }),
       )
-      .digest("hex");
+      .digest(C.fingerprint.encoding);
     let order = await this.orders.findCheckoutRequest(
       customerId,
       input.requestId,
     );
     if (order && order.checkoutFingerprint !== fingerprint)
-      throw new ConflictException(CHECKOUT_FAILURE.reused);
+      throw new ConflictException(C.failure.reused);
     if (!order) {
       const { cart, quote } = await this.quotes.prepare(
         customerId,
         input.shippingAddress.country,
       );
       if (quote.fingerprint !== input.quoteFingerprint)
-        throw new ConflictException(CHECKOUT_FAILURE.changed);
+        throw new ConflictException(C.failure.changed);
       order = await this.orders.createPendingFromCart(
         cart,
         input.shippingAddress,

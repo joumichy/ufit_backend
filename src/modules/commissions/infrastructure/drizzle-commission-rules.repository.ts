@@ -93,7 +93,7 @@ export class DrizzleCommissionRuleResolver implements CommissionRuleResolver {
         .orderBy(desc(sql`(case when ${commissionRules.productId} is not null then ${COMMISSION_RULE.specificity.product}::integer else ${COMMISSION_RULE.specificity.generic}::integer end)
           + (case when ${commissionRules.creatorGradeCode} is not null then ${COMMISSION_RULE.specificity.grade}::integer else ${COMMISSION_RULE.specificity.generic}::integer end)`))
         .limit(COMMISSION_RULE.limits.singleRow);
-      if (!row) throw new ConflictException(COMMISSION_RULE.failure.unavailable);
+      if (!row) throw new ConflictException({code: COMMISSION_RULE.failureCode.unavailable, message: COMMISSION_RULE.failure.unavailable});
       return {id: row.id, creatorGradeCode: creator.gradeCode, rateBps: calculateRateBps(storedRates(row))};
     }, READ_SNAPSHOT);
   }

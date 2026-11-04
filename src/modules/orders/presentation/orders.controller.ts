@@ -19,6 +19,7 @@ import { OrderCancellationService } from "../application/order-cancellation.serv
 import { PaymentsService } from "../../payments/application/payments.service";
 import {CUSTOMER_PAYMENT} from '../../payments/domain/customer-payment';
 import { OrdersService } from "../application/orders.service";
+import {CHECKOUT_REQUEST} from '../domain/checkout-request';
 
 @Controller("orders")
 @UseGuards(AuthGuard)
@@ -49,6 +50,13 @@ export class OrdersController {
     return this.ordersService.getForCustomer(user.id, id);
   }
 
+  @Get(CHECKOUT_REQUEST.route.outcome)
+  @Header(CHECKOUT_REQUEST.cache.header, CHECKOUT_REQUEST.cache.value)
+  outcome(@CurrentUser() user: AuthenticatedUser,
+    @Param(CHECKOUT_REQUEST.route.requestId, ParseUUIDPipe) requestId: string) {
+    return this.checkoutService.outcome(user.id, requestId);
+  }
+
   @Post(":id/cancel")
   cancel(
     @CurrentUser() user: AuthenticatedUser,
@@ -75,7 +83,7 @@ export class OrdersController {
   }
 
   @Post("checkout")
-  @Header(CUSTOMER_PAYMENT.cache.header, CUSTOMER_PAYMENT.cache.value)
+  @Header(CHECKOUT_REQUEST.cache.header, CHECKOUT_REQUEST.cache.value)
   checkout(@CurrentUser() user: AuthenticatedUser, @Body() body: unknown) {
     return this.checkoutService.checkout(user.id, body);
   }
