@@ -1,5 +1,5 @@
 import { z } from "zod";
-import {COUNTRY_CODES} from '../../shared/domain/countries';
+import {shippingCountrySchema} from '../../shared/domain/shipping-address';
 import {CURRENCY_CODES} from '../../shared/domain/currencies';
 export const COMMERCE_POLICY_KEY = "commercePolicy";
 export const BRAND_COMMERCE = {
@@ -16,7 +16,6 @@ export const BRAND_COMMERCE = {
   },
 } as const;
 const POLICY_LIMIT = BRAND_COMMERCE.limits;
-export const shippingCountrySchema = z.string().refine(code => COUNTRY_CODES.includes(code));
 export const brandCommercePolicySchema = z
   .object({
     returnWindowDays: z.number().int().nonnegative(),

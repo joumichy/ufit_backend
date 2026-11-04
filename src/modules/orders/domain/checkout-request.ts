@@ -1,6 +1,5 @@
 import {z} from 'zod';
-import {shippingAddressSchema} from './shipping-address';
-import {shippingCountrySchema} from '../../brands/commerce-policy';
+import {shippingAddressSchema, shippingCountrySchema} from '../../../shared/domain/shipping-address';
 
 export const CHECKOUT_REQUEST = {
   route: {outcome: 'checkout-requests/:requestId', requestId: 'requestId', review: 'checkout-review'},

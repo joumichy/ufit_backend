@@ -1,5 +1,5 @@
 import {ORDER_STATUS, type OrderStatus, type CancellationProjection} from './order-lifecycle';
-import type {ShippingAddressSnapshot} from './shipping-address';
+import type {ShippingAddressSnapshot} from '../../../shared/domain/shipping-address';
 import type {FrozenOrderItem} from './frozen-order-item';
 import type {Shipment, ShipmentActionName, ShipmentStatus} from '../../shipping/domain/shipping.contract';
 

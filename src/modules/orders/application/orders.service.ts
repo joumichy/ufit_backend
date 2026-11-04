@@ -1,4 +1,4 @@
-import type {ShippingAddressSnapshot} from '../domain/shipping-address';
+import type {ShippingAddressSnapshot} from '../../../shared/domain/shipping-address';
 import {
   BadRequestException,
   Inject,

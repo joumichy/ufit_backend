@@ -2,6 +2,7 @@ import {EDITORIAL, EDITORIAL_COMMANDS, EDITORIAL_STATUSES, EDITORIAL_ITEM_TYPES}
 import {tags} from './schema.tags';
 export {tags,tagTypeEnum} from './schema.tags';
 export {stylePreferences,preferredStyles,stylePreferenceChanges} from './schema.style-preferences';
+export {shippingAddressBooks,shippingAddresses,shippingAddressChanges} from './schema.shipping-addresses';
 export {notificationPreferences} from './schema.notification-preferences';
 export {accountDeletions,accountDeletionMedia} from './schema.account-deletions';
 export {notificationInstallations,notificationDeviceAssociations,notificationInstallationRegistrations,notificationInstallationDetachments} from './schema.notification-installations';

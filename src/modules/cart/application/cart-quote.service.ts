@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { BrandCommerceService } from "../../brands/brand-commerce.service";
-import { shippingCountrySchema } from "../../brands/commerce-policy";
+import { shippingCountrySchema } from "../../../shared/domain/shipping-address";
 import { CartService, type Cart, type CartLine } from "./cart.service";
 import {ORDER_RETURN} from '../../orders/domain/order-return.contract';
 

@@ -1,6 +1,7 @@
 import {z} from 'zod';
-import {shippingCountrySchema} from '../../brands/commerce-policy';
-const ADDRESS_LIMIT = {minimum: 1, fullName: 160, line: 200, postalCode: 32, city: 120, phone: 40} as const;
+import {COUNTRY_CODES} from './countries';
+export const shippingCountrySchema = z.string().refine(code => COUNTRY_CODES.includes(code));
+export const ADDRESS_LIMIT = {minimum: 1, fullName: 160, line: 200, postalCode: 32, city: 120, phone: 40} as const;
 export const shippingAddressSchema = z.object({
   fullName: z.string().trim().min(ADDRESS_LIMIT.minimum).max(ADDRESS_LIMIT.fullName),
   line1: z.string().trim().min(ADDRESS_LIMIT.minimum).max(ADDRESS_LIMIT.line),

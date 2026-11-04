@@ -1,5 +1,9 @@
 import {PROFILE_IMAGE} from '../media/domain/profile-image.contract';
 import {DrizzleStylePreferencesRepository} from './infrastructure/persistence/drizzle-style-preferences.repository';
+import {ShippingAddressesController} from './presentation/controllers/shipping-addresses.controller';
+import {ShippingAddressesService} from './application/shipping-addresses.service';
+import {DrizzleShippingAddressesRepository} from './infrastructure/persistence/drizzle-shipping-addresses.repository';
+import {SHIPPING_ADDRESSES} from './domain/shipping-addresses.contract';
 import {StylePreferencesController} from './presentation/controllers/style-preferences.controller';
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../shared/infrastructure/database/database.module';
@@ -35,9 +39,11 @@ import {OUTFIT_MEDIA} from '../media/domain/outfit-media.contract';
 
 @Module({
   imports: [DatabaseModule],
-  controllers: [MeController, UserAdministrationController,ProfileAdministrationController,AccountDeletionsController,StylePreferencesController],
+  controllers: [MeController, UserAdministrationController,ProfileAdministrationController,AccountDeletionsController,StylePreferencesController,ShippingAddressesController],
   providers: [
     IdentityService, UserAdministrationService,DrizzleStylePreferencesRepository,
+    ShippingAddressesService,
+    {provide: SHIPPING_ADDRESSES.token, useClass: DrizzleShippingAddressesRepository},
     AccountDeletionService,DrizzleAccountDeletionRepository,DrizzleAccountDeletionQueue,AccountDeletionsWorker,
     {provide:SupabaseAccountDeletion,useFactory:()=>new SupabaseAccountDeletion()},
     {provide:ACCOUNT_DELETION.token.processor,inject:[DrizzleAccountDeletionQueue,SupabaseAccountDeletion],

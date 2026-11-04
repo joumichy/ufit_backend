@@ -11,7 +11,7 @@ import {shipmentActions} from '../../shipping/domain/shipping.contract';
 import {BRAND_ORDERS, type BrandOrderDetail, type BrandOrderQuery, type BrandOrderSummary} from '../domain/brand-order.contract';
 import type {BrandOrderRepository} from '../domain/brand-order.repository';
 import {ORDER_LIMIT, type OrderStatus} from '../domain/order-lifecycle';
-import {shippingAddressSchema} from '../domain/shipping-address';
+import {shippingAddressSchema} from '../../../shared/domain/shipping-address';
 import {projectFrozenOrderItem} from './frozen-order-item';
 
 

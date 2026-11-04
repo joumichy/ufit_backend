@@ -3,7 +3,7 @@ import type {ExternalRefundSettlement} from '../domain/refund-proof-review';
 import {projectCancellation, projectCancellationRefund} from './cancellation-projection';
 import {COMMISSION_RULE} from '../../commissions/domain/commission-rule.contract';
 import {captureOrderDistributionTerms} from '../../payments/infrastructure/order-distribution-terms';
-import type {ShippingAddressSnapshot} from '../domain/shipping-address';
+import type {ShippingAddressSnapshot} from '../../../shared/domain/shipping-address';
 import {
   BadRequestException,
   ConflictException,

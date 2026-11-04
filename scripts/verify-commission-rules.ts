@@ -16,7 +16,7 @@ import {OrdersService} from '../src/modules/orders/application/orders.service';
 import {DrizzleOrderRepository, DrizzleProductSnapshotReader} from '../src/modules/orders/infrastructure/drizzle-orders.repository';
 import type {Cart} from '../src/modules/cart/application/cart.service';
 import type {CartQuote} from '../src/modules/cart/application/cart-quote.service';
-import type {ShippingAddressSnapshot} from '../src/modules/orders/domain/shipping-address';
+import type {ShippingAddressSnapshot} from '../src/shared/domain/shipping-address';
 import {ORDER_RETURN} from '../src/modules/orders/domain/order-return.contract';
 
 const proof = {
