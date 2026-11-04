@@ -1,8 +1,9 @@
 import {z} from 'zod';
 import {shippingAddressSchema} from './shipping-address';
+import {shippingCountrySchema} from '../../brands/commerce-policy';
 
 export const CHECKOUT_REQUEST = {
-  route: {outcome: 'checkout-requests/:requestId', requestId: 'requestId'},
+  route: {outcome: 'checkout-requests/:requestId', requestId: 'requestId', review: 'checkout-review'},
   cache: {header: 'Cache-Control', value: 'private, no-store'},
   fingerprint: {algorithm: 'sha256', encoding: 'hex', pattern: /^[a-f0-9]{64}$/},
   failure: {
@@ -20,3 +21,4 @@ export const checkoutRequestSchema = z.object({
 }).strict();
 
 export const checkoutOutcomeSchema = z.object({requestId, orderId: z.uuid().toLowerCase().nullable()}).strict();
+export const checkoutReviewRequestSchema = z.object({country: shippingCountrySchema}).strict();

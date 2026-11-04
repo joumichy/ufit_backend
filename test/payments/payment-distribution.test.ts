@@ -54,6 +54,20 @@ class Repository implements PaymentDistributionRepository {
 function setup() {const repository = new Repository();return {repository, service: new PaymentDistributionService(repository)};}
 
 describe('Payment distribution conditions', () => {
+  it('checks sale terms before an order exists, without revising a policy or inventing a default', async () => {
+    const {repository,service}=setup();
+    await expect(service.assertSaleTerms(F.brand,F.base,F.creator)).rejects.toMatchObject({response:C.failure.unavailable});
+    await service.revise(F.actor,F.brand,{...input(),active:true});
+    const writes=repository.writes;
+    await expect(service.assertSaleTerms(F.brand,F.base,F.creator)).resolves.toBeUndefined();
+    expect(repository.writes).toBe(writes);
+    await expect(service.assertSaleTerms(F.brand,F.base,F.overflowCreator)).rejects.toMatchObject({response:C.failure.budget});
+    expect(repository.writes).toBe(writes);
+  });
+  it('does not accept an explicitly inactive sale configuration', async () => {
+    const {service}=setup();await service.revise(F.actor,F.brand,input());
+    await expect(service.assertSaleTerms(F.brand,F.base,F.creator)).rejects.toMatchObject({response:C.failure.unavailable});
+  });
   it('requires each commercial choice explicitly, while allowing an explicitly entered zero rate and initial revision', () => {
     expect(distributionChangeSchema.parse({...input(), platformRateBps: 0}).platformRateBps).toBe(0);
     const absentRate = {...input(), platformRateBps: undefined};

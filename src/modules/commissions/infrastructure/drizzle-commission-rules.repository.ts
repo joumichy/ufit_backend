@@ -87,7 +87,7 @@ export class DrizzleCommissionRuleResolver implements CommissionRuleResolver {
       const [creator] = await tx.select({gradeCode: creatorProfiles.gradeCode}).from(creatorProfiles).innerJoin(users, eq(users.id, creatorProfiles.userId))
         .where(and(eq(creatorProfiles.id, input.creatorId), eq(creatorProfiles.status, COMMISSION_RULE.status.activeCreator), eq(users.status, COMMISSION_RULE.status.activeUser)))
         .limit(COMMISSION_RULE.limits.singleRow);
-      if (!creator) throw new ConflictException(COMMISSION_RULE.failure.creator);
+      if (!creator) throw new ConflictException({code: COMMISSION_RULE.failureCode.creator, message: COMMISSION_RULE.failure.creator});
       const [row] = await tx.select().from(commissionRules).where(and(eq(commissionRules.brandId, input.brandId), eq(commissionRules.active, true), isNull(commissionRules.supersededAt),
         or(isNull(commissionRules.productId), eq(commissionRules.productId, input.productId)), or(isNull(commissionRules.creatorGradeCode), eq(commissionRules.creatorGradeCode, creator.gradeCode))))
         .orderBy(desc(sql`(case when ${commissionRules.productId} is not null then ${COMMISSION_RULE.specificity.product}::integer else ${COMMISSION_RULE.specificity.generic}::integer end)

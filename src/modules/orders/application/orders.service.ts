@@ -8,7 +8,7 @@ import {
 import { randomUUID } from "node:crypto";
 import type { CartQuote } from "../../cart/application/cart-quote.service";
 import type { Cart } from "../../cart/application/cart.service";
-import {COMMISSION_RULE, type CommissionRuleResolver} from '../../commissions/domain/commission-rule.contract';
+import {COMMISSION_RULE, calculateCommissionAmount, type CommissionRuleResolver} from '../../commissions/domain/commission-rule.contract';
 
 import {
   ORDER_STATUS,
@@ -31,6 +31,10 @@ export interface OrderItemSnapshot {
   commissionCreatorGradeCode?: string;
   sourceCreatorId?: string;
   sourceOutfitId?: string;
+}
+export interface PreparedCartSale {
+  items: Omit<OrderItemSnapshot, 'id'>[];
+  creatorCommissionAmount: number;
 }
 
 export interface Order {
@@ -111,25 +115,22 @@ export class OrdersService {
     return order;
   }
 
-  async createPendingFromCart(
-    cart: Cart,
-    shippingAddress: ShippingAddressSnapshot,
-    terms: { quote: CartQuote; requestId: string; fingerprint: string },
-  ): Promise<Order> {
+  async prepareCartSale(cart: Cart): Promise<PreparedCartSale> {
     if (!cart.brandId || cart.items.length === 0) {
       throw new BadRequestException(
         "Cannot create an order from an empty cart",
       );
     }
 
-    const items: OrderItemSnapshot[] = [];
+    const items: PreparedCartSale['items'] = [];
+    let creatorCommissionAmount = COMMISSION_RULE.limits.zero;
     for (const item of cart.items) {
       const productSnapshot = await this.snapshots.buildSnapshot(
         item.productVariantId,
       );
       const commission = item.sourceCreatorId ? await this.commissionRules.resolve({brandId: cart.brandId, productId: item.productId, creatorId: item.sourceCreatorId}) : undefined;
+      if (commission) creatorCommissionAmount += calculateCommissionAmount(item.unitPrice * item.quantity, commission.rateBps);
       items.push({
-        id: randomUUID(),
         productId: item.productId,
         productVariantId: item.productVariantId,
         productSnapshot,
@@ -143,6 +144,16 @@ export class OrdersService {
         sourceOutfitId: item.sourceOutfitId,
       });
     }
+    return {items, creatorCommissionAmount};
+  }
+
+  async createPendingFromCart(
+    cart: Cart,
+    shippingAddress: ShippingAddressSnapshot,
+    terms: { quote: CartQuote; requestId: string; fingerprint: string },
+  ): Promise<Order> {
+    const prepared = await this.prepareCartSale(cart);
+    const items: OrderItemSnapshot[] = prepared.items.map(item => ({id: randomUUID(), ...item}));
 
     const subtotalAmount = items.reduce(
       (sum, item) => sum + item.totalPrice,

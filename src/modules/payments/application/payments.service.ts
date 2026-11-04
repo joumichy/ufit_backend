@@ -116,6 +116,13 @@ export class PaymentsService {
     catch { throw new ServiceUnavailableException(CUSTOMER.failure.unavailable); }
   }
 
+  async assertNewSale(brandId: string, subtotal: number, creatorCommission: number, creatorIds: string[]): Promise<void> {
+    if (!this.stripe || !getEnv().STRIPE_SECRET_KEY) throw new ServiceUnavailableException(STRIPE_COMMERCE.configuration.paymentsUnavailable);
+    this.paymentMode();
+    await this.distribution.assertSaleTerms(brandId, subtotal, creatorCommission);
+    await this.connect.assertSaleRecipients(brandId, creatorIds);
+  }
+
   async createPaymentIntent(order: Order): Promise<CustomerPaymentSession> {
     if (order.status !== ORDER_STATUS.pendingPayment) {
       return customerPaymentSessionSchema.parse({payment: customerPaymentDocument(order, CUSTOMER.state.orderUpdated, null), clientSecret: null});

@@ -9,7 +9,7 @@ export const COMMISSION_RULE = {
   limits: {zero: 0, basisPoints: 10_000, decimalPlaces: 4, storagePrecision: 5, halfDivisor: 2, initialRevision: 1, increment: 1, singleRow: 1, firstRow: 0, page: 20, maximumPage: 100, reason: 500},
   specificity: {product: 2, grade: 1, generic: 0},
   lock: 'update',
-  failureCode: {unavailable: 'commission_rule_unconfigured'},
+  failureCode: {unavailable: 'commission_rule_unconfigured', creator: 'commission_creator_unavailable'},
   failure: {
     input: 'Les paramètres de commission sont invalides.', access: 'Cet accès est réservé à une administration active.',
     missing: 'Cette règle de commission est introuvable.', scope: 'Une règle existe déjà pour cette marque, cet article et ce grade.',

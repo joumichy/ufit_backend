@@ -2,7 +2,8 @@ import {createHash} from 'node:crypto';
 import {BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException} from '@nestjs/common';
 import {isUserAdministrator} from '../../identity/domain/user-administration.policy';
 import {PAYMENT_DISTRIBUTION as C, distributionIDSchema, distributionChangeSchema, distributionBrandQuerySchema,
-  distributionPageSchema, distributionResultSchema, type DistributionResult} from '../domain/payment-distribution';
+  distributionPageSchema, distributionResultSchema, platformCommissionAmount, DistributionBudgetExceeded, type DistributionResult} from '../domain/payment-distribution';
+import {PROFILE_STATUS} from '../../../shared/domain/profile-editing.contract';
 import type {PaymentDistributionRepository} from '../domain/payment-distribution.repository';
 
 @Injectable()
@@ -61,6 +62,18 @@ export class PaymentDistributionService {
   assertOrderTerms(orderId: string): Promise<void> {
     const id = identifier(orderId);
     return this.repository.transaction(false, repository => repository.assertOrderTerms(id));
+  }
+  async assertSaleTerms(brandId: string, subtotal: number, creatorCommission: number): Promise<void> {
+    const id = identifier(brandId);
+    await this.repository.transaction(false, async repository => {
+      const document = await repository.document(id, false);
+      if (document?.brand.status !== PROFILE_STATUS.active || !document.current?.active) throw new ConflictException(C.failure.unavailable);
+      try { platformCommissionAmount(subtotal, creatorCommission, document.current.platformRateBps); }
+      catch (error) {
+        if (error instanceof DistributionBudgetExceeded) throw new ConflictException(C.failure.budget);
+        throw new ConflictException(C.failure.persisted);
+      }
+    });
   }
   private authorized<T>(actorId: string, write: boolean, operation: (repository: PaymentDistributionRepository) => Promise<T>) {
     return this.repository.transaction(write, async repository => {

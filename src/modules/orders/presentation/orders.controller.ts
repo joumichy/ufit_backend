@@ -87,4 +87,10 @@ export class OrdersController {
   checkout(@CurrentUser() user: AuthenticatedUser, @Body() body: unknown) {
     return this.checkoutService.checkout(user.id, body);
   }
+
+  @Post(CHECKOUT_REQUEST.route.review)
+  @Header(CHECKOUT_REQUEST.cache.header, CHECKOUT_REQUEST.cache.value)
+  review(@CurrentUser() user: AuthenticatedUser, @Body() body: unknown) {
+    return this.checkoutService.review(user.id, body);
+  }
 }

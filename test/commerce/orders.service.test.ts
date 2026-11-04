@@ -93,6 +93,32 @@ describe("OrdersService", () => {
       commissionRate: 0.12,
     });
   });
+  it('prepares the same immutable item terms and rounded creator commission without saving an order', async () => {
+    const repository = new FakeOrderRepository();
+    const snapshots: ProductSnapshotReader = {buildSnapshot: async () => ({name: 'Prepared sale qualification'})};
+    const service = new OrdersService(repository,snapshots,rule);
+    const prepared = await service.prepareCartSale(cart);
+    expect(prepared.creatorCommissionAmount).toBe(1200);
+    expect(prepared.items).toHaveLength(1);
+    expect(prepared.items[0]).toMatchObject({productId:'product-1',commissionRate:0.12,totalPrice:10000});
+    expect(prepared.items[0]).not.toHaveProperty('id');
+    expect((await repository.listForCustomer(cart.userId,20)).items).toEqual([]);
+  });
+  it('rounds each creator item before checking the sale budget, matching the persisted item calculation', async () => {
+    const rounding = {price:5,rateBps:1000,quantity:1,expected:2,first:'variant-rounding-first',second:'variant-rounding-second'};
+    const service = new OrdersService(new FakeOrderRepository(),{buildSnapshot:async()=>({name:'Rounding qualification'})},
+      {resolve:async()=>({...await rule.resolve(),rateBps:rounding.rateBps})});
+    const items = [rounding.first,rounding.second].map(id=>({...cart.items[0],id,productVariantId:id,
+      quantity:rounding.quantity,unitPrice:rounding.price}));
+    expect((await service.prepareCartSale({...cart,items})).creatorCommissionAmount).toBe(rounding.expected);
+  });
+  it('does not require or invent a creator commission for a direct purchase', async () => {
+    const service = new OrdersService(new FakeOrderRepository(),{buildSnapshot:async()=>({name:'Direct sale qualification'})},
+      {resolve:async()=>{throw new Error('No creator rule is applicable to this direct purchase');}});
+    const item={...cart.items[0],sourceCreatorId:undefined,sourceOutfitId:undefined};
+    const prepared=await service.prepareCartSale({...cart,sourceCreatorId:undefined,sourceOutfitId:undefined,items:[item]});
+    expect(prepared.creatorCommissionAmount).toBe(0);expect(prepared.items[0].commissionRate).toBe(0);
+  });
 
   it("does not expose customer shipping address in creator order views", async () => {
     const service = new OrdersService(new FakeOrderRepository(), {
