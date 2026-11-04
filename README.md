@@ -1,58 +1,86 @@
 # UFit Backend
 
-Fondation backend MVP pour UFit.
+API métier NestJS de l’application iOS Ufit : PostgreSQL/Drizzle, Auth et
+Storage Supabase, Stripe et files de traitement persistantes.
 
-## Stack
+## Démarrage local
 
-- NestJS
-- Drizzle
-- Supabase PostgreSQL
-- Stripe Checkout en environnement test
-- REST API
-
-## Environnement
-
-Le backend charge les variables depuis :
-
-1. `code/UFit_backend/.env`
-2. `code/UFit_backend/.env.local`
-3. `code/.env`
-4. `code/.env.local`
-
-Le projet utilise actuellement `code/.env`.
-
-Variables minimales :
-
-```txt
-API_PORT=4000
-UFIT_DB_SCHEMA=ufit
-SUPABASE_URL=...
-SUPABASE_DIRECT_CONNECTION_DB_URL=...
-SUPABASE_DB_SSL=true
-SUPABASE_DB_TLS_REJECT_UNAUTHORIZED=false
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_CHECKOUT_SUCCESS_URL=...
-STRIPE_CHECKOUT_CANCEL_URL=...
-```
-
-## Commandes
+Utiliser Node.js22 (version qualifiée) et npm. Depuis la racine du dépôt mobile :
 
 ```bash
-npm install
-npm run db:migrate
-npm run db:verify
+cd code/UFit_backend
+node --version
+npm ci
 npm run build
-npm test
+npm run db:verify
+npm start
+```
+
+Le backend utilise les données existantes du profil sélectionné. `db:verify`
+est une lecture du schéma et du registre des migrations ; ce n’est pas une
+migration. Ne pas lancer `db:migrate`, un seed ou un reset pour simplement
+démarrer une base déjà provisionnée. Les migrations manquantes demandent leur
+revue et leur qualification avant application.
+
+Pour développer avec recompilation et redémarrage après émission réussie :
+
+```bash
 npm run dev
 ```
 
-## Health check
+Arrêter le processus précédent avec Ctrl-C avant de changer de mode. Le serveur
+écoute `API_PORT` et, si renseigné, `API_HOST`. Le profil local actuellement
+qualifié utilise le port4014. Contrôler la réponse avant de lancer l’app :
 
-```txt
-GET /health
+```bash
+curl --fail http://127.0.0.1:4014/health
 ```
 
-Le health check confirme la connexion PostgreSQL et l'existence du schema configure, sans exposer de secret.
+La réponse doit indiquer `status: ok`, `database.connected: true` et
+`database.schemaExists: true`. Un serveur à l’écoute ne prouve pas l’accès aux
+données. Les parcours métier restent à vérifier dans le simulateur.
+
+## Sélection du profil
+
+Un seul fichier est chargé : le premier présent dans cet ordre, relativement au
+répertoire de lancement `code/UFit_backend` :
+
+1. `.env`
+2. `.env.local`
+3. `../.env`
+4. `../.env.local`
+
+Les fichiers suivants ne complètent jamais le profil retenu. Un fichier illisible ou dont les champs requis manquent échoue ; corriger ce
+profil plutôt que récupérer des valeurs d’un
+autre environnement. Les variables explicitement fournies par le processus de
+lancement ont priorité. En déploiement, l’environnement peut être fourni sans
+fichier. Ne jamais afficher ou committer les secrets.
+
+Le profil local sélectionné est actuellement `code/.env`, ignoré par Git. Il doit
+être provisionné par le mécanisme privé du projet ; ce README ne contient aucune
+valeur de connexion ou clé. Configurer notamment `SUPABASE_URL`,
+`SUPABASE_DIRECT_CONNECTION_DB_URL`, `UFIT_DB_SCHEMA` et les paramètres TLS, puis
+les fournisseurs nécessaires aux parcours exercés. Les traitements push/e-mail
+et financiers suivent leurs propres prérequis ; démarrer l’API ne les active pas
+implicitement.
+
+Pour un réseau sans IPv6, utiliser l’URL **Session pooler** officielle du même
+projet Supabase, port5432. Copier l’endpoint depuis Connect ou le lien CLI officiel,
+sans déduire le host à partir de la région. Garder le même projet, la même base,
+le même schéma et le même mot de passe ; le username du pooler est spécifique au
+projet. Vérifier les données avant d’actualiser le profil. Aucun lanceur temporaire
+ni substitution automatique de connexion n’est nécessaire. Voir la
+[documentation Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+## Vérifications backend
+
+```bash
+npm test -- --maxWorkers=2
+npx tsc --noEmit -p tsconfig.json
+```
+
+Ces contrôles complètent les lectures PostgreSQL/Stripe et les workflows natifs ;
+ils ne prouvent ni une réception de notification ni un paiement ou versement réel.
 
 ## Conditions commerciales des marques
 

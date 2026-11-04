@@ -77,19 +77,21 @@ export type AppEnv = z.infer<typeof envSchema>;
 
 let cachedEnv: AppEnv | undefined;
 
-export function loadEnvFiles(baseDir = process.cwd()): void {
-  const candidates = [
-    resolve(baseDir, '.env'),
-    resolve(baseDir, '.env.local'),
-    resolve(baseDir, '..', '.env'),
-    resolve(baseDir, '..', '.env.local')
-  ];
+const ENV_PROFILE = {primary: '.env', local: '.env.local', parent: '..'} as const;
 
-  for (const path of candidates) {
-    if (existsSync(path)) {
-      dotenv.config({ path });
-    }
+export function loadEnvFile(baseDir = process.cwd()): string | undefined {
+  const candidates = [
+    resolve(baseDir, ENV_PROFILE.primary),
+    resolve(baseDir, ENV_PROFILE.local),
+    resolve(baseDir, ENV_PROFILE.parent, ENV_PROFILE.primary),
+    resolve(baseDir, ENV_PROFILE.parent, ENV_PROFILE.local)
+  ];
+  const selected = candidates.find(path => existsSync(path));
+  if (selected) {
+    const result = dotenv.config({path: selected});
+    if (result.error) throw result.error;
   }
+  return selected;
 }
 
 export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
@@ -107,7 +109,7 @@ export function parseEnv(rawEnv: NodeJS.ProcessEnv): AppEnv {
 
 export function getEnv(): AppEnv {
   if (!cachedEnv) {
-    loadEnvFiles();
+    loadEnvFile();
     cachedEnv = parseEnv(process.env);
   }
 
