@@ -12,6 +12,14 @@ export const CONNECT = {
   ownerRole: "owner",
   capabilityActive: "active",
   capabilityPending: "pending",
+  requirementCategory: {
+    personalDetails: "personal_details",
+    businessDetails: "business_details",
+    bankAccount: "bank_account",
+    documents: "documents",
+    serviceAgreement: "service_agreement",
+    additionalInformation: "additional_information",
+  },
   accountType: "express",
   creation: {
     serviceAgreement: "full",
@@ -119,6 +127,16 @@ export interface ConnectAccountStatus extends ConnectScope, ConnectSnapshot {
   country: string | null;
   liveMode: boolean;
   canConfigure: boolean;
+  requirements: ConnectRequirements;
+}
+export type ConnectRequirementCategory =
+  (typeof CONNECT.requirementCategory)[keyof typeof CONNECT.requirementCategory];
+export interface ConnectRequirements {
+  missing: ConnectRequirementCategory[];
+  pending: ConnectRequirementCategory[];
+}
+export function emptyConnectRequirements(): ConnectRequirements {
+  return { missing: [], pending: [] };
 }
 export interface ConnectAccountsRepository {
   find(

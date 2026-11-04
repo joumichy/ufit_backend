@@ -18,20 +18,24 @@ import { STRIPE_CLIENT } from "./stripe-commerce";
 import {
   CONNECT,
   emptyConnectSnapshot,
+  emptyConnectRequirements,
   type ConnectAccountRecord,
   type ConnectAccountStatus,
   type ConnectAccountsRepository,
   type ConnectScope,
   type ConnectSnapshot,
+  type ConnectRequirements,
 } from "../domain/connect-account";
 import {
   connectSnapshot,
+  connectRequirements,
   ensureStripeConnectAccount,
 } from "../infrastructure/stripe-connect-accounts";
 const countryRequest = z
   .object({ country: z.string().regex(CONNECT.countryPattern) })
   .strict();
 const DEVELOPMENT = "development";
+type ConnectSynchronizedState = { snapshot: ConnectSnapshot; requirements: ConnectRequirements };
 
 @Injectable()
 export class ConnectAccountsService {
@@ -91,17 +95,18 @@ export class ConnectAccountsService {
     const canConfigure = await this.authorize(scope, actor);
     const liveMode = this.liveMode();
     const record = await this.accounts.find(scope, liveMode);
-    const snapshot = record?.stripeAccountId
+    const state = record?.stripeAccountId
       ? await this.synchronize(record)
-      : emptyConnectSnapshot(
+      : { snapshot: emptyConnectSnapshot(
           record ? CONNECT.stage.incomplete : CONNECT.stage.notStarted,
-        );
+        ), requirements: emptyConnectRequirements() };
     return {
       ...scope,
       country: record?.country ?? null,
       liveMode,
       canConfigure,
-      ...snapshot,
+      ...state.snapshot,
+      requirements: state.requirements,
     };
   }
   async onboarding(
@@ -168,15 +173,17 @@ export class ConnectAccountsService {
   }
   private async synchronize(
     record: ConnectAccountRecord,
-  ): Promise<ConnectSnapshot> {
+  ): Promise<ConnectSynchronizedState> {
     if (!record.stripeAccountId)
-      return emptyConnectSnapshot(CONNECT.stage.incomplete);
+      return { snapshot: emptyConnectSnapshot(CONNECT.stage.incomplete), requirements: emptyConnectRequirements() };
+    const account = await this.client().accounts.retrieve(record.stripeAccountId);
     const snapshot = connectSnapshot(
-      await this.client().accounts.retrieve(record.stripeAccountId),
+      account,
       record,
     );
+    const requirements = connectRequirements(account);
     await this.accounts.saveSnapshot(record, snapshot);
-    return snapshot;
+    return { snapshot, requirements };
   }
   async accountUpdated(
     stripeAccountId: string,
@@ -204,7 +211,7 @@ export class ConnectAccountsService {
       const record = await this.accounts.find(scope, this.liveMode());
       if (
         !record?.stripeAccountId ||
-        (await this.synchronize(record)).stage !== CONNECT.stage.ready
+        (await this.synchronize(record)).snapshot.stage !== CONNECT.stage.ready
       )
         throw new ConflictException(CONNECT.failure.sale);
     }

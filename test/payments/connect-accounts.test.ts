@@ -5,6 +5,7 @@ import {
 } from "../../src/modules/payments/domain/connect-account";
 import {
   connectSnapshot,
+  connectRequirements,
   ensureStripeConnectAccount,
 } from "../../src/modules/payments/infrastructure/stripe-connect-accounts";
 import { ConnectAccountsService } from "../../src/modules/payments/application/connect-accounts.service";
@@ -36,6 +37,18 @@ const fixture = {
     },
   },
 };
+const requirementFixture = {
+  personal: "individual.first_name",
+  business: "business_profile.mcc",
+  bank: "external_account",
+  document: "individual.verification.document",
+  pendingDocument: "company.verification.document",
+  agreement: "tos_acceptance.date",
+  unknown: "interv_qualification.form",
+  missingFieldCount: 6,
+  pendingFieldCount: 1,
+  providerReads: 1,
+};
 function snapshot(account = fixture.account) {
   return connectSnapshot(account as never, fixture.record);
 }
@@ -53,6 +66,37 @@ function client(accounts: unknown[] = []) {
   };
 }
 describe("Connect recipient contracts", () => {
+  it("projects current and overdue fields into unique safe categories, keeping verification separate", () => {
+    const account = {
+      ...fixture.account,
+      requirements: {
+        ...fixture.account.requirements,
+        currently_due: [requirementFixture.personal, requirementFixture.business, requirementFixture.bank, requirementFixture.document, requirementFixture.agreement],
+        past_due: [requirementFixture.bank, requirementFixture.unknown],
+        pending_verification: [requirementFixture.pendingDocument],
+      },
+    };
+    expect(connectRequirements(account as never)).toEqual({
+      missing: [CONNECT.requirementCategory.personalDetails, CONNECT.requirementCategory.businessDetails,
+        CONNECT.requirementCategory.bankAccount, CONNECT.requirementCategory.documents,
+        CONNECT.requirementCategory.serviceAgreement, CONNECT.requirementCategory.additionalInformation],
+      pending: [CONNECT.requirementCategory.documents],
+    });
+    expect(connectSnapshot(account as never, fixture.record)).toMatchObject({
+      stage: CONNECT.stage.incomplete,
+      missingInformationCount: requirementFixture.missingFieldCount,
+      pendingVerificationCount: requirementFixture.pendingFieldCount,
+    });
+    const serialized = JSON.stringify(connectRequirements(account as never));
+    expect(serialized).not.toContain(requirementFixture.personal);
+    expect(serialized).not.toContain(requirementFixture.unknown);
+  });
+  it("returns no categories for no requested fields and keeps person identifiers out of the projection", () => {
+    expect(connectRequirements(fixture.account as never)).toEqual({missing: [], pending: []});
+    const field = "person_qualification.first_name";
+    const account = {...fixture.account, requirements: {...fixture.account.requirements, currently_due: [field]}};
+    expect(connectRequirements(account as never)).toEqual({missing: [CONNECT.requirementCategory.personalDetails], pending: []});
+  });
   it("requires transfer and payout eligibility rather than direct card charging", () => {
     expect(snapshot().stage).toBe("ready");
     expect(
@@ -225,8 +269,22 @@ describe("Connect owner permissions", () => {
       canConfigure: false,
       stage: "not_started",
       payoutsEnabled: false,
+      requirements: {missing: [], pending: []},
     });
     expect(brands.getProfileForMember).toHaveBeenCalledWith("brand", "manager");
+  });
+  it("uses one provider read for status and requirements without extending the stored snapshot", async () => {
+    const {brands, creators} = setup();
+    const providerAccount = {...fixture.account, requirements: {...fixture.account.requirements, currently_due: [requirementFixture.bank]}};
+    const stripe = client();
+    stripe.accounts.retrieve.mockResolvedValue(providerAccount);
+    const accounts = {find: vi.fn().mockResolvedValue(fixture.record), saveSnapshot: vi.fn()};
+    const service = new ConnectAccountsService(stripe as never, accounts as never, brands as never, creators as never);
+    const status = await service.status({kind: CONNECT.kind.brand, profileId: fixture.record.profileId}, actor);
+    expect(status.requirements).toEqual({missing: [CONNECT.requirementCategory.bankAccount], pending: []});
+    expect(stripe.accounts.retrieve).toHaveBeenCalledTimes(requirementFixture.providerReads);
+    expect(accounts.saveSnapshot).toHaveBeenCalledWith(fixture.record, connectSnapshot(providerAccount as never, fixture.record));
+    expect(accounts.saveSnapshot.mock.calls.at(-1)?.at(-1)).not.toHaveProperty("requirements");
   });
   it("rejects manager onboarding before account creation", async () => {
     const { service, accounts } = setup();

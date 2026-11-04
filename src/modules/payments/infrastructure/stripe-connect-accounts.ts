@@ -5,11 +5,49 @@ import {
   connectCreationKey,
   type ConnectAccountRecord,
   type ConnectSnapshot,
+  type ConnectRequirements,
+  type ConnectRequirementCategory,
 } from "../domain/connect-account";
 type StripeAccount = Omit<
   Awaited<ReturnType<StripePaymentsClient["accounts"]["retrieve"]>>,
   "lastResponse"
 >;
+const requirementField = {
+  separator: ".",
+  bankAccount: "external_account",
+  agreement: "tos_acceptance",
+  documents: new Set(["document", "additional_document", "proof_of_liveness", "proof_of_registration", "proof_of_relationship"]),
+  personalRoots: new Set(["individual", "representative"]),
+  personPrefix: "person_",
+  businessRoots: new Set(["company", "business_profile", "relationship", "business_type"]),
+};
+function missingFields(account: StripeAccount): Set<string> {
+  return new Set([
+    ...(account.requirements?.currently_due ?? []),
+    ...(account.requirements?.past_due ?? []),
+  ]);
+}
+function pendingFields(account: StripeAccount): string[] {
+  return account.requirements?.pending_verification ?? [];
+}
+function requirementCategory(field: string): ConnectRequirementCategory {
+  const parts = field.split(requirementField.separator);
+  const [root] = parts;
+  if (root === requirementField.bankAccount) return CONNECT.requirementCategory.bankAccount;
+  if (root === requirementField.agreement) return CONNECT.requirementCategory.serviceAgreement;
+  if (parts.some(part => requirementField.documents.has(part))) return CONNECT.requirementCategory.documents;
+  if (requirementField.personalRoots.has(root) || root.startsWith(requirementField.personPrefix)) return CONNECT.requirementCategory.personalDetails;
+  if (requirementField.businessRoots.has(root)) return CONNECT.requirementCategory.businessDetails;
+  return CONNECT.requirementCategory.additionalInformation;
+}
+function requirementCategories(fields: Iterable<string>): ConnectRequirementCategory[] {
+  const categories = new Set(Array.from(fields, requirementCategory));
+  return Object.values(CONNECT.requirementCategory).filter(category => categories.has(category));
+}
+export function connectRequirements(account: StripeAccount): ConnectRequirements {
+  // Project the requested fields, never the holder's personal values or opaque Stripe identifiers.
+  return { missing: requirementCategories(missingFields(account)), pending: requirementCategories(pendingFields(account)) };
+}
 
 export function connectSnapshot(
   account: StripeAccount,
@@ -21,12 +59,8 @@ export function connectSnapshot(
     account.metadata?.[CONNECT.metadata.associationId] !== record.id
   )
     throw new ConflictException(CONNECT.failure.mismatch);
-  const missing = new Set([
-    ...(account.requirements?.currently_due ?? []),
-    ...(account.requirements?.past_due ?? []),
-  ]);
-  const pending =
-    account.requirements?.pending_verification?.length ?? CONNECT.zero;
+  const missing = missingFields(account);
+  const pending = pendingFields(account).length;
   const transfersEnabled =
     account.capabilities?.transfers === CONNECT.capabilityActive;
   const ready =
