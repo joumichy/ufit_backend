@@ -30,7 +30,7 @@ export class MemoryOutfitRepository implements OutfitRepository {
   readonly owners = new Map<string, OutfitOwnerInfo>([[outfitFixture.owner.id, {...outfitFixture.owner}]]);
   readonly members = new Map<string, Set<string>>([[outfitFixture.owner.id, new Set([outfitFixture.actor.id])]]);
   readonly tags: OutfitTag[] = [];
-  constructor(private readonly products: Pick<ProductRepository, 'findActiveByIds'>, private readonly mediaAssets: Map<string, OutfitMediaFixtureAsset>) {}
+  constructor(private readonly products: Pick<ProductRepository, 'findActiveByIds' | 'findById'>, private readonly mediaAssets: Map<string, OutfitMediaFixtureAsset>) {}
   async transaction<T>(operation: (repository: OutfitRepository) => Promise<T>): Promise<T> {
     const before = structuredClone({outfits: this.outfits, items: this.items, images: this.images, pins: this.pins, requests: this.requests, selections: this.selections});
     try { return await operation(this); }
@@ -166,14 +166,26 @@ export class MemoryOutfitRepository implements OutfitRepository {
   }
 
   async findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]> {
+    const integrated = input.productBrandId ? new Set((await this.findBrandIntegrationPieces(input.productBrandId, [...this.outfits.keys()])).map(row => row.outfitId)) : null;
     const rows = [...this.outfits.values()]
       .filter((outfit) => outfit.status === PUBLIC_OUTFIT.status && PUBLIC_OUTFIT_VISIBILITIES.some(visibility => visibility === outfit.visibility) &&
         ((outfit.creatorId === null && outfit.brandId === null) || (outfit.creatorId === publicCreator.id && outfit.brandId === null)) &&
-        (!input.creatorId || outfit.creatorId === input.creatorId) && (!input.brandId || outfit.brandId === input.brandId))
+        (!input.creatorId || outfit.creatorId === input.creatorId) && (!input.brandId || outfit.brandId === input.brandId) &&
+        (integrated === null || integrated.has(outfit.id)))
       .sort((a, b) => b.id.localeCompare(a.id))
       .filter((outfit) => (input.cursor ? outfit.id < input.cursor : true))
       .slice(0, input.limit);
     const details = await Promise.all(rows.map((outfit) => this.findById(outfit.id)));
     return details.filter((detail): detail is OutfitDetail => Boolean(detail));
+  }
+
+  async findBrandIntegrationPieces(brandId: string, outfitIds: string[]) {
+    const pieces: Awaited<ReturnType<OutfitRepository['findBrandIntegrationPieces']>> = [];
+    for (const item of [...this.items].sort((left, right) => left.position - right.position || left.id.localeCompare(right.id))) {
+      if (!outfitIds.includes(item.outfitId) || item.productId === null) continue;
+      const product = (await this.products.findById(item.productId))?.product;
+      if (product?.brandId === brandId) pieces.push({outfitId: item.outfitId, itemId: item.id, productId: product.id, name: product.name, productStatus: product.status});
+    }
+    return pieces;
   }
 }

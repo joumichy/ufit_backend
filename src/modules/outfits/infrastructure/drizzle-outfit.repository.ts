@@ -2,7 +2,7 @@ import {OUTFIT_PUBLICATION as P, type OutfitCalendarQuery} from '../domain/outfi
 import {OUTFIT_MEDIA} from '../../media/domain/outfit-media.contract';
 import {findAuthoringProfile, ProfileAccessMode} from '../../../shared/infrastructure/database/profile-authoring-access';
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, lt, inArray, isNull, notInArray, gt, gte, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, inArray, isNull, notInArray, gt, gte, lte, sql, exists } from 'drizzle-orm';
 import {OUTFIT_EDITING, OUTFIT_STATUS, OUTFIT_VISIBILITY} from '../domain/outfit-editing.contract';
 import {PRODUCT_STATUS} from '../../products/domain/product-contract';
 import {READ_SNAPSHOT, type DatabaseSession} from '../../../shared/infrastructure/database/database-session';
@@ -211,8 +211,20 @@ export class DrizzleOutfitRepository implements OutfitRepository {
     return this.database.db.transaction(async tx => {
       const rows = await tx.select().from(outfits).where(and(publicOutfitVisibility({db: tx}), publicOutfitDiscovery({db: tx}, input),
         input.creatorId ? eq(outfits.creatorId, input.creatorId) : undefined, input.brandId ? eq(outfits.brandId, input.brandId) : undefined,
+        input.productBrandId ? exists(tx.select({id: outfitItems.id}).from(outfitItems)
+          .innerJoin(products, eq(products.id, outfitItems.productId))
+          .where(and(eq(outfitItems.outfitId, outfits.id), eq(products.brandId, input.productBrandId)))) : undefined,
         input.cursor ? lt(outfits.id, input.cursor) : undefined)).orderBy(desc(outfits.id)).limit(input.limit);
       return this.loadDetails(rows, {db: tx});
     }, READ_SNAPSHOT);
+  }
+
+  async findBrandIntegrationPieces(brandId: string, outfitIds: string[]) {
+    if (!outfitIds.length) return [];
+    return this.database.db.select({outfitId: outfitItems.outfitId, itemId: outfitItems.id,
+      productId: products.id, name: products.name, productStatus: products.status})
+      .from(outfitItems).innerJoin(products, eq(products.id, outfitItems.productId))
+      .where(and(eq(products.brandId, brandId), inArray(outfitItems.outfitId, outfitIds)))
+      .orderBy(outfitItems.outfitId, outfitItems.position, outfitItems.id);
   }
 }

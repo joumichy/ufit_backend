@@ -1,4 +1,5 @@
 import type {OutfitCalendarQuery} from './outfit-publication.contract';
+import type {BrandOutfitIntegrationReference} from './brand-outfit-integrations.contract';
 import type {AuthenticatedUser} from '../../identity/domain/user.types';
 import type {ProfileOwner, ProfileOwnerInfo, ProfileKind} from '../../../shared/domain/profile-editing.contract';
 import type {OUTFIT_STATUSES, OUTFIT_TAG_TYPES, OUTFIT_VISIBILITIES, OUTFIT_ITEM_TYPES} from './outfit-editing.contract';
@@ -108,6 +109,7 @@ export interface OutfitRepository {
   updateStatus(outfitId: string, status: OutfitStatus, visibility: OutfitVisibility): Promise<Outfit>;
   updateTotals(outfitId: string, totalPriceMin: number, totalPriceMax: number): Promise<Outfit>;
   findPublishedPage(input: PublicOutfitPage): Promise<OutfitDetail[]>;
+  findBrandIntegrationPieces(brandId: string, outfitIds: string[]): Promise<BrandOutfitIntegrationReference[]>;
 }
 
 export const OUTFIT_REPOSITORY = Symbol('OUTFIT_REPOSITORY');

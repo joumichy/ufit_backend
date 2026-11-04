@@ -15,6 +15,8 @@ export const OUTFIT_DISCOVERY = {
 export const OUTFIT_SEARCH_SCOPES = [OUTFIT_DISCOVERY.scope.all, OUTFIT_DISCOVERY.scope.creators, OUTFIT_DISCOVERY.scope.pieces] as const;
 export interface PublicOutfitPage {
   limit: number; cursor?: string; creatorId?: string; brandId?: string;
+  /** Internal integration query; this filter is not accepted by the public HTTP schema. */
+  productBrandId?: string;
   q?: string; scope?: (typeof OUTFIT_SEARCH_SCOPES)[number]; styleId?: string; occasionId?: string;
   itemType?: OutfitItemType;
 }

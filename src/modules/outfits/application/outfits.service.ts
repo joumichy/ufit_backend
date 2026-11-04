@@ -10,12 +10,17 @@ import { OUTFIT_REPOSITORY, type OutfitAuthor, type OutfitDetail, type OutfitIte
 import { CreateOutfitDto, UpdateOutfitDto, OutfitVersionDto, EditOutfitItemDto, EditOutfitImageDto } from './dto/outfit.dto';
 import {z} from 'zod';
 import {PUBLIC_OUTFIT, PUBLIC_OUTFIT_VISIBILITIES, OUTFIT_DISCOVERY, OUTFIT_SEARCH_SCOPES} from '../domain/public-outfit.contract';
+import {BRAND_OUTFIT_INTEGRATIONS, type BrandOutfitIntegrationPiece} from '../domain/brand-outfit-integrations.contract';
+import {PRODUCT_STATUS} from '../../products/domain/product-contract';
 
 const publicPage = z.object({limit: z.coerce.number().int().min(PUBLIC_OUTFIT.limits.minimum).max(PUBLIC_OUTFIT.limits.maximum).default(PUBLIC_OUTFIT.limits.default),
   cursor: z.uuid().optional(), creatorId: z.uuid().optional(), brandId: z.uuid().optional(),
   q: z.string().trim().max(OUTFIT_DISCOVERY.queryMax).optional(), scope: z.enum(OUTFIT_SEARCH_SCOPES).optional(),
   styleId: z.uuid().optional(), occasionId: z.uuid().optional(), itemType: z.enum(OUTFIT_ITEM_TYPES).optional(),
 }).strict().refine(value => !(value.creatorId && value.brandId));
+
+const brandIntegrationPage = z.object({brandId: z.uuid(), cursor: z.uuid().optional(),
+  limit: z.coerce.number().int().min(PUBLIC_OUTFIT.limits.minimum).max(PUBLIC_OUTFIT.limits.maximum).default(PUBLIC_OUTFIT.limits.default)}).strict();
 
 const managedOwner = z.object({creatorId: z.uuid().optional(), brandId: z.uuid().optional()}).strict();
 const managedPage = managedOwner.extend({limit: z.coerce.number().int().min(OUTFIT_EDITING.limits.pageMin).max(OUTFIT_EDITING.limits.pageMax).default(OUTFIT_EDITING.limits.pageDefault),
@@ -36,6 +41,12 @@ export interface OutfitCardDto {
   pins: OutfitDetail['pins'];
   items: OutfitDetailDto['items'];
   images: Array<{id: string; url: string; position: number}>;
+}
+
+export interface BrandOutfitIntegrationsPageDto {
+  brandId: string;
+  items: Array<{outfit: OutfitCardDto; pieces: BrandOutfitIntegrationPiece[]}>;
+  nextCursor: string | null;
 }
 
 export interface OutfitDetailDto extends OutfitCardDto {
@@ -313,6 +324,32 @@ export class OutfitsService {
       items: page.map((detail) => this.toOutfitCard(detail, products)),
       nextCursor: rows.length > limit ? page.at(PUBLIC_OUTFIT.limits.last)!.outfit.id : null
     };
+  }
+
+  async getBrandIntegrations(user: OutfitActor, input: unknown): Promise<BrandOutfitIntegrationsPageDto> {
+    const parsed = brandIntegrationPage.safeParse(input);
+    if (!parsed.success) throw new BadRequestException(BRAND_OUTFIT_INTEGRATIONS.failure.page);
+    const {limit, cursor} = parsed.data, brandId = parsed.data.brandId.toLowerCase();
+    return this.outfits.readSnapshot(async repository => {
+      await this.requireOwner(repository, {brandId, creatorId: null}, user, false);
+      const rows = await repository.findPublishedPage({productBrandId: brandId, cursor, limit: limit + PUBLIC_OUTFIT.limits.overflow});
+      const page = rows.slice(PUBLIC_OUTFIT.limits.first, limit);
+      const references = await repository.findBrandIntegrationPieces(brandId, page.map(detail => detail.outfit.id));
+      const products = await this.products.findActiveByIds(this.uniqueShoppableProductIds(page.flatMap(detail => detail.items)));
+      const items = page.map(detail => {
+        const pieces = references.filter(row => row.outfitId === detail.outfit.id).map(({outfitId: _, ...piece}) => piece);
+        const outfit = this.toOutfitCard(detail, products);
+        if (!pieces.length || pieces.some(piece => {
+          if (!detail.items.some(item => item.id === piece.itemId && item.productId === piece.productId)) return true;
+          const visible = outfit.items.find(item => item.id === piece.itemId)?.product;
+          return visible !== null && visible !== undefined && (piece.productStatus !== PRODUCT_STATUS.active || visible.name !== piece.name);
+        })) {
+          throw new ConflictException(BRAND_OUTFIT_INTEGRATIONS.failure.changed);
+        }
+        return {outfit, pieces};
+      });
+      return {brandId, items, nextCursor: rows.length > limit ? page.at(PUBLIC_OUTFIT.limits.last)!.outfit.id : null};
+    });
   }
 
   async getPublicDetail(outfitId: string): Promise<OutfitDetailDto> {

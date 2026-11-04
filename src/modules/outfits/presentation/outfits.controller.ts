@@ -1,5 +1,6 @@
 import {OUTFIT_PUBLICATION as P, type OutfitPublicationInput} from '../domain/outfit-publication.contract';
 import {OUTFIT_WRITE_ROLES, OUTFIT_ADMIN_ROLES} from '../domain/outfit-editing.contract';
+import {BRAND_OUTFIT_INTEGRATIONS} from '../domain/brand-outfit-integrations.contract';
 import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../../../shared/presentation/decorators/current-user.decorator';
 import { Roles } from '../../../shared/presentation/decorators/roles.decorator';
@@ -65,6 +66,13 @@ export class OutfitsController {
   @UseGuards(AuthGuard, RoleGuard)
   @Roles(...OUTFIT_WRITE_ROLES)
   listManaged(@CurrentUser() user: AuthenticatedUser, @Query() query: Record<string, unknown>) { return this.outfitsService.listManagedOutfits(user, query); }
+
+  @Get(BRAND_OUTFIT_INTEGRATIONS.route)
+  @UseGuards(AuthGuard, RoleGuard)
+  @Roles(...OUTFIT_WRITE_ROLES)
+  brandIntegrations(@CurrentUser() user: AuthenticatedUser, @Query() query: Record<string, unknown>) {
+    return this.outfitsService.getBrandIntegrations(user, query);
+  }
 
   @Get(outfitRoutes.creation)
   @UseGuards(AuthGuard, RoleGuard)
