@@ -1,3 +1,4 @@
+import {toStripeAmount, StripeAmountError} from './stripe-amount';
 import {PAYMENT_TRANSFER as C, reversalInstructionSchema, transferAuthorizationSchema, transferMetadata,
   type ReversalInstruction, type TransferExecution, type ReversalSnapshot, type RevalidateTransfer} from '../domain/payment-transfer';
 import {type StripeTransferClient, transferRequestOptions, recoverStripeReversal, projectTransfer, projectReversal} from './stripe-transfer-reconciliation';
@@ -21,10 +22,11 @@ export async function executeStripeTransferReversal(stripe: StripeTransferClient
     try { authorization = transferAuthorizationSchema.safeParse(await revalidate()); } catch { return {kind: C.result.retry, reason: C.reason.local}; }
     if (!authorization.success) return {kind: C.result.review, reason: C.reason.local};
     if (!authorization.data.allowed) return {kind: C.result.blocked, reason: authorization.data.reason};
-    const created = await stripe.transfers.createReversal(instruction.transferId, {amount: instruction.amount,
+    const created = await stripe.transfers.createReversal(instruction.transferId, {amount: toStripeAmount(instruction.amount, instruction.original.currency),
       metadata: {...transferMetadata(instruction.original), [C.provider.metadata.reversal]: instruction.id}},
     {...transferRequestOptions, idempotencyKey: C.provider.reversalKeyPrefix + instruction.id});
     const snapshot = projectReversal(created, instruction);
     return snapshot ? {kind: C.result.recorded, snapshot} : {kind: C.result.review, reason: C.reason.mismatch};
-  } catch { return {kind: C.result.retry, reason: C.reason.unavailable}; }
+  } catch (error) { return error instanceof StripeAmountError
+    ? {kind: C.result.review, reason: C.reason.invalid} : {kind: C.result.retry, reason: C.reason.unavailable}; }
 }

@@ -14,8 +14,10 @@ import {CONNECT} from '../../payments/domain/connect-account';
 import {COMMISSION_RULE} from '../../commissions/domain/commission-rule.contract';
 import {PAYMENT_DISTRIBUTION} from '../../payments/domain/payment-distribution';
 import {z} from 'zod';
+import {STRIPE_COMMERCE} from '../../payments/application/stripe-commerce';
 const unavailableFailureSchema = z.object({code: z.enum([CONNECT.failure.sale.code, COMMISSION_RULE.failureCode.unavailable,
-  COMMISSION_RULE.failureCode.creator, PAYMENT_DISTRIBUTION.failure.unavailable.code, PAYMENT_DISTRIBUTION.failure.budget.code])});
+  COMMISSION_RULE.failureCode.creator, PAYMENT_DISTRIBUTION.failure.unavailable.code, PAYMENT_DISTRIBUTION.failure.budget.code,
+  STRIPE_COMMERCE.amountUnrepresentable.code])});
 export interface CheckoutReview {quote: CartQuote; available: boolean;}
 @Injectable()
 export class OrderCheckoutService {
@@ -30,6 +32,7 @@ export class OrderCheckoutService {
     if (!parsed.success) throw new BadRequestException(C.failure.input);
     const {cart, quote} = await this.quotes.prepare(customerId, parsed.data.country);
     try {
+      this.payments.prepareChargeAmount(quote.totalAmount, quote.currency);
       const sale = await this.orders.prepareCartSale(cart);
       await this.payments.assertNewSale(quote.brandId, quote.subtotalAmount, sale.creatorCommissionAmount,
         sale.items.flatMap(item => item.sourceCreatorId ? [item.sourceCreatorId] : []));
@@ -75,6 +78,7 @@ export class OrderCheckoutService {
       );
       if (quote.fingerprint !== input.quoteFingerprint)
         throw new ConflictException(C.failure.changed);
+      this.payments.prepareChargeAmount(quote.totalAmount, quote.currency);
       order = await this.orders.createPendingFromCart(
         cart,
         input.shippingAddress,

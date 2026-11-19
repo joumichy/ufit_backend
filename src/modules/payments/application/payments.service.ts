@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   ServiceUnavailableException,
@@ -46,6 +47,7 @@ import {captureReceiptSchema} from '../domain/payment-settlement';
 import {CUSTOMER_PAYMENT as CUSTOMER, customerPaymentResumable, customerPaymentSessionSchema, type CustomerPaymentSession} from '../domain/customer-payment';
 import {customerPaymentDocument, readCustomerPaymentIntent} from '../infrastructure/customer-payment-status';
 import {ORDER_STATUS} from '../../orders/domain/order-lifecycle';
+import {fromStripeAmount, toStripeAmount} from '../infrastructure/stripe-amount';
 const cancellationReferenceSchema = z.object({orderId: z.uuid(), cancellationId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 const refundReferenceSchema = z.object({orderId: z.uuid(), returnId: z.uuid(), attemptId: z.uuid(), refundId: z.string().nonempty()});
 export type StripePaymentsClient = Pick<
@@ -116,6 +118,11 @@ export class PaymentsService {
     catch { throw new ServiceUnavailableException(CUSTOMER.failure.unavailable); }
   }
 
+  prepareChargeAmount(amount: number, currency: string): number {
+    try { return toStripeAmount(amount, currency); }
+    catch { throw new ConflictException(STRIPE_COMMERCE.amountUnrepresentable); }
+  }
+
   async assertNewSale(brandId: string, subtotal: number, creatorCommission: number, creatorIds: string[]): Promise<void> {
     if (!this.stripe || !getEnv().STRIPE_SECRET_KEY) throw new ServiceUnavailableException(STRIPE_COMMERCE.configuration.paymentsUnavailable);
     this.paymentMode();
@@ -132,6 +139,7 @@ export class PaymentsService {
         STRIPE_COMMERCE.configuration.paymentsUnavailable,
       );
     const liveMode = this.paymentMode();
+    const chargeAmount = this.prepareChargeAmount(order.totalAmount, order.currency);
     let intent = order.stripePaymentIntentId === undefined ? undefined : await this.readPaymentIntent(order.stripePaymentIntentId);
     const resumable = intent === undefined || customerPaymentResumable(readCustomerPaymentIntent(order, intent, liveMode).payment.state);
     if (resumable) {
@@ -141,7 +149,7 @@ export class PaymentsService {
     if (intent === undefined) {
       intent = await this.stripe.paymentIntents.create(
           {
-            amount: order.totalAmount,
+            amount: chargeAmount,
             currency: order.currency.toLowerCase(),
             payment_method_types: [CUSTOMER.provider.card],
             metadata: { [STRIPE_ORDER_METADATA.orderId]: order.id },
@@ -225,11 +233,13 @@ export class PaymentsService {
       intent.amount_received <= 0
     )
       throw new BadRequestException("Invalid paid amount");
+    const amount = fromStripeAmount(intent.amount_received, intent.currency);
+    if (amount === undefined) throw new BadRequestException(STRIPE_COMMERCE.amountUnrepresentable);
     const result = await this.finalizer.confirm({
       eventId: event.id,
       orderId,
       paymentIntentId: intent.id,
-      amount: intent.amount_received,
+      amount,
       currency: intent.currency.toUpperCase(),
     });
     if (result.reversalRequired) await this.cancellations.recoverOrder(orderId);

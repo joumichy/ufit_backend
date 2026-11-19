@@ -1,3 +1,4 @@
+import {fromStripeAmount, toStripeAmount} from './stripe-amount';
 import {ConflictException} from '@nestjs/common';
 import {
   CANCELLATION, CANCELLATION_REFUND, ORDER_LIMIT,
@@ -18,7 +19,7 @@ type CancellationStripeClient = Pick<StripePaymentsClient, 'paymentIntents' | 'r
 type Intent = Awaited<ReturnType<CancellationStripeClient['paymentIntents']['retrieve']>>;
 function assertIntent(intent: Intent, claim: CancellationClaim): void {
   if (intent.id !== claim.paymentIntentId || intent.metadata[STRIPE_ORDER_METADATA.orderId] !== claim.orderId
-    || intent.amount !== claim.amount || intent.currency.toUpperCase() !== claim.currency)
+    || fromStripeAmount(intent.amount, intent.currency) !== claim.amount || intent.currency.toUpperCase() !== claim.currency)
     throw new ConflictException(STRIPE_COMMERCE.mismatch);
 }
 export async function reverseStripeCancellation(
@@ -47,7 +48,7 @@ export async function reverseStripeCancellation(
     if (intent.amount_received !== STRIPE_COMMERCE.zero) throw new ConflictException(STRIPE_COMMERCE.mismatch);
     return {settlement: {outcome: CANCELLATION.outcome.notCharged}};
   }
-  if (intent.status !== STRIPE_PAYMENT_STATE.succeeded || intent.amount_received !== claim.amount)
+  if (intent.status !== STRIPE_PAYMENT_STATE.succeeded || fromStripeAmount(intent.amount_received, intent.currency) !== claim.amount)
     throw new ConflictException(STRIPE_COMMERCE.mismatch);
   const attempt = await prepareRefund();
   if (attempt.cancellationId !== claim.id || attempt.paymentIntentId !== claim.paymentIntentId
@@ -71,13 +72,13 @@ export async function reverseStripeCancellation(
     } while (cursor);
     if (!refund && originalMethodFailed) return {refund: {attempt, result: {state: CANCELLATION_REFUND.state.blocked, refundId: null, providerStatus: null}}};
   }
-  refund ??= await stripe.refunds.create({payment_intent: intent.id, amount: claim.amount,
+  refund ??= await stripe.refunds.create({payment_intent: intent.id, amount: toStripeAmount(claim.amount, claim.currency),
     ...(claim.reason === CANCELLATION.reason.customer ? {reason: STRIPE_COMMERCE.cancellationReason} : {}),
     metadata: {[STRIPE_ORDER_METADATA.orderId]: claim.orderId, [STRIPE_ORDER_METADATA.cancellationId]: claim.id,
       [STRIPE_ORDER_METADATA.cancellationAttemptId]: attempt.id}}, {idempotencyKey: stripeCancellationRefundKey(attempt.id)});
   const intentID = typeof refund.payment_intent === 'string' ? refund.payment_intent : refund.payment_intent?.id;
   if ((attempt.refundId !== null && refund.id !== attempt.refundId) || intentID !== claim.paymentIntentId
-    || refund.amount !== claim.amount || refund.currency.toUpperCase() !== claim.currency
+    || fromStripeAmount(refund.amount, refund.currency) !== claim.amount || refund.currency.toUpperCase() !== claim.currency
     || refund.metadata?.[STRIPE_ORDER_METADATA.orderId] !== claim.orderId
     || refund.metadata?.[STRIPE_ORDER_METADATA.cancellationId] !== claim.id
     || refund.metadata?.[STRIPE_ORDER_METADATA.cancellationAttemptId] !== attempt.id)

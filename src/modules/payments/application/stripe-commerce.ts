@@ -17,6 +17,10 @@ export const STRIPE_COMMERCE = {
   pageLimit: 100,
   lastIndex: -1,
   zero: 0,
+  amountUnrepresentable: {
+    code: 'payment_amount_unrepresentable',
+    message: 'The order amount cannot be charged in this currency',
+  },
   mismatch: {
     code: "order_payment_mismatch",
     message: "The payment does not match the order",

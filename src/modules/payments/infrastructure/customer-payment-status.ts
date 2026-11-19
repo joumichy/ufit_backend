@@ -1,3 +1,4 @@
+import {fromStripeAmount} from './stripe-amount';
 import {ServiceUnavailableException} from '@nestjs/common';
 import {z} from 'zod';
 import type {Order} from '../../orders/application/orders.service';
@@ -5,7 +6,7 @@ import {ORDER_STATUS} from '../../orders/domain/order-lifecycle';
 import {STRIPE_ORDER_METADATA} from '../application/stripe-commerce';
 import {CUSTOMER_PAYMENT as C, customerPaymentStatusSchema, type CustomerPaymentStatus} from '../domain/customer-payment';
 
-const nonnegative = z.number().int().min(C.limits.zero).max(C.limits.maximum);
+const nonnegative = z.number().int().min(C.limits.zero).max(Number.MAX_SAFE_INTEGER);
 const intentSchema = z.object({
   id: z.string().regex(C.provider.intentPattern), amount: nonnegative, amount_received: nonnegative,
   currency: z.string(), metadata: z.record(z.string(), z.string()), livemode: z.boolean(),
@@ -25,11 +26,12 @@ export function readCustomerPaymentIntent(order: Order, raw: unknown, liveMode: 
   const parsed = intentSchema.safeParse(raw);
   if (!parsed.success) throw new ServiceUnavailableException(C.failure.invalid);
   const intent = parsed.data;
-  if (intent.amount !== order.totalAmount || intent.currency.toUpperCase() !== order.currency
+  const amount = fromStripeAmount(intent.amount, intent.currency), received = fromStripeAmount(intent.amount_received, intent.currency);
+  if (amount === undefined || received === undefined || amount !== order.totalAmount || intent.currency.toUpperCase() !== order.currency
     || intent.metadata[STRIPE_ORDER_METADATA.orderId] !== order.id || intent.livemode !== liveMode
     || order.stripePaymentIntentId !== undefined && intent.id !== order.stripePaymentIntentId
     || intent.amount_received > intent.amount
-    || intent.status === C.provider.succeeded && intent.amount_received !== order.totalAmount) {
+    || intent.status === C.provider.succeeded && received !== order.totalAmount) {
     throw new ServiceUnavailableException(C.failure.invalid);
   }
   let state: CustomerPaymentStatus['state'];

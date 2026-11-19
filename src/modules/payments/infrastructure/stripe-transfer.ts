@@ -1,3 +1,4 @@
+import {toStripeAmount, StripeAmountError} from './stripe-amount';
 import {CONNECT} from '../domain/connect-account';
 import {readStripeRefundSettlement} from './stripe-refund-settlement';
 import {REFUND_SETTLEMENT, refundSnapshotComplete} from '../domain/refund-settlement';
@@ -33,12 +34,13 @@ export async function executeStripeTransfer(stripe: StripeTransferClient, raw: T
     try { authorization = transferAuthorizationSchema.safeParse(await revalidate()); } catch { return {kind: C.result.retry, reason: C.reason.local}; }
     if (!authorization.success) return {kind: C.result.review, reason: C.reason.local};
     if (!authorization.data.allowed) return {kind: C.result.blocked, reason: authorization.data.reason};
-    const created = await stripe.transfers.create({amount: instruction.amount, currency: instruction.currency.toLowerCase(),
+    const created = await stripe.transfers.create({amount: toStripeAmount(instruction.amount, instruction.currency), currency: instruction.currency.toLowerCase(),
       destination: instruction.account.stripeAccountId,
       ...(instruction.funding === C.funding.charge ? {source_transaction: instruction.capture.chargeId} : {}),
       transfer_group: transferGroup(instruction), metadata: transferMetadata(instruction)},
     {...transferRequestOptions, idempotencyKey: C.provider.transferKeyPrefix + instruction.id});
     const snapshot = projectTransfer(created, instruction);
     return snapshot ? {kind: C.result.recorded, snapshot} : {kind: C.result.review, reason: C.reason.mismatch};
-  } catch { return {kind: C.result.retry, reason: C.reason.unavailable}; }
+  } catch (error) { return error instanceof StripeAmountError
+    ? {kind: C.result.review, reason: C.reason.invalid} : {kind: C.result.retry, reason: C.reason.unavailable}; }
 }

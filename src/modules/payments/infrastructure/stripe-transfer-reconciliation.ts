@@ -1,3 +1,4 @@
+import {fromStripeAmount} from './stripe-amount';
 import type Stripe from 'stripe';
 import {PAYMENT_TRANSFER as C, transferInstructionSchema, reversalInstructionSchema, transferSnapshotSchema, reversalSnapshotSchema, transferGroup, transferMetadata,
   type TransferInstruction, type ReversalInstruction, type TransferSnapshot, type ReversalSnapshot, type TransferRead, type TransferFailure} from '../domain/payment-transfer';
@@ -21,9 +22,9 @@ function metadataMatches(value: unknown, expected: Record<string, string>): bool
 }
 export function projectTransfer(value: unknown, instruction: TransferInstruction): TransferSnapshot | undefined {
   if (!providerRecord(value) || value.object !== C.provider.transferObject || !metadataMatches(value.metadata, transferMetadata(instruction))) return undefined;
-  const parsed = transferSnapshotSchema.safeParse({id: value.id, amount: value.amount, currency: providerCurrency(value.currency),
+  const parsed = transferSnapshotSchema.safeParse({id: value.id, amount: fromStripeAmount(value.amount, value.currency), currency: providerCurrency(value.currency),
     destination: value.destination, sourceChargeId: value.source_transaction, transferGroup: value.transfer_group,
-    liveMode: value.livemode, createdAt: providerInstant(value.created), reversedAmount: value.amount_reversed});
+    liveMode: value.livemode, createdAt: providerInstant(value.created), reversedAmount: fromStripeAmount(value.amount_reversed, value.currency)});
   if (!parsed.success) return undefined;
   const row = parsed.data;
   return row.amount === instruction.amount && row.currency === instruction.currency && row.destination === instruction.account.stripeAccountId
@@ -33,7 +34,7 @@ export function projectTransfer(value: unknown, instruction: TransferInstruction
 export function projectReversal(value: unknown, instruction: ReversalInstruction): ReversalSnapshot | undefined {
   const expected = {...transferMetadata(instruction.original), [C.provider.metadata.reversal]: instruction.id};
   if (!providerRecord(value) || value.object !== C.provider.reversalObject || !metadataMatches(value.metadata, expected)) return undefined;
-  const parsed = reversalSnapshotSchema.safeParse({id: value.id, transferId: value.transfer, amount: value.amount,
+  const parsed = reversalSnapshotSchema.safeParse({id: value.id, transferId: value.transfer, amount: fromStripeAmount(value.amount, value.currency),
     currency: providerCurrency(value.currency), createdAt: providerInstant(value.created)});
   return parsed.success && parsed.data.transferId === instruction.transferId && parsed.data.amount === instruction.amount
     && parsed.data.currency === instruction.original.currency ? parsed.data : undefined;

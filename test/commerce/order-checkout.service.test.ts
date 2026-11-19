@@ -8,6 +8,7 @@ import {PAYMENT_DISTRIBUTION} from '../../src/modules/payments/domain/payment-di
 import type {Cart} from '../../src/modules/cart/application/cart.service';
 import type {CartQuote} from '../../src/modules/cart/application/cart-quote.service';
 import type {PreparedCartSale} from '../../src/modules/orders/application/orders.service';
+import {STRIPE_COMMERCE} from '../../src/modules/payments/application/stripe-commerce';
 const OUTCOME = {customer: '88888888-8888-4888-8888-888888888888', order: '77777777-7777-4777-8777-777777777777',
   otherRequest: '66666666-6666-4666-8666-666666666666', invalid: 'not-a-request', extraField: 'unexpected'} as const;
 const input = {
@@ -40,6 +41,7 @@ function setup() {
   const payments = {
     createPaymentIntent: vi.fn().mockResolvedValue({ orderId: "order" }),
     assertNewSale: vi.fn(),
+    prepareChargeAmount: vi.fn(),
   };
   return {
     quotes,
@@ -78,11 +80,21 @@ function reviewSetup() {
   return {...context,cart,quote,sale};
 }
 describe('Checkout review', () => {
+  it('blocks unrepresentable currency precision before an order or payment is created', async () => {
+    const {service,payments,orders,quote} = reviewSetup();
+    payments.prepareChargeAmount.mockImplementation(() => {throw new ConflictException(STRIPE_COMMERCE.amountUnrepresentable);});
+    expect(await service.review(OUTCOME.customer,{country:REVIEW.country})).toEqual({quote,available:false});
+    await expect(service.checkout(OUTCOME.customer,{...input,quoteFingerprint:quote.fingerprint})).rejects.toMatchObject({response:STRIPE_COMMERCE.amountUnrepresentable});
+    expect(orders.createPendingFromCart).not.toHaveBeenCalled();
+    expect(payments.createPaymentIntent).not.toHaveBeenCalled();
+    expect(payments.assertNewSale).not.toHaveBeenCalled();
+  });
   it('returns the priced quote and explicit availability without creating an order or payment', async () => {
     const {service,quotes,orders,payments,quote,cart} = reviewSetup();
     expect(await service.review(OUTCOME.customer,{country:REVIEW.country})).toEqual({quote,available:true});
     expect(quotes.prepare).toHaveBeenCalledWith(OUTCOME.customer,REVIEW.country);
     expect(orders.prepareCartSale).toHaveBeenCalledWith(cart);
+    expect(payments.prepareChargeAmount).toHaveBeenCalledWith(quote.totalAmount, quote.currency);
     expect(payments.assertNewSale).toHaveBeenCalledWith(REVIEW.brand,REVIEW.amount,REVIEW.creatorAmount,[REVIEW.creator]);
     expect(orders.createPendingFromCart).not.toHaveBeenCalled();expect(payments.createPaymentIntent).not.toHaveBeenCalled();
   });

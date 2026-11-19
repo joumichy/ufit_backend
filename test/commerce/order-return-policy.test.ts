@@ -2,6 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {allocateReturnRefund, assertSameRefundAmounts, returnDeadline, returnedCommissionAmount, type ReturnOrderAmounts, type ReturnOrderItem, type ReturnQuantity} from '../../src/modules/orders/domain/return-refund-policy';
 import {createOrderReturnSchema, orderReturnActionSchema} from '../../src/modules/orders/domain/order-return.contract';
 import {shipmentActionSchema} from '../../src/modules/shipping/domain/shipping.contract';
+import {currencyMinorUnitDigits} from '../../src/shared/domain/currencies';
 
 const fixture = {
   first: '733e512c-d506-41e5-a1a3-826614104cef', second: '59949b72-7505-4eea-84b8-c9048ef2d392',
@@ -42,6 +43,24 @@ describe('Order return contracts', () => {
   });
 });
 describe('Frozen return amounts', () => {
+  it('refunds successive MGA items with indivisible tax entirely in whole ariary', () => {
+    expect(currencyMinorUnitDigits('MGA')).toBe(0);
+    const amounts = {subtotalAmount: 6, taxAmount: 1, shippingAmount: 2, totalAmount: 9};
+    const items = [{id: fixture.first, quantity: 2, unitPrice: 3, totalPrice: 6}];
+    const selected = [{orderItemId: fixture.first, quantity: 1}];
+    const first = allocateReturnRefund(amounts, items, [], selected);
+    const last = allocateReturnRefund(amounts, items, selected, selected);
+    expect(first).toMatchObject({merchandiseAmount: 3, taxAmount: 0, shippingAmount: 0, totalAmount: 3, completesOrder: false});
+    expect(last).toMatchObject({merchandiseAmount: 3, taxAmount: 1, shippingAmount: 2, totalAmount: 6, completesOrder: true});
+    for (const refund of [first, last]) {
+      for (const value of [refund.merchandiseAmount, refund.taxAmount, refund.shippingAmount, refund.totalAmount]) {
+        expect(Number.isSafeInteger(value)).toBe(true);
+      }
+    }
+    expect(first.totalAmount + last.totalAmount).toBe(amounts.totalAmount);
+    expect(first.taxAmount + last.taxAmount).toBe(amounts.taxAmount);
+    expect(first.shippingAmount + last.shippingAmount).toBe(amounts.shippingAmount);
+  });
   it('refunds integer units, allocates tax cumulatively and includes shipping only on the final units', () => {
     const {amounts, items} = order();
     const first = allocateReturnRefund(amounts, items, [], [{orderItemId: fixture.first, quantity: 1}]);

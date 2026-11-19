@@ -1,3 +1,4 @@
+import {fromStripeAmount} from './stripe-amount';
 import type {StripePaymentsClient} from '../application/payments.service';
 import {STRIPE_ORDER_METADATA} from '../application/stripe-commerce';
 import {REFUND_SETTLEMENT as C, refundSourceSchema, refundSnapshotSchema, refundBalanceSchema, type RefundSource, type RefundReadResult} from '../domain/refund-settlement';
@@ -18,10 +19,10 @@ function validCharge(charge: Charge, source: RefundSource): boolean {
   const capture = source.capture, balance = charge.balance_transaction;
   return charge.id === capture.chargeId && charge.payment_intent === source.paymentIntentId && charge.livemode === capture.liveMode
     && charge.metadata?.[STRIPE_ORDER_METADATA.orderId] === source.orderId && charge.paid && charge.captured && charge.status === C.provider.chargeSucceeded
-    && charge.amount === capture.chargeAmount && charge.amount_captured === capture.chargeAmount && currency(charge.currency) === capture.chargeCurrency
+    && fromStripeAmount(charge.amount, charge.currency) === capture.chargeAmount && fromStripeAmount(charge.amount_captured, charge.currency) === capture.chargeAmount && currency(charge.currency) === capture.chargeCurrency
     && instant(charge.created) === capture.capturedAt && balance !== null && !text(balance)
     && balance.id === capture.balanceTransactionId && balance.source === capture.chargeId && balance.type === PAYMENT_SETTLEMENT.provider.charge
-    && balance.amount === capture.settlementAmount && balance.fee === capture.feeAmount && balance.net === capture.netAmount
+    && fromStripeAmount(balance.amount, balance.currency) === capture.settlementAmount && fromStripeAmount(balance.fee, balance.currency) === capture.feeAmount && fromStripeAmount(balance.net, balance.currency) === capture.netAmount
     && currency(balance.currency) === capture.settlementCurrency && instant(balance.available_on) === capture.availableAt;
 }
 export async function readStripeRefundSettlement(stripe: RefundSettlementClient, raw: RefundSource, liveMode: boolean): Promise<RefundReadResult> {
@@ -46,12 +47,12 @@ export async function readStripeRefundSettlement(stripe: RefundSettlementClient,
         const balances = [refund.balance_transaction, failure].map(value => {
           if (value === null) return null;
           if (!value || text(value) || value.source !== refund.id) return undefined;
-          const result = refundBalanceSchema.safeParse({id: value.id, refundId: refund.id, kind: value.type, amount: value.amount, currency: currency(value.currency),
-            feeAmount: value.fee, netAmount: value.net, createdAt: instant(value.created), availableAt: instant(value.available_on)});
+          const result = refundBalanceSchema.safeParse({id: value.id, refundId: refund.id, kind: value.type, amount: fromStripeAmount(value.amount, value.currency), currency: currency(value.currency),
+            feeAmount: fromStripeAmount(value.fee, value.currency), netAmount: fromStripeAmount(value.net, value.currency), createdAt: instant(value.created), availableAt: instant(value.available_on)});
           return result.success ? result.data : undefined;
         });
         if (balances.some(value => value === undefined)) return {kind: C.result.review, reason: C.failure.invalid};
-        items.push({refundId: refund.id, amount: refund.amount, currency: currency(refund.currency), status: refund.status,
+        items.push({refundId: refund.id, amount: fromStripeAmount(refund.amount, refund.currency), currency: currency(refund.currency), status: refund.status,
           createdAt: instant(refund.created), debit: balances[C.limits.zero], failure: balances[C.limits.one]});
       }
       const last = page.data.at(-C.limits.one)?.id;
@@ -62,7 +63,7 @@ export async function readStripeRefundSettlement(stripe: RefundSettlementClient,
     const after = await stripe.charges.retrieve(source.capture.chargeId, {expand: [...C.provider.chargeExpansion]}, options);
     if (!validCharge(after, source)) return {kind: C.result.review, reason: C.failure.changed};
     if (after.amount_refunded !== before.amount_refunded || after.disputed !== before.disputed) return {kind: C.result.retry, reason: C.failure.changed};
-    const snapshot = refundSnapshotSchema.safeParse({source, observedAt: new Date().toISOString(), amountRefunded: after.amount_refunded,
+    const snapshot = refundSnapshotSchema.safeParse({source, observedAt: new Date().toISOString(), amountRefunded: fromStripeAmount(after.amount_refunded, after.currency),
       disputed: after.disputed, items});
     return snapshot.success ? {kind: C.result.observed, snapshot: snapshot.data} : {kind: C.result.review, reason: C.failure.invalid};
   } catch (error) {
