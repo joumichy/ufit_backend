@@ -77,8 +77,9 @@ export class OrderReturnsService {
     const fingerprint = returnFingerprint(input);
     return this.returns.transaction(async repository => {
       const scope = {kind: RETURN_ACTOR.customer, orderId};
-      await this.authorize(repository, actorId, scope, true);
+      await this.authorize(repository, actorId, scope, false);
       const order = this.requireOrder(await repository.order(orderId, true), actorId, scope);
+      await this.authorize(repository, actorId, scope, true);
       const existing = await repository.findRequest(orderId, input.requestId);
       if (existing) {
         if (existing.requestFingerprint !== fingerprint) throw new ConflictException(ORDER_RETURN.failure.reused);
@@ -100,8 +101,10 @@ export class OrderReturnsService {
     const parsed = orderReturnActionSchema.safeParse(raw);
     if (!parsed.success) throw new BadRequestException(ORDER_RETURN.failure.input);
     return this.returns.transaction(async repository => {
-      await this.authorize(repository, actorId, scope, true);
+      // Match financial workers: order first, then identity/profile locks. Recheck access before any write.
+      await this.authorize(repository, actorId, scope, false);
       const {stored, order} = await this.loadScoped(repository, actorId, scope, id, true);
+      await this.authorize(repository, actorId, scope, true);
       if (parsed.data.action === RETURN_ACTION.retryRefund && stored.refund?.providerStatus !== RETURN_REFUND.providerStatus.cancelled) throw new ConflictException(RETURN_REFUND.failure.originalMethod);
       const changed = applyReturnAction(stored.document, scope.kind, parsed.data, new Date().toISOString(), stored.refund?.providerStatus ?? null);
       if (parsed.data.action === RETURN_ACTION.receive || parsed.data.action === RETURN_ACTION.retryRefund) {
