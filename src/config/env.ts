@@ -34,6 +34,12 @@ const optionalNonEmptyString = z.preprocess(
   z.string().min(1).optional()
 );
 
+const DEVELOPMENT_CONFIGURATION = {
+  environment: 'development',
+  fields: {login: 'UFIT_DEVELOPMENT_LOGIN_REGISTRY', notifications: 'UFIT_DEVELOPMENT_NOTIFICATIONS_CONFIG'},
+  issue: 'custom',
+  failure: 'Development configuration is only available in development'
+} as const;
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -42,6 +48,8 @@ const envSchema = z.object({
   API_ORIGIN: z.string().url().optional(),
   MEDIA_PUBLIC_API_ORIGIN: z.string().url().optional(),
   WEB_ORIGIN: z.string().url().optional(),
+  [DEVELOPMENT_CONFIGURATION.fields.login]: optionalNonEmptyString,
+  [DEVELOPMENT_CONFIGURATION.fields.notifications]: optionalNonEmptyString,
   UFIT_DB_SCHEMA: z
     .string()
     .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, 'UFIT_DB_SCHEMA must be a valid PostgreSQL identifier')
@@ -71,6 +79,13 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: optionalNonEmptyString,
   STRIPE_CHECKOUT_SUCCESS_URL: optionalNonEmptyString,
   STRIPE_CHECKOUT_CANCEL_URL: optionalNonEmptyString
+}).superRefine((value, context) => {
+  if (value.NODE_ENV === DEVELOPMENT_CONFIGURATION.environment) return;
+  for (const field of Object.values(DEVELOPMENT_CONFIGURATION.fields)) {
+    if (value[field] !== undefined) {
+      context.addIssue({code: DEVELOPMENT_CONFIGURATION.issue, path: [field], message: DEVELOPMENT_CONFIGURATION.failure});
+    }
+  }
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

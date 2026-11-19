@@ -1,6 +1,6 @@
 import {BadRequestException,HttpException,HttpStatus,Inject,Injectable,InternalServerErrorException,NotFoundException} from '@nestjs/common';
 import {randomUUID} from 'node:crypto';
-import {and,asc,eq,inArray,lte,or} from 'drizzle-orm';
+import {and,asc,eq,gte,inArray,lte,or} from 'drizzle-orm';
 import {alias} from 'drizzle-orm/pg-core';
 import {DatabaseService} from '../../../shared/infrastructure/database/database.service';
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
@@ -16,6 +16,7 @@ import {NOTIFICATION_PREFERENCES as PREF} from '../domain/notification-preferenc
 import {PUSH_DELIVERY as PUSH,pushDeliverySchema,type PushEnvironment,type PushTransportResult} from '../domain/push-delivery';
 import {NOTIFICATION_PUSH as N,reservedPushSchema,startedPushSchema,pushTransportResultSchema,type ReservedNotificationPush,type StartedNotificationPush} from '../domain/notification-push.contract';
 import {DrizzleNotificationReader} from './drizzle-notification-reader';
+import {notificationDeliveryScopeSchema,type NotificationDeliveryScope} from '../domain/notification-delivery-scope';
 import {DrizzleNotificationInstallationsRepository,lockNotificationInstallation} from './drizzle-notification-installations.repository';
 
 const due=alias(deliveries,N.claimAlias);
@@ -46,15 +47,19 @@ export class DrizzleNotificationPushesRepository {
     return rows.length;
   }
 
-  async claim(environment:PushEnvironment,now=new Date()):Promise<ReservedNotificationPush[]> {
+  async claim(environment:PushEnvironment,now=new Date(),scope?:NotificationDeliveryScope):Promise<ReservedNotificationPush[]> {
     if(!pushDeliverySchema.shape.environment.safeParse(environment).success||!validTime(now))throw invalid();
+    const selectedScope=scope===undefined?undefined:notificationDeliveryScopeSchema.parse(scope);
     return this.database.db.transaction(async db=>{
-      const rows=await db.select().from(due).where(and(eq(due.environment,environment),or(
+      const rows=await db.select({delivery:due}).from(due).innerJoin(notifications,eq(notifications.id,due.notificationId))
+        .where(and(eq(due.environment,environment),
+        selectedScope?eq(notifications.recipientUserId,selectedScope.recipientUserId):undefined,
+        selectedScope?gte(notifications.createdAt,selectedScope.startsAt):undefined,or(
         and(inArray(due.status,[N.status.pending,N.status.retry]),lte(due.nextAttemptAt,now)),
         and(inArray(due.status,[N.status.reserved,N.status.sending]),lte(due.leaseUntil,now)))))
         .orderBy(asc(due.nextAttemptAt),asc(due.id)).limit(N.limits.batch).for(N.lock,{of:due,skipLocked:true});
       const reserved:ReservedNotificationPush[]=[];
-      for(const row of rows){
+      for(const {delivery:row} of rows){
         if(row.status===N.status.sending){
           await db.update(deliveries).set({...releasing,status:N.status.uncertain,lastFailure:N.failure.lease,updatedAt:now}).where(eq(deliveries.id,row.id));continue;
         }

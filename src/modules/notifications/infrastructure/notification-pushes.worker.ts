@@ -4,6 +4,8 @@ import {PUSH_DELIVERY as PUSH,type PushEnvironment,type PushTransportResult} fro
 import {NOTIFICATION_PUSH as N} from '../domain/notification-push.contract';
 import {DrizzleNotificationPushesRepository} from './drizzle-notification-pushes.repository';
 import {ApnsPushTransport} from './apns-push.transport';
+import type {NotificationDeliveryScope} from '../domain/notification-delivery-scope';
+import {developmentNotificationsConfiguration,developmentApnsConfiguration} from './development-notifications.configuration';
 
 @Injectable()
 export class NotificationPushesWorker implements OnApplicationBootstrap,OnModuleDestroy {
@@ -12,8 +14,17 @@ export class NotificationPushesWorker implements OnApplicationBootstrap,OnModule
   private stopped=false;
   private readonly environment?:PushEnvironment;
   private readonly transport?:ApnsPushTransport;
+  private readonly scope?:NotificationDeliveryScope;
   constructor(@Inject(DrizzleNotificationPushesRepository) private readonly pushes:Pick<DrizzleNotificationPushesRepository,'claim'|'start'|'finish'>) {
     const env=getEnv();
+    const development=developmentNotificationsConfiguration(env);
+    if(development){
+      if(!development.pushEnabled)return;
+      const configuration=developmentApnsConfiguration(development.appleRegistryPath);
+      this.scope=development.scope;this.environment=configuration.environment;
+      this.transport=new ApnsPushTransport(configuration);
+      return;
+    }
     if(!env.NOTIFICATION_PUSH_ENABLED)return;
     if(!env.APNS_ENVIRONMENT)throw new Error(PUSH.failure.configuration);
     this.environment=env.APNS_ENVIRONMENT;
@@ -31,7 +42,7 @@ export class NotificationPushesWorker implements OnApplicationBootstrap,OnModule
   }
   async deliverDue():Promise<void> {
     if(!this.transport||!this.environment||this.stopped)return;
-    const reservations=await this.pushes.claim(this.environment);
+    const reservations=this.scope?await this.pushes.claim(this.environment,new Date(),this.scope):await this.pushes.claim(this.environment);
     await Promise.allSettled(reservations.map(async reservation=>{
       if(this.stopped)return;
       const attempt=await this.pushes.start(reservation);

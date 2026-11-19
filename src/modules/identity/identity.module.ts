@@ -36,12 +36,14 @@ import {AccountDeletionsWorker} from './infrastructure/account-deletions.worker'
 import {SupabaseImageStorage} from '../media/infrastructure/supabase-image.storage';
 import {PRODUCT_MEDIA} from '../media/domain/product-media.contract';
 import {OUTFIT_MEDIA} from '../media/domain/outfit-media.contract';
+import {DevelopmentLoginController} from './presentation/controllers/development-login.controller';
+import {DevelopmentLoginService} from './application/development-login.service';
 
 @Module({
   imports: [DatabaseModule],
-  controllers: [MeController, UserAdministrationController,ProfileAdministrationController,AccountDeletionsController,StylePreferencesController,ShippingAddressesController],
+  controllers: [MeController, UserAdministrationController,ProfileAdministrationController,AccountDeletionsController,StylePreferencesController,ShippingAddressesController,DevelopmentLoginController],
   providers: [
-    IdentityService, UserAdministrationService,DrizzleStylePreferencesRepository,
+    IdentityService, UserAdministrationService,DrizzleStylePreferencesRepository,DevelopmentLoginService,
     ShippingAddressesService,
     {provide: SHIPPING_ADDRESSES.token, useClass: DrizzleShippingAddressesRepository},
     AccountDeletionService,DrizzleAccountDeletionRepository,DrizzleAccountDeletionQueue,AccountDeletionsWorker,

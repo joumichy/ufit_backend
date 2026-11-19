@@ -56,6 +56,23 @@ autre environnement. Les variables explicitement fournies par le processus de
 lancement ont priorité. En déploiement, l’environnement peut être fourni sans
 fichier. Ne jamais afficher ou committer les secrets.
 
+En développement uniquement, `UFIT_DEVELOPMENT_LOGIN_REGISTRY` peut désigner
+le registre privé du compte de développement. L’endpoint
+`GET /auth/development-login/test` résout cet identifiant vers son adresse Auth
+du même projet, sans retourner mot de passe ni session. Le client Debug utilise
+ensuite l’authentification Supabase normale ; le client Release conserve la
+connexion par e-mail. Le registre doit être prêt et correspondre exactement à
+`SUPABASE_URL`. Un registre absent laisse la route indisponible.
+
+`UFIT_DEVELOPMENT_NOTIFICATIONS_CONFIG` peut désigner une configuration privée
+de livraison limitée à un destinataire et aux événements créés depuis une date
+explicite. Elle utilise Mailpit sur loopback et APNs sandbox, avec les deux
+flags globaux e-mail/push désactivés. Les canaux sont activés séparément dans
+ce fichier ; aucun rattrapage global de notifications n’est nécessaire. Ces
+deux chemins se fournissent au processus de développement, sans modifier le
+profil partagé par les tests. Ils sont refusés en environnement test/production.
+Les registres privés et clés APNs restent hors dépôt et hors image Docker.
+
 Le profil local sélectionné est actuellement `code/.env`, ignoré par Git. Il doit
 être provisionné par le mécanisme privé du projet ; ce README ne contient aucune
 valeur de connexion ou clé. Configurer notamment `SUPABASE_URL`,

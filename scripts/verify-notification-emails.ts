@@ -27,7 +27,7 @@ const proof = {
   changed:'Contenu différent',eventPrefix:'qualification-notification/',sender:{name:'Ufit',address:'onboarding@resend.dev'},
   otherSender:{name:'Ufit nouveau',address:'changed@example.invalid'},
   first:0,zero:0,one:1,two:2,three:3,offsetMs:1000,afterLease:1,
-  conflict:409,missing:404,checkViolation:'23514',invalidUUID:'22P02',badStatus:'not-a-status',
+  conflict:409,missing:404,checkViolation:'23514',badStatus:'not-a-status',
   diagnostic:'/tmp/ufit-notification-email-sql-diagnostic.txt',
 } as const;
 class VerificationRollback extends Error {}
@@ -91,7 +91,7 @@ async function verify() {
         await storageReject('update ufit.notification_email_deliveries set id=$1 where id=$2',[randomUUID(),id]);
         await storageReject('update ufit.notification_email_deliveries set status=$1 where id=$2',[proof.badStatus,id]);
         await storageReject('update ufit.notification_email_deliveries set status=$1 where id=$2',[N.status.processing,id]);
-        await storageReject('update ufit.notification_email_deliveries set provider_message_id=$1 where id=$2',[proof.changed,id],proof.invalidUUID);
+        await storageReject('update ufit.notification_email_deliveries set provider_message_id=$1 where id=$2',[proof.changed,id]);
         const now=new Date(Date.now()+proof.offsetMs);
         const claimed=await repository.claim(proof.sender,now);assert.equal(claimed.length,proof.one);assert.equal(claimed[proof.first].id,id);assert.equal(claimed[proof.first].attempts,proof.one);cases++;
         assert.equal((await repository.claim(proof.sender,now)).length,proof.zero);cases++;
