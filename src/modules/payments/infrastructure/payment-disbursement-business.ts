@@ -10,6 +10,7 @@ import {parseStoredRate, calculateCommissionAmount} from '../../commissions/doma
 import {allocateReturnRefund, assertSameRefundAmounts, returnedCommissionAmount, type ReturnQuantity} from '../../orders/domain/return-refund-policy';
 import {PAYMENT_DISBURSEMENT as C, type DisbursementBasis} from '../domain/payment-disbursement';
 import {PAYMENT_ALLOCATION, type StoredAllocationPlan} from '../domain/payment-allocation';
+import {hasValidNonCreatorOutfitSources} from './order-item-outfit-attribution';
 
 type Order = typeof orders.$inferSelect;
 function invalid(): never { throw new ConflictException(C.reason.sources); }
@@ -24,6 +25,7 @@ export async function readDisbursementBusiness(database: DatabaseSession, order:
     || policy.policy.feeBearer !== plan.feeBearer) invalid();
   const items = await database.db.select().from(orderItems).where(eq(orderItems.orderId, order.id)).orderBy(asc(orderItems.id));
   if (!items.length) invalid();
+  if (!await hasValidNonCreatorOutfitSources(database, order.brandId, items)) invalid();
   const originals = await database.db.select().from(commissions).where(inArray(commissions.orderItemId, items.map(item => item.id)));
   let originalSubtotal = BigInt(C.zero);
   for (const item of items) {
@@ -31,7 +33,7 @@ export async function readDisbursementBusiness(database: DatabaseSession, order:
       || BigInt(item.unitPrice) * BigInt(item.quantity) !== BigInt(item.totalPrice)) invalid();
     originalSubtotal += BigInt(item.totalPrice);
     const entries = originals.filter(row => row.orderItemId === item.id), rate = parseStoredRate(item.commissionRate);
-    if (item.sourceCreatorId === null && item.sourceOutfitId === null) {
+    if (item.sourceCreatorId === null) {
       if (entries.length !== C.zero || rate !== C.zero) invalid();
     } else {
       const [entry] = entries;

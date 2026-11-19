@@ -1,12 +1,14 @@
 import {eq, inArray} from 'drizzle-orm';
 import {z} from 'zod';
 import type {DatabaseSession} from '../../../shared/infrastructure/database/database-session';
-import {orders, payments, orderItems, commissions, orderDistributionTerms, paymentDistributionPolicies, paymentSettlements} from '../../../shared/infrastructure/database/schema';
-import {ORDER_PAYMENT, ORDER_STATUS} from '../../orders/domain/order-lifecycle';
+import {orders, payments, orderItems, commissions, orderDistributionTerms, paymentDistributionPolicies, paymentSettlements,
+  orderCancellations} from '../../../shared/infrastructure/database/schema';
+import {CANCELLATION, ORDER_PAYMENT, ORDER_STATUS} from '../../orders/domain/order-lifecycle';
 import {COMMISSION_RULE, calculateCommissionAmount, parseStoredRate} from '../../commissions/domain/commission-rule.contract';
 import {DistributionBudgetExceeded} from '../domain/payment-distribution';
 import {captureReceiptSchema} from '../domain/payment-settlement';
 import {PAYMENT_ALLOCATION as C, allocationBasisSchema, calculatePaymentAllocation, type AllocationPlan} from '../domain/payment-allocation';
+import {hasValidNonCreatorOutfitSources} from './order-item-outfit-attribution';
 
 export type AllocationSource = {orderId: string; plan: AllocationPlan; blockReason: null}
   | {orderId: string; plan: null; blockReason: typeof C.block[keyof typeof C.block]};
@@ -24,20 +26,22 @@ export async function readPaymentAllocationSource(database: DatabaseSession, pay
   if (!terms) return blocked(C.block.terms);
   const [receipt] = await database.db.select().from(paymentSettlements).where(eq(paymentSettlements.paymentId, paymentId));
   if (!receipt) return blocked(C.block.settlement);
-  if (!fulfilledStates.includes(order.status)) return blocked(C.block.fulfillment);
+  if (!fulfilledStates.includes(order.status) && order.status !== ORDER_STATUS.cancelled) return blocked(C.block.fulfillment);
   const items = await database.db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
   const recorded = items.length ? await database.db.select().from(commissions).where(inArray(commissions.orderItemId, items.map(item => item.id))) : [];
   if (payment.provider !== ORDER_PAYMENT.provider || !payment.providerPaymentIntentId || payment.providerPaymentIntentId !== order.stripePaymentIntentId
     || !Object.values(ORDER_PAYMENT.status).some(status => status === payment.status)
+    || receipt.paymentId !== payment.id
     || payment.amount !== order.totalAmount || payment.currency !== order.currency
     || terms.policy.brandId !== order.brandId || !terms.policy.active || !items.length) return blocked(C.block.basis);
+  if (!await hasValidNonCreatorOutfitSources(database, order.brandId, items)) return blocked(C.block.basis);
   // Only parse/calculation failures become an invalid basis. Database outages must propagate.
   try {
     const creatorCommissions: Array<{creatorId: string; commissionId: string; amount: number}> = []; let merchandise = BigInt(C.limit.zero), expectedEntries = C.limit.zero;
     for (const item of items) {
       merchandise += BigInt(item.totalPrice);
       const bps = parseStoredRate(item.commissionRate), entries = recorded.filter(row => row.orderItemId === item.id);
-      if (item.sourceCreatorId === null && item.sourceOutfitId === null) {
+      if (item.sourceCreatorId === null) {
         if (bps !== C.limit.zero || entries.length !== C.limit.zero) return blocked(C.block.basis);
         continue;
       }
@@ -56,6 +60,16 @@ export async function readPaymentAllocationSource(database: DatabaseSession, pay
       subtotal: order.subtotalAmount, shipping: order.shippingAmount, tax: order.taxAmount, total: order.totalAmount, currency: order.currency,
       creatorCommissions,
       receipt: captureReceiptSchema.parse({...capture, capturedAt: receipt.capturedAt.toISOString(), availableAt: receipt.availableAt.toISOString()})});
+    if (order.status === ORDER_STATUS.cancelled) {
+      // Cancellation retains this order status after refund; reconstruct only a confirmed capture with completed compensation.
+      const [cancellation] = await database.db.select({status: orderCancellations.status, effectsApplied: orderCancellations.effectsApplied,
+        outcome: orderCancellations.paymentOutcome}).from(orderCancellations).where(eq(orderCancellations.orderId, order.id));
+      const stripeRefunded = cancellation?.outcome === CANCELLATION.outcome.refunded && payment.status === ORDER_PAYMENT.status.refunded;
+      const externallyRefunded = cancellation?.outcome === CANCELLATION.outcome.refundedExternally && payment.status === ORDER_PAYMENT.status.succeeded;
+      if (cancellation?.status !== CANCELLATION.status.succeeded || !cancellation.effectsApplied || (!stripeRefunded && !externallyRefunded)) {
+        return blocked(C.block.fulfillment);
+      }
+    }
     return {orderId: order.id, plan: calculatePaymentAllocation(basis), blockReason: null};
   } catch (error) {
     if (error instanceof z.ZodError || error instanceof DistributionBudgetExceeded || error instanceof RangeError
